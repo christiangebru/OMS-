@@ -1,0 +1,15 @@
+# Render Blueprint — deploy the API as a Web Service
+# Set environment variables in the Render dashboard:
+# MONGODB_URI, JWT_SECRET, API_PUBLIC_URL (your Render service URL), CORS_ORIGIN (Vercel URL)
+
+services:
+  - type: web
+    name: clothing-order-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
