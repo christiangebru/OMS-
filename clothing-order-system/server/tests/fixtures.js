@@ -170,7 +170,7 @@ export async function createStaff({
   });
   if (stages.length) {
     await prisma.staffSkill.createMany({
-      data: stages.map((stage) => ({ staffId: staff.id, stage })),
+      data: stages.map((stage) => ({ staffId: staff.id, stage, level: skillLevel })),
       skipDuplicates: true
     });
   }

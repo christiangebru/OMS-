@@ -125,6 +125,8 @@ describe("GET /api/production/suggest-assignment", () => {
     expect(ours[0].scores.rankedScore).toBeGreaterThan(ours[1].scores.rankedScore);
     expect(String(ours[0].staff._id)).toBe(String(high._id));
     expect(String(ours[1].staff._id)).toBe(String(low._id));
+    expect(ours[0].summary).toMatch(/Skill 5\/5/);
+    expect(ours[0].staff.skillLevel).toBe(5);
   });
 
   it("active StaffAssignment lowers availabilityScore / rank", async () => {

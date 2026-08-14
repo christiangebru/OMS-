@@ -14,6 +14,9 @@ export function DistributionPage() {
   const [stage, setStage] = useState<ProductionStage | "ALL">("ALL");
   const [busy, setBusy] = useState<string | null>(null);
   const [manual, setManual] = useState<Record<string, string>>({});
+  const [lane, setLane] = useState<
+    "ALL" | "waiting" | "assigned" | "distributed" | "received" | "in_progress"
+  >("ALL");
 
   async function load() {
     try {
@@ -29,9 +32,11 @@ export function DistributionPage() {
     load();
   }, []);
 
-  const items = (board?.items || []).filter((i) =>
-    stage === "ALL" ? true : i.nextStage === stage || i.openStage === stage
-  ) as Array<QueueItem & { openStage?: string | null }>;
+  const items = (board?.items || []).filter((i) => {
+    const stageOk = stage === "ALL" ? true : i.nextStage === stage || i.openStage === stage;
+    const laneOk = lane === "ALL" ? true : i.boardStatus === lane;
+    return stageOk && laneOk;
+  }) as Array<QueueItem & { openStage?: string | null }>;
 
   async function assign(item: QueueItem, ranking: StaffRanking, followed: boolean) {
     setBusy(item.itemId);
@@ -86,6 +91,21 @@ export function DistributionPage() {
     }
   }
 
+  async function receive(item: QueueItem) {
+    if (!item.assignment?._id) return;
+    setBusy(item.itemId);
+    try {
+      await apiJson(`/api/production/assignments/${item.assignment._id}/receive`, {
+        method: "POST"
+      });
+      await load();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Receive failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const waiting = board?.summary.itemsWaiting ?? 0;
 
   return (
@@ -111,6 +131,33 @@ export function DistributionPage() {
             <Stat label="Assigned" value={board.summary.itemsAssigned} />
             <Stat label="Handed over" value={board.summary.itemsDistributed} />
             <Stat label="In progress" value={board.summary.itemsInProgress} />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ["ALL", "All lanes"],
+                ["waiting", "Waiting"],
+                ["assigned", "Assigned"],
+                ["distributed", "Handed over"],
+                ["received", "Received"],
+                ["in_progress", "In progress"]
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setLane(value)}
+                className={clsx(
+                  "rounded-control border px-3 py-1.5 text-xs font-medium",
+                  lane === value
+                    ? "border-accent bg-accent-soft text-accent"
+                    : "border-line bg-surface text-ink-muted hover:text-ink"
+                )}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -154,7 +201,11 @@ export function DistributionPage() {
                               {item.orderId}
                             </Link>
                           </p>
-                          <p className="font-mono text-[11px] text-ink-faint">{item.barcodeValue}</p>
+                          <p className="font-mono text-[11px] text-ink-faint">
+                            <Link className="hover:text-accent" to={`/scan?barcode=${encodeURIComponent(item.barcodeValue)}`}>
+                              {item.barcodeValue}
+                            </Link>
+                          </p>
                         </td>
                         <td className="capitalize">{stageLabel(item.nextStage)}</td>
                         <td>
@@ -174,8 +225,12 @@ export function DistributionPage() {
                           {item.recommended ? (
                             <div>
                               <p className="font-medium text-ink">{item.recommended.staff.name}</p>
+                              <p className="mt-0.5 text-[11px] text-ink-muted">
+                                {item.recommended.summary ||
+                                  `Skill ${item.recommended.staff.skillLevel}/5 · ${item.recommended.staff.activeAssignmentCount} active`}
+                              </p>
                               <ul className="mt-1 space-y-0.5 text-[11px]">
-                                {(item.recommended.reasons || []).slice(0, 4).map((r) => (
+                                {(item.recommended.reasons || []).slice(0, 3).map((r) => (
                                   <li key={r.code + r.label} className={r.ok ? "text-accent" : "text-ink-muted"}>
                                     {r.ok ? "✓" : "–"} {r.label}
                                   </li>
@@ -220,6 +275,15 @@ export function DistributionPage() {
                                 onClick={() => distribute(item)}
                               >
                                 Mark handed over
+                              </Button>
+                            )}
+                            {item.boardStatus === "distributed" && (
+                              <Button
+                                size="sm"
+                                disabled={busy === item.itemId}
+                                onClick={() => receive(item)}
+                              >
+                                Confirm received
                               </Button>
                             )}
                             {item.boardStatus === "waiting" && (

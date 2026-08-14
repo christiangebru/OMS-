@@ -33,7 +33,7 @@ function priorityScore(priority) {
   return 0.25;
 }
 
-function buildReason({ staff, skillMatch, priority, daysLeft }) {
+function buildReason({ staff, skillMatch, stageSkill, priority, daysLeft }) {
   const reasons = [];
   if (staff.status === "AVAILABLE") {
     reasons.push({ ok: true, code: "available", label: "Available" });
@@ -46,11 +46,11 @@ function buildReason({ staff, skillMatch, priority, daysLeft }) {
   }
 
   if (skillMatch >= 0.75) {
-    reasons.push({ ok: true, code: "skill", label: "Required skill + good skill match" });
+    reasons.push({ ok: true, code: "skill", label: `Stage skill ${stageSkill}/5 — strong match` });
   } else if (skillMatch >= 0.5) {
-    reasons.push({ ok: true, code: "skill", label: "Has required skill" });
+    reasons.push({ ok: true, code: "skill", label: `Stage skill ${stageSkill}/5` });
   } else {
-    reasons.push({ ok: false, code: "skill", label: "Skill gap for this difficulty" });
+    reasons.push({ ok: false, code: "skill", label: `Skill ${stageSkill}/5 — gap for this difficulty` });
   }
 
   const active = staff._activeCount || 0;
@@ -80,9 +80,24 @@ function buildReason({ staff, skillMatch, priority, daysLeft }) {
     reasons.push({ ok: true, code: "priority", label: `${priority} order` });
   }
 
+  const dueCapacity =
+    daysLeft != null && daysLeft < 0
+      ? "Overdue — needs fastest available worker"
+      : active <= 2 && staff.status === "AVAILABLE"
+        ? "Can take this deadline"
+        : "Workload may delay this deadline";
+
+  const summary = [
+    `Skill ${stageSkill}/5`,
+    `${active} active`,
+    staff.status === "AVAILABLE" ? "Available" : staff.status.replace("_", " ").toLowerCase(),
+    dueCapacity
+  ].join(" · ");
+
   return {
     reason: reasons.map((r) => r.label).join(" · "),
-    reasons
+    reasons,
+    summary
   };
 }
 
@@ -98,9 +113,10 @@ export async function rankStaffForAssignment(orderItemId, stage) {
 
   const skilled = await prisma.staffSkill.findMany({
     where: { stage },
-    select: { staffId: true }
+    select: { staffId: true, level: true }
   });
   const staffIds = [...new Set(skilled.map((sk) => sk.staffId))];
+  const stageSkillByStaff = new Map(skilled.map((sk) => [sk.staffId, sk.level || 3]));
   if (!staffIds.length) return { item, order, rankings: [] };
 
   const staffList = await prisma.staff.findMany({
@@ -132,7 +148,8 @@ export async function rankStaffForAssignment(orderItemId, stage) {
     .map((staff) => {
       const active = countMap.get(staff.id) || 0;
       staff._activeCount = active;
-      const skill = skillMatchScore(item.difficultyLevel, staff.skillLevel);
+      const stageSkill = stageSkillByStaff.get(staff.id) || staff.skillLevel || 3;
+      const skill = skillMatchScore(item.difficultyLevel, stageSkill);
       const avail = availabilityScore(active);
       const rankedScore =
         w.urgency * u + w.skillMatch * skill + w.availability * avail + w.priority * p;
@@ -140,6 +157,7 @@ export async function rankStaffForAssignment(orderItemId, stage) {
       const built = buildReason({
         staff,
         skillMatch: skill,
+        stageSkill,
         priority: order.priority,
         daysLeft
       });
@@ -151,7 +169,7 @@ export async function rankStaffForAssignment(orderItemId, stage) {
           phone: staff.phone,
           role: staff.role,
           status: staff.status,
-          skillLevel: staff.skillLevel,
+          skillLevel: stageSkill,
           activeAssignmentCount: active
         },
         scores: {
@@ -162,7 +180,8 @@ export async function rankStaffForAssignment(orderItemId, stage) {
           rankedScore: Number(rankedScore.toFixed(4))
         },
         reason: built.reason,
-        reasons: built.reasons
+        reasons: built.reasons,
+        summary: built.summary
       };
     })
     .sort((a, b) => b.scores.rankedScore - a.scores.rankedScore);
