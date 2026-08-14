@@ -50,6 +50,14 @@ router.get("/:id/timeline", param("id").isMongoId(), async (req, res) => {
   const staffMap = new Map(staffDocs.map((st) => [st.id, st]));
 
   const { stageSequence } = await resolveStageSequence(item.clothingType);
+  const order = await prisma.order.findUnique({
+    where: { id: item.order },
+    select: { requiredCompletionDate: true }
+  });
+  const openAssignment = await prisma.staffAssignment.findFirst({
+    where: { orderItemId: item.id, completedAt: null },
+    include: { staff: true }
+  });
 
   const timeline = checkpoints.map((c) => {
     const inStaff = c.checkedInByStaffId ? staffMap.get(c.checkedInByStaffId) : null;
@@ -76,7 +84,10 @@ router.get("/:id/timeline", param("id").isMongoId(), async (req, res) => {
     };
   });
 
-  const stages = buildStageStates(checkpoints, stageSequence).map((st) => {
+  const stages = buildStageStates(checkpoints, stageSequence, {
+    dueDate: order?.requiredCompletionDate,
+    assignment: openAssignment
+  }).map((st) => {
     const entry = timeline.find((t) => t.stage === st.stage);
     return {
       ...st,

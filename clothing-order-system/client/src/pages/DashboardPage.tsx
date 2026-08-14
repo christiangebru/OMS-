@@ -91,6 +91,18 @@ function OfficeDashboard() {
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="ui-card p-5">
             <h2 className="text-sm font-semibold text-ink">Production</h2>
+            {(() => {
+              const bottleneck = PRODUCTION_STAGES.map((s) => ({
+                stage: s,
+                waiting: ops.production[s]?.waiting || 0
+              })).sort((a, b) => b.waiting - a.waiting)[0];
+              return bottleneck && bottleneck.waiting > 0 ? (
+                <p className="mt-2 text-xs text-ink-muted">
+                  Bottleneck: <span className="font-semibold capitalize text-ink">{stageLabel(bottleneck.stage)}</span>{" "}
+                  ({bottleneck.waiting} waiting)
+                </p>
+              ) : null;
+            })()}
             <ul className="mt-4 divide-y divide-line">
               {PRODUCTION_STAGES.filter(
                 (s) => !["RECEIVED", "DELIVERED"].includes(s) || (ops.production[s]?.total || 0) > 0
@@ -223,6 +235,12 @@ function FloorDashboard() {
                 <p className={clsx("text-xs font-semibold", row.overdue ? "text-red-700" : "text-ink-muted")}>
                   {daysLabel(row.daysRemaining, row.overdue)}
                 </p>
+                <Link
+                  to={`/scan?barcode=${encodeURIComponent(row.barcodeValue)}`}
+                  className="text-xs font-semibold text-accent hover:underline"
+                >
+                  Scan
+                </Link>
               </div>
             </li>
           ))}

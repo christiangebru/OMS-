@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Html5Qrcode } from "html5-qrcode";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, ScanDetails, Staff } from "@/lib/types";
@@ -15,7 +16,8 @@ type Recent = { barcode: string; at: number; label: string; ok: boolean };
 
 export function ScanPage() {
   const { user } = useAuth();
-  const [barcode, setBarcode] = useState("");
+  const [searchParams] = useSearchParams();
+  const [barcode, setBarcode] = useState(searchParams.get("barcode") || "");
   const [staffId, setStaffId] = useState("");
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [adminOverride, setAdminOverride] = useState(false);
@@ -39,6 +41,16 @@ export function ScanPage() {
       stopCamera();
     };
   }, []);
+
+  useEffect(() => {
+    const fromUrl = searchParams.get("barcode");
+    if (fromUrl) {
+      setBarcode(fromUrl);
+      lookupBarcode(fromUrl);
+    }
+    // lookupBarcode is stable enough for mount / barcode param changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +86,18 @@ export function ScanPage() {
       setFeedback(null);
       const assigned = data.scanDetails.production?.assignment?.staff?._id;
       if (assigned) setStaffId(assigned);
+      setRecent((prev) => {
+        if (prev[0]?.barcode === v && prev[0]?.ok) return prev;
+        return [
+          {
+            barcode: v,
+            at: Date.now(),
+            label: `${data.scanDetails.item.clothingType} · ${data.scanDetails.customer?.name || "lookup"}`,
+            ok: true
+          },
+          ...prev
+        ].slice(0, 8);
+      });
     } catch (e) {
       setDetails(null);
       setFeedback({
@@ -101,7 +125,7 @@ export function ScanPage() {
       scannerRef.current = scanner;
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 280, height: 160 } },
+        { fps: 10, qrbox: { width: 320, height: 200 } },
         (decoded) => {
           if (decoded && decoded !== lastScanRef.current) {
             lastScanRef.current = decoded;
@@ -170,6 +194,24 @@ export function ScanPage() {
     }
   }
 
+  async function receiveAssignment() {
+    const id = details?.production?.assignment?._id;
+    if (!id) return;
+    setBusy(true);
+    try {
+      await apiJson(`/api/production/assignments/${id}/receive`, { method: "POST" });
+      await lookupBarcode(barcode);
+      setFeedback({ ok: true, message: "Garment received" });
+    } catch (e) {
+      setFeedback({
+        ok: false,
+        message: e instanceof ApiError ? e.message : "Could not mark received"
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const actionLabel =
     action === "check_out"
       ? `Check out of ${stageLabel(actionStage)}`
@@ -212,7 +254,7 @@ export function ScanPage() {
             <div
               id="scan-reader"
               className={clsx(
-                "relative min-h-[220px] bg-ink",
+                "relative min-h-[280px] bg-ink sm:min-h-[360px]",
                 !cameraOn && "flex items-center justify-center"
               )}
             >
@@ -231,7 +273,12 @@ export function ScanPage() {
                   id="barcode"
                   value={barcode}
                   onChange={(e) => setBarcode(e.target.value)}
-                  onBlur={() => lookupBarcode(barcode)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      lookupBarcode(barcode);
+                    }
+                  }}
                   className="ui-input mt-0 font-mono text-base"
                   placeholder="ITM-…"
                   autoComplete="off"
@@ -292,6 +339,19 @@ export function ScanPage() {
                 Override stage sequence (manager)
               </label>
             )}
+            {details?.production?.assignment?.distributedAt &&
+              !details.production.assignment.receivedAt && (
+                <Button
+                  type="button"
+                  size="lg"
+                  variant="secondary"
+                  className="min-h-12 w-full"
+                  disabled={busy}
+                  onClick={receiveAssignment}
+                >
+                  Confirm received
+                </Button>
+              )}
             <Button
               type="submit"
               size="lg"

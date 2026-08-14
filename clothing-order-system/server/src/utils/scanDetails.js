@@ -86,7 +86,6 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   const nextStage = nextExpectedStage(checkpoints, seqInfo.stageSequence);
   const days = daysUntil(order.requiredCompletionDate);
   const actionHint = inferScanAction(checkpoints, nextStage);
-  const stageStates = buildStageStates(checkpoints, seqInfo.stageSequence);
 
   const openAssignment = await prisma.staffAssignment.findFirst({
     where: {
@@ -95,6 +94,11 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       completedAt: null
     },
     include: { staff: true }
+  });
+
+  const stageStates = buildStageStates(checkpoints, seqInfo.stageSequence, {
+    dueDate: order.requiredCompletionDate,
+    assignment: openAssignment
   });
 
   return {

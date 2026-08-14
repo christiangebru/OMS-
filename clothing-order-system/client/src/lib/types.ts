@@ -282,16 +282,21 @@ export interface StaffRanking {
   };
   reason: string;
   reasons?: Array<{ ok: boolean; code: string; label: string }>;
+  summary?: string;
 }
 
 export interface StageState {
   stage: ProductionStage;
-  status: "completed" | "in_progress" | "waiting" | "next";
+  status: "completed" | "in_progress" | "waiting" | "next" | "skipped" | "blocked";
   checkedInAt?: string | null;
   checkedOutAt?: string | null;
   durationMs?: number | null;
+  waitingMs?: number | null;
   open?: boolean;
   isCurrent?: boolean;
+  overdue?: boolean;
+  assigned?: boolean;
+  assignedTo?: string | null;
   notes?: string;
   checkedInBy?: { _id: string; name: string; role: string } | null;
   checkedOutBy?: { _id: string; name: string; role: string } | null;
