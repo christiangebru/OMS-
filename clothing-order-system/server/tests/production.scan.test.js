@@ -10,8 +10,7 @@ import {
   auth
 } from "./helpers.js";
 import { seedClothingTypes, seedOrderWithItem } from "./fixtures.js";
-import { StageCheckpoint } from "../src/models/StageCheckpoint.js";
-import { Order } from "../src/models/Order.js";
+import { prisma } from "../src/db/prisma.js";
 
 describe("POST /api/production/scan", () => {
   let app;
@@ -80,7 +79,7 @@ describe("POST /api/production/scan", () => {
     expect(res.body.checkpoint.checkedInAt).toBeTruthy();
     expect(res.body.checkpoint.checkedOutAt).toBeFalsy();
 
-    const cp = await StageCheckpoint.findById(res.body.checkpoint._id);
+    const cp = await prisma.stageCheckpoint.findUnique({ where: { id: res.body.checkpoint._id } });
     expect(cp).toBeTruthy();
     expect(cp.stage).toBe("RECEIVED");
     expect(cp.checkedInAt).toBeInstanceOf(Date);
@@ -113,7 +112,7 @@ describe("POST /api/production/scan", () => {
     expect(res.body.action).toBe("check_out");
     expect(res.body.checkpoint.checkedOutAt).toBeTruthy();
 
-    const cp = await StageCheckpoint.findById(res.body.checkpoint._id);
+    const cp = await prisma.stageCheckpoint.findUnique({ where: { id: res.body.checkpoint._id } });
     expect(cp.checkedOutAt).toBeInstanceOf(Date);
     expect(String(cp.checkedOutByStaffId)).toBe(String(staff._id));
   });
@@ -214,7 +213,7 @@ describe("POST /api/production/scan", () => {
       });
     expect(res.status).toBe(200);
 
-    const updated = await Order.findById(order._id);
+    const updated = await prisma.order.findUnique({ where: { id: order._id } });
     expect(updated.productionStatus).toBe("stitching");
   });
 

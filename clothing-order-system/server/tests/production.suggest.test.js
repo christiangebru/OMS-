@@ -9,7 +9,7 @@ import {
   auth
 } from "./helpers.js";
 import { seedClothingTypes, seedOrderWithItem, createStaff } from "./fixtures.js";
-import { StaffAssignment } from "../src/models/StaffAssignment.js";
+import { prisma } from "../src/db/prisma.js";
 
 describe("GET /api/production/suggest-assignment", () => {
   let app;
@@ -156,13 +156,15 @@ describe("GET /api/production/suggest-assignment", () => {
     const beforeFree = before.body.rankings.find((r) => r.staff.name === "Stays Free");
     expect(beforeBusy.scores.availabilityScore).toBe(beforeFree.scores.availabilityScore);
 
-    await StaffAssignment.create({
-      staffId: busy._id,
-      orderItemId: item._id,
-      stage: "CUTTING",
-      assignedAt: new Date(),
-      completedAt: null,
-      followedSuggestion: false
+    await prisma.staffAssignment.create({
+      data: {
+        staffId: busy._id,
+        orderItemId: item._id,
+        stage: "CUTTING",
+        assignedAt: new Date(),
+        completedAt: null,
+        followedSuggestion: false
+      }
     });
 
     const after = await request(app)

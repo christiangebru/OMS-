@@ -1,32 +1,31 @@
-import { MongoMemoryServer } from "mongodb-memory-server";
-import mongoose from "mongoose";
+import "express-async-errors";
 import express from "express";
 import bcrypt from "bcryptjs";
-import { User } from "../src/models/User.js";
+import { prisma } from "../src/db/prisma.js";
 import { signToken } from "../src/utils/jwt.js";
 import productionRoutes from "../src/routes/production.js";
 import orderItemRoutes from "../src/routes/orderItems.js";
 import staffRoutes from "../src/routes/staff.js";
 
-let mongod;
+export { prisma };
 
 export async function connectTestDb() {
-  mongod = await MongoMemoryServer.create();
-  const uri = mongod.getUri();
-  await mongoose.connect(uri);
-  return uri;
+  await prisma.$connect();
+  return process.env.DATABASE_URL;
 }
 
 export async function disconnectTestDb() {
-  await mongoose.disconnect();
-  if (mongod) await mongod.stop();
+  await prisma.$disconnect();
 }
 
 export async function clearDb() {
-  const collections = mongoose.connection.collections;
-  for (const key of Object.keys(collections)) {
-    await collections[key].deleteMany({});
-  }
+  await prisma.$executeRawUnsafe(
+    `TRUNCATE TABLE
+      "staff_assignments","stage_checkpoints","order_item_images","order_items","orders",
+      "measurements","production_logs","staff_skills","staff","customers","users",
+      "clothing_type_configs","statistic_snapshots"
+     RESTART IDENTITY CASCADE`
+  );
 }
 
 /** Mount production-related routes only (sufficient for these tests). */
@@ -45,29 +44,19 @@ export function createTestApp() {
 
 export async function createUser({ email, name, role = "manager" }) {
   const passwordHash = await bcrypt.hash("password123", 10);
-  const user = await User.create({
-    email,
-    name,
-    role,
-    passwordHash
-  });
-  const token = signToken({ sub: String(user._id), role: user.role });
+  const user = await prisma.user.create({ data: { email, name, role, passwordHash } });
+  const token = signToken({ sub: user.id, role: user.role });
   return { user, token };
 }
 
-/** Insert a user with a role outside the schema enum (bypasses Mongoose validation). */
+/** Create a user with an arbitrary (non-standard) role. */
 export async function createUserWithRawRole(role) {
   const passwordHash = await bcrypt.hash("password123", 10);
-  const result = await mongoose.connection.collection("users").insertOne({
-    email: `raw-${role}@test.local`,
-    name: `Raw ${role}`,
-    role,
-    passwordHash,
-    createdAt: new Date(),
-    updatedAt: new Date()
+  const user = await prisma.user.create({
+    data: { email: `raw-${role}@test.local`, name: `Raw ${role}`, role, passwordHash }
   });
-  const token = signToken({ sub: String(result.insertedId), role });
-  return { id: result.insertedId, token, role };
+  const token = signToken({ sub: user.id, role });
+  return { id: user.id, token, role };
 }
 
 export function auth(token) {
