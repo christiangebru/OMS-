@@ -1,5 +1,5 @@
 import { verifyToken } from "../utils/jwt.js";
-import { User } from "../models/User.js";
+import { prisma } from "../db/prisma.js";
 
 export async function requireAuth(req, res, next) {
   try {
@@ -9,7 +9,10 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ message: "Missing or invalid Authorization header" });
     }
     const decoded = verifyToken(token);
-    const user = await User.findById(decoded.sub).select("-passwordHash");
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.sub },
+      select: { id: true, email: true, name: true, role: true }
+    });
     if (!user) {
       return res.status(401).json({ message: "User not found" });
     }

@@ -1,18 +1,12 @@
 import { Router } from "express";
 import { body, query, validationResult } from "express-validator";
-import { StageCheckpoint } from "../models/StageCheckpoint.js";
-import { Staff } from "../models/Staff.js";
-import { StaffSkill } from "../models/StaffSkill.js";
-import { StaffAssignment } from "../models/StaffAssignment.js";
-import { Order } from "../models/Order.js";
+import { prisma } from "../db/prisma.js";
+import { s } from "../utils/serialize.js";
 import { requireAuth } from "../middleware/auth.js";
 import { ProductionStage } from "../constants/production.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { resolveItemByBarcode, buildScanDetails } from "../utils/scanDetails.js";
-import {
-  resolveStageSequence,
-  validateCheckIn
-} from "../utils/stageSequence.js";
+import { resolveStageSequence, validateCheckIn } from "../utils/stageSequence.js";
 import { syncOrderStatusFromItems } from "../utils/syncOrderFromStages.js";
 import { rankStaffForAssignment } from "../utils/assignmentScore.js";
 import { hydrateOrder } from "../utils/orderHydrate.js";
@@ -20,11 +14,9 @@ import { hydrateOrder } from "../utils/orderHydrate.js";
 const router = Router();
 router.use(requireAuth);
 
-async function assertStaffForStage(staffId, stage, { requireAvailable = true } = {}) {
-  const staff = await Staff.findOne({
-    _id: staffId,
-    tenantId: DEFAULT_TENANT_ID,
-    active: true
+async function assertStaffForStage(staffId, stage, { requireAvailable = true } = {}, client = prisma) {
+  const staff = await client.staff.findFirst({
+    where: { id: staffId, tenantId: DEFAULT_TENANT_ID, active: true }
   });
   if (!staff) {
     throw Object.assign(new Error("Staff not found or inactive"), { status: 400 });
@@ -35,12 +27,11 @@ async function assertStaffForStage(staffId, stage, { requireAvailable = true } =
       { status: 400 }
     );
   }
-  const skill = await StaffSkill.findOne({ staffId: staff._id, stage });
+  const skill = await client.staffSkill.findFirst({ where: { staffId: staff.id, stage } });
   if (!skill) {
-    throw Object.assign(
-      new Error(`Staff ${staff.name} is not skilled for stage ${stage}`),
-      { status: 400 }
-    );
+    throw Object.assign(new Error(`Staff ${staff.name} is not skilled for stage ${stage}`), {
+      status: 400
+    });
   }
   return staff;
 }
@@ -62,6 +53,7 @@ router.post(
       const notes = req.body.notes || "";
       const adminOverride = Boolean(req.body.adminOverride);
       const userRole = req.user?.role;
+      const staffId = req.body.staffId;
 
       if (adminOverride && !["admin", "manager"].includes(userRole)) {
         return res.status(403).json({ message: "Only admin/manager can override stage sequence" });
@@ -69,10 +61,8 @@ router.post(
 
       const { stageSequence } = await resolveStageSequence(item.clothingType);
 
-      const openAtStage = await StageCheckpoint.findOne({
-        orderItemId: item._id,
-        stage,
-        checkedOutAt: null
+      const openAtStage = await prisma.stageCheckpoint.findFirst({
+        where: { orderItemId: item.id, stage, checkedOutAt: null }
       });
 
       let action;
@@ -80,66 +70,69 @@ router.post(
 
       if (openAtStage) {
         // Check-out
-        await assertStaffForStage(req.body.staffId, stage, { requireAvailable: false });
-        openAtStage.checkedOutAt = new Date();
-        openAtStage.checkedOutByStaffId = req.body.staffId;
-        if (notes) openAtStage.notes = [openAtStage.notes, notes].filter(Boolean).join(" | ");
-        await openAtStage.save();
-        checkpoint = openAtStage;
-
-        await StaffAssignment.updateMany(
-          {
-            orderItemId: item._id,
-            stage,
-            staffId: req.body.staffId,
-            completedAt: null
-          },
-          { $set: { completedAt: new Date() } }
-        );
-        // Also complete any active assignment for this item+stage regardless of staff
-        await StaffAssignment.updateMany(
-          { orderItemId: item._id, stage, completedAt: null },
-          { $set: { completedAt: new Date() } }
-        );
-
+        await assertStaffForStage(staffId, stage, { requireAvailable: false });
+        checkpoint = await prisma.$transaction(async (tx) => {
+          const cp = await tx.stageCheckpoint.update({
+            where: { id: openAtStage.id },
+            data: {
+              checkedOutAt: new Date(),
+              checkedOutByStaffId: staffId,
+              ...(notes
+                ? { notes: [openAtStage.notes, notes].filter(Boolean).join(" | ") }
+                : {})
+            }
+          });
+          await tx.staffAssignment.updateMany({
+            where: { orderItemId: item.id, stage, staffId, completedAt: null },
+            data: { completedAt: new Date() }
+          });
+          // Complete any remaining active assignment for this item+stage regardless of staff
+          await tx.staffAssignment.updateMany({
+            where: { orderItemId: item.id, stage, completedAt: null },
+            data: { completedAt: new Date() }
+          });
+          await syncOrderStatusFromItems(item.order, req.user.id, tx);
+          return cp;
+        });
         action = "check_out";
       } else {
         // Check-in
-        const validation = await validateCheckIn(item._id, stage, stageSequence, {
+        const validation = await validateCheckIn(item.id, stage, stageSequence, {
           adminOverride
         });
         if (!validation.ok) {
           return res.status(400).json({ message: validation.message });
         }
 
-        await assertStaffForStage(req.body.staffId, stage, { requireAvailable: true });
+        await assertStaffForStage(staffId, stage, { requireAvailable: true });
 
-        checkpoint = await StageCheckpoint.create({
-          orderItemId: item._id,
-          stage,
-          checkedInAt: new Date(),
-          checkedInByStaffId: req.body.staffId,
-          notes
+        checkpoint = await prisma.$transaction(async (tx) => {
+          const cp = await tx.stageCheckpoint.create({
+            data: {
+              orderItemId: item.id,
+              stage,
+              checkedInAt: new Date(),
+              checkedInByStaffId: staffId,
+              notes
+            }
+          });
+          await syncOrderStatusFromItems(item.order, req.user.id, tx);
+          return cp;
         });
         action = "check_in";
       }
 
-      const orderDoc = await syncOrderStatusFromItems(item.order, req.user._id);
-      const scanDetails = await buildScanDetails(item._id);
+      const orderDoc = await prisma.order.findUnique({ where: { id: item.order } });
+      const scanDetails = await buildScanDetails(item.id);
       const orderHydrated = orderDoc
-        ? await hydrateOrder(orderDoc.toObject ? orderDoc.toObject() : orderDoc, {
-            includeCheckpoints: false
-          })
+        ? await hydrateOrder(orderDoc, { includeCheckpoints: false })
         : null;
 
       res.json({
         ok: true,
         action,
-        message:
-          action === "check_in"
-            ? `Checked in to ${stage}`
-            : `Checked out of ${stage}`,
-        checkpoint,
+        message: action === "check_in" ? `Checked in to ${stage}` : `Checked out of ${stage}`,
+        checkpoint: s(checkpoint),
         scanDetails,
         order: orderHydrated
       });
@@ -184,24 +177,25 @@ router.post(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
-      await assertStaffForStage(req.body.staffId, req.body.stage, {
-        requireAvailable: false
+      await assertStaffForStage(req.body.staffId, req.body.stage, { requireAvailable: false });
+
+      const assignment = await prisma.$transaction(async (tx) => {
+        const created = await tx.staffAssignment.create({
+          data: {
+            staffId: req.body.staffId,
+            orderItemId: req.body.orderItemId,
+            stage: req.body.stage,
+            assignedAt: new Date(),
+            completedAt: null,
+            suggestedStaffId: req.body.suggestedStaffId || null,
+            followedSuggestion: Boolean(req.body.followedSuggestion)
+          }
+        });
+        await tx.staff.update({ where: { id: req.body.staffId }, data: { status: "BUSY" } });
+        return created;
       });
 
-      const assignment = await StaffAssignment.create({
-        staffId: req.body.staffId,
-        orderItemId: req.body.orderItemId,
-        stage: req.body.stage,
-        assignedAt: new Date(),
-        completedAt: null,
-        suggestedStaffId: req.body.suggestedStaffId || null,
-        followedSuggestion: Boolean(req.body.followedSuggestion)
-      });
-
-      // Mark staff busy when assigned
-      await Staff.findByIdAndUpdate(req.body.staffId, { status: "BUSY" });
-
-      res.status(201).json(assignment);
+      res.status(201).json(s(assignment));
     } catch (e) {
       if (e.status) return res.status(e.status).json({ message: e.message });
       throw e;
@@ -210,19 +204,15 @@ router.post(
 );
 
 /** Preview scan details by barcode without mutating */
-router.get(
-  "/lookup",
-  query("barcodeValue").trim().notEmpty(),
-  async (req, res) => {
-    try {
-      const item = await resolveItemByBarcode(req.query.barcodeValue);
-      const scanDetails = await buildScanDetails(item);
-      res.json({ scanDetails });
-    } catch (e) {
-      if (e.status) return res.status(e.status).json({ message: e.message });
-      throw e;
-    }
+router.get("/lookup", query("barcodeValue").trim().notEmpty(), async (req, res) => {
+  try {
+    const item = await resolveItemByBarcode(req.query.barcodeValue);
+    const scanDetails = await buildScanDetails(item);
+    res.json({ scanDetails });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ message: e.message });
+    throw e;
   }
-);
+});
 
 export default router;

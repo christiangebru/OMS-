@@ -4,7 +4,7 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import { connectDb } from "./config/db.js";
+import { connectDb, checkDb } from "./config/db.js";
 import authRoutes from "./routes/auth.js";
 import orderRoutes from "./routes/orders.js";
 import dashboardRoutes from "./routes/dashboard.js";
@@ -37,7 +37,14 @@ app.use(express.json({ limit: "2mb" }));
 /** Uploaded clothing images */
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", async (_req, res) => {
+  try {
+    await checkDb();
+    res.json({ ok: true, db: "postgresql", dbConnected: true });
+  } catch {
+    res.status(503).json({ ok: false, db: "postgresql", dbConnected: false });
+  }
+});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/upload", uploadRoutes);

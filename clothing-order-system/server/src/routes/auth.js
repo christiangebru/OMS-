@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { body, validationResult } from "express-validator";
-import { User } from "../models/User.js";
+import { prisma } from "../db/prisma.js";
 import { signToken } from "../utils/jwt.js";
 import { requireAuth } from "../middleware/auth.js";
 
@@ -22,17 +22,19 @@ router.post(
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
-    const count = await User.countDocuments();
+    const count = await prisma.user.count();
     if (count > 0) {
       return res.status(403).json({ message: "Bootstrap disabled: users already exist" });
     }
     const { email, password, name } = req.body;
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const user = await User.create({ email, passwordHash, name, role: "admin" });
-    const token = signToken({ sub: user._id.toString(), role: user.role });
+    const user = await prisma.user.create({
+      data: { email: String(email).toLowerCase().trim(), passwordHash, name, role: "admin" }
+    });
+    const token = signToken({ sub: user.id, role: user.role });
     return res.status(201).json({
       token,
-      user: { id: user._id, email: user.email, name: user.name, role: user.role }
+      user: { id: user.id, email: user.email, name: user.name, role: user.role }
     });
   }
 );
@@ -47,7 +49,7 @@ router.post(
       return res.status(400).json({ errors: errors.array() });
     }
     const { email, password } = req.body;
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await prisma.user.findUnique({ where: { email: String(email).toLowerCase() } });
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
@@ -55,10 +57,10 @@ router.post(
     if (!ok) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
-    const token = signToken({ sub: user._id.toString(), role: user.role });
+    const token = signToken({ sub: user.id, role: user.role });
     return res.json({
       token,
-      user: { id: user._id, email: user.email, name: user.name, role: user.role }
+      user: { id: user.id, email: user.email, name: user.name, role: user.role }
     });
   }
 );
@@ -66,7 +68,7 @@ router.post(
 router.get("/me", requireAuth, async (req, res) => {
   res.json({
     user: {
-      id: req.user._id,
+      id: req.user.id,
       email: req.user.email,
       name: req.user.name,
       role: req.user.role

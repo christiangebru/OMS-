@@ -1,8 +1,6 @@
 import { Router } from "express";
-import { Order } from "../models/Order.js";
-import { Customer } from "../models/Customer.js";
-import { StatisticSnapshot } from "../models/StatisticSnapshot.js";
-import { ProductionLog } from "../models/ProductionLog.js";
+import { prisma } from "../db/prisma.js";
+import { s } from "../utils/serialize.js";
 import { requireAuth } from "../middleware/auth.js";
 import { isOrderDelayed } from "../utils/orderId.js";
 
@@ -17,7 +15,7 @@ function daysBetween(a, b) {
 }
 
 router.get("/summary", async (_req, res) => {
-  const snap = await StatisticSnapshot.findOne({ key: "global" }).lean();
+  const snap = await prisma.statisticSnapshot.findUnique({ where: { key: "global" } });
   if (!snap || !snap.lastComputedAt) {
     return res.json({
       totalOrders: 0,
@@ -47,20 +45,22 @@ router.get("/summary", async (_req, res) => {
 });
 
 router.get("/notifications", async (_req, res) => {
-  const orders = await Order.find({
-    productionStatus: { $nin: ["completed", "delivered"] }
-  }).lean();
+  const orders = await prisma.order.findMany({
+    where: { productionStatus: { notIn: ["completed", "delivered"] } }
+  });
 
-  const customerIds = [...new Set(orders.map((o) => String(o.customerId)).filter(Boolean))];
-  const customers = await Customer.find({ _id: { $in: customerIds } }).lean();
-  const nameById = new Map(customers.map((c) => [String(c._id), c.name]));
+  const customerIds = [...new Set(orders.map((o) => o.customerId).filter(Boolean))];
+  const customers = customerIds.length
+    ? await prisma.customer.findMany({ where: { id: { in: customerIds } } })
+    : [];
+  const nameById = new Map(customers.map((c) => [c.id, c.name]));
 
   const now = new Date();
   const delayed = [];
   const lowTime = [];
 
   for (const o of orders) {
-    const customerName = nameById.get(String(o.customerId)) || "—";
+    const customerName = nameById.get(o.customerId) || "—";
     if (isOrderDelayed(o)) {
       delayed.push({
         orderId: o.orderId,
@@ -91,12 +91,20 @@ router.get("/notifications", async (_req, res) => {
 
 router.get("/production-logs", async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const logs = await ProductionLog.find()
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .populate("userId", "name email")
-    .lean();
-  res.json(logs);
+  const logs = await prisma.productionLog.findMany({
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    include: { user: { select: { id: true, name: true, email: true } } }
+  });
+  res.json(
+    logs.map((log) => {
+      const { user, ...rest } = log;
+      return {
+        ...s(rest),
+        userId: user ? { _id: user.id, name: user.name, email: user.email } : rest.userId
+      };
+    })
+  );
 });
 
 export default router;

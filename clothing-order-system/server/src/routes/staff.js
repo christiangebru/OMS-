@@ -1,9 +1,7 @@
 import { Router } from "express";
 import { body, param, query, validationResult } from "express-validator";
-import { Staff } from "../models/Staff.js";
-import { StaffSkill } from "../models/StaffSkill.js";
-import { StaffAssignment } from "../models/StaffAssignment.js";
-import { StageCheckpoint } from "../models/StageCheckpoint.js";
+import { prisma } from "../db/prisma.js";
+import { s, sMany } from "../utils/serialize.js";
 import { requireAuth } from "../middleware/auth.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { StaffRole, StaffStatus, ProductionStage } from "../constants/production.js";
@@ -11,9 +9,9 @@ import { StaffRole, StaffStatus, ProductionStage } from "../constants/production
 const router = Router();
 router.use(requireAuth);
 
-async function withSkills(staffLean) {
-  const skills = await StaffSkill.find({ staffId: staffLean._id }).lean();
-  return { ...staffLean, skills: skills.map((s) => s.stage) };
+async function withSkills(staff) {
+  const skills = await prisma.staffSkill.findMany({ where: { staffId: staff.id } });
+  return { ...s(staff), skills: skills.map((sk) => sk.stage) };
 }
 
 router.get(
@@ -23,21 +21,22 @@ router.get(
   query("includeInactive").optional().isIn(["true", "false", "1", "0"]),
   query("stage").optional().isIn(ProductionStage),
   async (req, res) => {
-    const filter = { tenantId: DEFAULT_TENANT_ID };
-    if (req.query.role) filter.role = req.query.role;
-    if (req.query.status) filter.status = req.query.status;
+    const where = { tenantId: DEFAULT_TENANT_ID };
+    if (req.query.role) where.role = req.query.role;
+    if (req.query.status) where.status = req.query.status;
     const includeInactive =
       req.query.includeInactive === "true" || req.query.includeInactive === "1";
-    if (!includeInactive) filter.active = true;
+    if (!includeInactive) where.active = true;
 
-    let staff = await Staff.find(filter).sort({ name: 1 }).lean();
+    let staff = await prisma.staff.findMany({ where, orderBy: { name: "asc" } });
 
     if (req.query.stage) {
-      const skilled = await StaffSkill.find({ stage: req.query.stage })
-        .select("staffId")
-        .lean();
-      const allowed = new Set(skilled.map((s) => String(s.staffId)));
-      staff = staff.filter((s) => allowed.has(String(s._id)));
+      const skilled = await prisma.staffSkill.findMany({
+        where: { stage: req.query.stage },
+        select: { staffId: true }
+      });
+      const allowed = new Set(skilled.map((sk) => sk.staffId));
+      staff = staff.filter((st) => allowed.has(st.id));
     }
 
     const withSk = await Promise.all(staff.map(withSkills));
@@ -49,33 +48,29 @@ router.get("/:id/workload", param("id").isMongoId(), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-  const staff = await Staff.findOne({
-    _id: req.params.id,
-    tenantId: DEFAULT_TENANT_ID
-  }).lean();
+  const staff = await prisma.staff.findFirst({
+    where: { id: req.params.id, tenantId: DEFAULT_TENANT_ID }
+  });
   if (!staff) return res.status(404).json({ message: "Staff not found" });
 
-  const activeCount = await StaffAssignment.countDocuments({
-    staffId: staff._id,
-    completedAt: null
+  const activeCount = await prisma.staffAssignment.count({
+    where: { staffId: staff.id, completedAt: null }
   });
 
-  const recentCompletions = await StaffAssignment.find({
-    staffId: staff._id,
-    completedAt: { $ne: null }
-  })
-    .sort({ completedAt: -1 })
-    .limit(20)
-    .lean();
+  const recentCompletions = await prisma.staffAssignment.findMany({
+    where: { staffId: staff.id, completedAt: { not: null } },
+    orderBy: { completedAt: "desc" },
+    take: 20
+  });
 
-  const checkpoints = await StageCheckpoint.find({
-    $or: [{ checkedInByStaffId: staff._id }, { checkedOutByStaffId: staff._id }],
-    checkedInAt: { $ne: null },
-    checkedOutAt: { $ne: null }
-  })
-    .sort({ checkedOutAt: -1 })
-    .limit(50)
-    .lean();
+  const checkpoints = await prisma.stageCheckpoint.findMany({
+    where: {
+      OR: [{ checkedInByStaffId: staff.id }, { checkedOutByStaffId: staff.id }],
+      checkedOutAt: { not: null }
+    },
+    orderBy: { checkedOutAt: "desc" },
+    take: 50
+  });
 
   const durations = checkpoints
     .map((c) => new Date(c.checkedOutAt) - new Date(c.checkedInAt))
@@ -85,10 +80,10 @@ router.get("/:id/workload", param("id").isMongoId(), async (req, res) => {
     : null;
 
   res.json({
-    staffId: staff._id,
+    staffId: staff.id,
     name: staff.name,
     activeAssignmentCount: activeCount,
-    recentCompletions,
+    recentCompletions: sMany(recentCompletions),
     averageStageDurationMs: avgStageDurationMs,
     completedCheckpointSample: checkpoints.length
   });
@@ -98,10 +93,9 @@ router.get("/:id", param("id").isMongoId(), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-  const staff = await Staff.findOne({
-    _id: req.params.id,
-    tenantId: DEFAULT_TENANT_ID
-  }).lean();
+  const staff = await prisma.staff.findFirst({
+    where: { id: req.params.id, tenantId: DEFAULT_TENANT_ID }
+  });
   if (!staff) return res.status(404).json({ message: "Staff not found" });
   res.json(await withSkills(staff));
 });
@@ -118,25 +112,27 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    const skills = (req.body.skills || []).filter((s) => ProductionStage.includes(s));
-    const staff = await Staff.create({
-      tenantId: DEFAULT_TENANT_ID,
-      name: req.body.name.trim(),
-      phone: String(req.body.phone).trim(),
-      role: req.body.role,
-      status: req.body.status || "AVAILABLE",
-      skillLevel: req.body.skillLevel || 3,
-      active: true
+    const skills = (req.body.skills || []).filter((sk) => ProductionStage.includes(sk));
+    const staff = await prisma.staff.create({
+      data: {
+        tenantId: DEFAULT_TENANT_ID,
+        name: req.body.name.trim(),
+        phone: String(req.body.phone).trim(),
+        role: req.body.role,
+        status: req.body.status || "AVAILABLE",
+        skillLevel: req.body.skillLevel || 3,
+        active: true
+      }
     });
 
     if (skills.length) {
-      await StaffSkill.insertMany(
-        skills.map((stage) => ({ staffId: staff._id, stage })),
-        { ordered: false }
-      ).catch(() => {});
+      await prisma.staffSkill.createMany({
+        data: skills.map((stage) => ({ staffId: staff.id, stage })),
+        skipDuplicates: true
+      });
     }
 
-    res.status(201).json(await withSkills(staff.toObject()));
+    res.status(201).json(await withSkills(staff));
   }
 );
 
@@ -154,29 +150,33 @@ router.patch(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    const staff = await Staff.findOne({
-      _id: req.params.id,
-      tenantId: DEFAULT_TENANT_ID
+    const staff = await prisma.staff.findFirst({
+      where: { id: req.params.id, tenantId: DEFAULT_TENANT_ID }
     });
     if (!staff) return res.status(404).json({ message: "Staff not found" });
 
-    if (req.body.name) staff.name = req.body.name.trim();
-    if (req.body.phone) staff.phone = String(req.body.phone).trim();
-    if (req.body.role) staff.role = req.body.role;
-    if (req.body.status) staff.status = req.body.status;
-    if (req.body.skillLevel !== undefined) staff.skillLevel = req.body.skillLevel;
-    if (req.body.active !== undefined) staff.active = Boolean(req.body.active);
-    await staff.save();
+    const data = {};
+    if (req.body.name) data.name = req.body.name.trim();
+    if (req.body.phone) data.phone = String(req.body.phone).trim();
+    if (req.body.role) data.role = req.body.role;
+    if (req.body.status) data.status = req.body.status;
+    if (req.body.skillLevel !== undefined) data.skillLevel = req.body.skillLevel;
+    if (req.body.active !== undefined) data.active = Boolean(req.body.active);
+
+    const updated = await prisma.staff.update({ where: { id: staff.id }, data });
 
     if (Array.isArray(req.body.skills)) {
-      const skills = req.body.skills.filter((s) => ProductionStage.includes(s));
-      await StaffSkill.deleteMany({ staffId: staff._id });
+      const skills = req.body.skills.filter((sk) => ProductionStage.includes(sk));
+      await prisma.staffSkill.deleteMany({ where: { staffId: staff.id } });
       if (skills.length) {
-        await StaffSkill.insertMany(skills.map((stage) => ({ staffId: staff._id, stage })));
+        await prisma.staffSkill.createMany({
+          data: skills.map((stage) => ({ staffId: staff.id, stage })),
+          skipDuplicates: true
+        });
       }
     }
 
-    res.json(await withSkills(staff.toObject()));
+    res.json(await withSkills(updated));
   }
 );
 
@@ -184,16 +184,16 @@ router.post("/:id/deactivate", param("id").isMongoId(), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-  const staff = await Staff.findOne({
-    _id: req.params.id,
-    tenantId: DEFAULT_TENANT_ID
+  const staff = await prisma.staff.findFirst({
+    where: { id: req.params.id, tenantId: DEFAULT_TENANT_ID }
   });
   if (!staff) return res.status(404).json({ message: "Staff not found" });
 
-  staff.active = false;
-  staff.status = "OFF_DUTY";
-  await staff.save();
-  res.json(await withSkills(staff.toObject()));
+  const updated = await prisma.staff.update({
+    where: { id: staff.id },
+    data: { active: false, status: "OFF_DUTY" }
+  });
+  res.json(await withSkills(updated));
 });
 
 export default router;

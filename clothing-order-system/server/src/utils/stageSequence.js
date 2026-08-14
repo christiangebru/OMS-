@@ -1,5 +1,4 @@
-import { ClothingTypeConfig } from "../models/ClothingTypeConfig.js";
-import { StageCheckpoint } from "../models/StageCheckpoint.js";
+import { prisma } from "../db/prisma.js";
 import {
   clothingTypeToKey,
   SKIP_EMBROIDERY_SEQUENCE,
@@ -9,7 +8,7 @@ import {
 export async function resolveStageSequence(clothingType) {
   const key = clothingTypeToKey(clothingType);
   if (key) {
-    const config = await ClothingTypeConfig.findOne({ key }).lean();
+    const config = await prisma.clothingTypeConfig.findUnique({ where: { key } });
     if (config?.stageSequence?.length) {
       return {
         key: config.key,
@@ -71,7 +70,7 @@ export async function validateCheckIn(orderItemId, targetStage, stageSequence, {
     };
   }
 
-  const checkpoints = await StageCheckpoint.find({ orderItemId }).lean();
+  const checkpoints = await prisma.stageCheckpoint.findMany({ where: { orderItemId } });
 
   const openOther = checkpoints.find(
     (c) => !c.checkedOutAt && c.stage !== targetStage
@@ -85,7 +84,6 @@ export async function validateCheckIn(orderItemId, targetStage, stageSequence, {
 
   const openSame = checkpoints.find((c) => !c.checkedOutAt && c.stage === targetStage);
   if (openSame) {
-    // Caller should check out instead — not a validation error for check-in path
     return { ok: true, alreadyOpen: true, checkpoint: openSame };
   }
 

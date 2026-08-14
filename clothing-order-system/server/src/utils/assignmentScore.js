@@ -1,8 +1,4 @@
-import { Staff } from "../models/Staff.js";
-import { StaffSkill } from "../models/StaffSkill.js";
-import { StaffAssignment } from "../models/StaffAssignment.js";
-import { Order } from "../models/Order.js";
-import { OrderItem } from "../models/OrderItem.js";
+import { prisma } from "../db/prisma.js";
 import { ASSIGNMENT_WEIGHTS } from "../config/assignmentWeights.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 
@@ -37,7 +33,7 @@ function priorityScore(priority) {
   return 0.25;
 }
 
-function buildReason({ staff, urgency, skillMatch, availability, priority, daysLeft }) {
+function buildReason({ staff, skillMatch, priority, daysLeft }) {
   const parts = [];
   if (staff.status === "AVAILABLE") parts.push("Available");
   else parts.push(staff.status.replace("_", " "));
@@ -56,33 +52,39 @@ function buildReason({ staff, urgency, skillMatch, availability, priority, daysL
  * Rank eligible staff for orderItem + stage.
  */
 export async function rankStaffForAssignment(orderItemId, stage) {
-  const item = await OrderItem.findById(orderItemId).lean();
+  const item = await prisma.orderItem.findUnique({ where: { id: orderItemId } });
   if (!item) throw Object.assign(new Error("Order item not found"), { status: 404 });
 
-  const order = await Order.findById(item.order).lean();
+  const order = await prisma.order.findUnique({ where: { id: item.order } });
   if (!order) throw Object.assign(new Error("Order not found"), { status: 404 });
 
-  const skilled = await StaffSkill.find({ stage }).select("staffId").lean();
-  const staffIds = skilled.map((s) => s.staffId);
+  const skilled = await prisma.staffSkill.findMany({
+    where: { stage },
+    select: { staffId: true }
+  });
+  const staffIds = [...new Set(skilled.map((sk) => sk.staffId))];
   if (!staffIds.length) return { item, order, rankings: [] };
 
-  const staffList = await Staff.find({
-    _id: { $in: staffIds },
-    tenantId: DEFAULT_TENANT_ID,
-    active: true,
-    status: { $ne: "OFF_DUTY" }
-  }).lean();
+  const staffList = await prisma.staff.findMany({
+    where: {
+      id: { in: staffIds },
+      tenantId: DEFAULT_TENANT_ID,
+      active: true,
+      status: { not: "OFF_DUTY" }
+    }
+  });
 
-  const activeCounts = await StaffAssignment.aggregate([
-    { $match: { staffId: { $in: staffList.map((s) => s._id) }, completedAt: null } },
-    { $group: { _id: "$staffId", count: { $sum: 1 } } }
-  ]);
-  const countMap = new Map(activeCounts.map((r) => [String(r._id), r.count]));
+  const activeCounts = staffList.length
+    ? await prisma.staffAssignment.groupBy({
+        by: ["staffId"],
+        where: { staffId: { in: staffList.map((s) => s.id) }, completedAt: null },
+        _count: { _all: true }
+      })
+    : [];
+  const countMap = new Map(activeCounts.map((r) => [r.staffId, r._count._all]));
 
   const due = order.requiredCompletionDate ? new Date(order.requiredCompletionDate) : null;
-  const daysLeft = due
-    ? (due.getTime() - Date.now()) / (24 * 60 * 60 * 1000)
-    : null;
+  const daysLeft = due ? (due.getTime() - Date.now()) / (24 * 60 * 60 * 1000) : null;
 
   const u = urgencyScore(order.requiredCompletionDate);
   const p = priorityScore(order.priority);
@@ -90,7 +92,7 @@ export async function rankStaffForAssignment(orderItemId, stage) {
 
   const rankings = staffList
     .map((staff) => {
-      const active = countMap.get(String(staff._id)) || 0;
+      const active = countMap.get(staff.id) || 0;
       staff._activeCount = active;
       const skill = skillMatchScore(item.difficultyLevel, staff.skillLevel);
       const avail = availabilityScore(active);
@@ -99,7 +101,7 @@ export async function rankStaffForAssignment(orderItemId, stage) {
 
       return {
         staff: {
-          _id: staff._id,
+          _id: staff.id,
           name: staff.name,
           phone: staff.phone,
           role: staff.role,
@@ -116,9 +118,7 @@ export async function rankStaffForAssignment(orderItemId, stage) {
         },
         reason: buildReason({
           staff,
-          urgency: u,
           skillMatch: skill,
-          availability: avail,
           priority: order.priority,
           daysLeft
         })

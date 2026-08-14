@@ -1,8 +1,5 @@
-import { Order } from "../models/Order.js";
-import { OrderItem } from "../models/OrderItem.js";
-import { OrderItemImage } from "../models/OrderItemImage.js";
-import { Customer } from "../models/Customer.js";
-import { StageCheckpoint } from "../models/StageCheckpoint.js";
+import { prisma } from "../db/prisma.js";
+import { s } from "./serialize.js";
 import { balanceRemaining } from "./orderHydrate.js";
 import {
   deriveCurrentStage,
@@ -21,44 +18,50 @@ function daysUntil(date) {
  */
 export async function buildScanDetails(orderItemIdOrDoc) {
   const item =
-    typeof orderItemIdOrDoc === "object" && orderItemIdOrDoc._id
+    typeof orderItemIdOrDoc === "object" && orderItemIdOrDoc && orderItemIdOrDoc.id
       ? orderItemIdOrDoc
-      : await OrderItem.findById(orderItemIdOrDoc).lean();
+      : await prisma.orderItem.findUnique({ where: { id: orderItemIdOrDoc } });
   if (!item) return null;
 
-  const order = await Order.findById(item.order).lean();
+  const order = await prisma.order.findUnique({ where: { id: item.order } });
   if (!order) return null;
 
   const [customer, images, siblings, checkpoints, seqInfo] = await Promise.all([
-    order.customerId ? Customer.findById(order.customerId).lean() : null,
-    OrderItemImage.find({ orderItemId: item._id }).sort({ uploadedAt: 1 }).lean(),
-    OrderItem.find({ order: order._id }).sort({ createdAt: 1 }).lean(),
-    StageCheckpoint.find({ orderItemId: item._id }).sort({ checkedInAt: 1 }).lean(),
+    order.customerId ? prisma.customer.findUnique({ where: { id: order.customerId } }) : null,
+    prisma.orderItemImage.findMany({
+      where: { orderItemId: item.id },
+      orderBy: { uploadedAt: "asc" }
+    }),
+    prisma.orderItem.findMany({ where: { order: order.id }, orderBy: { createdAt: "asc" } }),
+    prisma.stageCheckpoint.findMany({
+      where: { orderItemId: item.id },
+      orderBy: { checkedInAt: "asc" }
+    }),
     resolveStageSequence(item.clothingType)
   ]);
 
-  const siblingIds = siblings.map((s) => s._id);
+  const siblingIds = siblings.map((sib) => sib.id);
   const allCp = siblingIds.length
-    ? await StageCheckpoint.find({ orderItemId: { $in: siblingIds } }).lean()
+    ? await prisma.stageCheckpoint.findMany({ where: { orderItemId: { in: siblingIds } } })
     : [];
   const cpByItem = new Map();
   for (const cp of allCp) {
-    const k = String(cp.orderItemId);
+    const k = cp.orderItemId;
     if (!cpByItem.has(k)) cpByItem.set(k, []);
     cpByItem.get(k).push(cp);
   }
 
   const siblingDetails = await Promise.all(
     siblings.map(async (sib) => {
-      const cps = cpByItem.get(String(sib._id)) || [];
+      const cps = cpByItem.get(sib.id) || [];
       const { stageSequence } = await resolveStageSequence(sib.clothingType);
       return {
-        _id: sib._id,
+        _id: sib.id,
         clothingType: sib.clothingType,
         clothingCode: sib.clothingCode,
         barcodeValue: sib.barcodeValue,
         currentStage: deriveCurrentStage(cps, stageSequence),
-        isCurrent: String(sib._id) === String(item._id)
+        isCurrent: sib.id === item.id
       };
     })
   );
@@ -66,16 +69,14 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   let groupOtherOrders = 0;
   let groupOtherItems = 0;
   if (order.groupCode) {
-    const groupOrders = await Order.find({
-      groupCode: order.groupCode,
-      _id: { $ne: order._id }
-    })
-      .select("_id")
-      .lean();
+    const groupOrders = await prisma.order.findMany({
+      where: { groupCode: order.groupCode, id: { not: order.id } },
+      select: { id: true }
+    });
     groupOtherOrders = groupOrders.length;
     if (groupOrders.length) {
-      groupOtherItems = await OrderItem.countDocuments({
-        order: { $in: groupOrders.map((o) => o._id) }
+      groupOtherItems = await prisma.orderItem.count({
+        where: { order: { in: groupOrders.map((o) => o.id) } }
       });
     }
   }
@@ -87,14 +88,14 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   return {
     customer: customer
       ? {
-          _id: customer._id,
+          _id: customer.id,
           name: customer.name,
           phone: customer.phone,
           secondaryPhone: customer.secondaryPhone || ""
         }
       : null,
     item: {
-      _id: item._id,
+      _id: item.id,
       clothingCode: item.clothingCode,
       clothingType: item.clothingType,
       fabricType: item.fabricType,
@@ -107,7 +108,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       measurements: item.measurements,
       difficultyLevel: item.difficultyLevel,
       barcodeValue: item.barcodeValue,
-      images
+      images: images.map(s)
     },
     group: {
       groupCode: order.groupCode || "",
@@ -116,7 +117,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     },
     order: {
       orderId: order.orderId,
-      _id: order._id,
+      _id: order.id,
       productionStatus: order.productionStatus,
       priority: order.priority,
       siblingItems: siblingDetails
@@ -151,7 +152,7 @@ export async function resolveItemByBarcode(barcodeValue) {
       { status: 400 }
     );
   }
-  const item = await OrderItem.findOne({ barcodeValue: value }).lean();
+  const item = await prisma.orderItem.findFirst({ where: { barcodeValue: value } });
   if (!item) {
     throw Object.assign(new Error(`No order item found for barcode ${value}`), {
       status: 404

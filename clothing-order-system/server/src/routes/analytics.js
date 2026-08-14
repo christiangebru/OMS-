@@ -1,7 +1,5 @@
 import { Router } from "express";
-import { Order } from "../models/Order.js";
-import { OrderItem } from "../models/OrderItem.js";
-import { StageCheckpoint } from "../models/StageCheckpoint.js";
+import { prisma } from "../db/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { deriveCurrentStage, resolveStageSequence } from "../utils/stageSequence.js";
 import { ProductionStage } from "../constants/production.js";
@@ -11,77 +9,75 @@ router.use(requireAuth);
 
 /** Revenue by month (from order creation month, using totalRevenue) */
 router.get("/revenue-trend", async (_req, res) => {
-  const agg = await Order.aggregate([
-    {
-      $group: {
-        _id: {
-          y: { $year: "$createdAt" },
-          m: { $month: "$createdAt" }
-        },
-        revenue: { $sum: "$totalRevenue" },
-        count: { $sum: 1 }
-      }
-    },
-    { $sort: { "_id.y": 1, "_id.m": 1 } },
-    { $limit: 24 }
-  ]);
-  const points = agg.map((row) => ({
-    period: `${row._id.y}-${String(row._id.m).padStart(2, "0")}`,
-    revenue: row.revenue,
-    orders: row.count
-  }));
+  const orders = await prisma.order.findMany({
+    select: { createdAt: true, totalRevenue: true }
+  });
+  const map = new Map();
+  for (const o of orders) {
+    const y = o.createdAt.getFullYear();
+    const m = o.createdAt.getMonth() + 1;
+    const key = `${y}-${String(m).padStart(2, "0")}`;
+    const e = map.get(key) || { revenue: 0, orders: 0 };
+    e.revenue += o.totalRevenue || 0;
+    e.orders += 1;
+    map.set(key, e);
+  }
+  const points = [...map.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .slice(0, 24)
+    .map(([period, v]) => ({ period, revenue: v.revenue, orders: v.orders }));
   res.json(points);
 });
 
 router.get("/status-distribution", async (_req, res) => {
-  const agg = await Order.aggregate([
-    { $group: { _id: "$productionStatus", count: { $sum: 1 } } },
-    { $sort: { count: -1 } }
-  ]);
-  res.json(agg.map((r) => ({ status: r._id, count: r.count })));
+  const agg = await prisma.order.groupBy({
+    by: ["productionStatus"],
+    _count: { _all: true }
+  });
+  res.json(
+    agg
+      .map((r) => ({ status: r.productionStatus, count: r._count._all }))
+      .sort((a, b) => b.count - a.count)
+  );
 });
 
 router.get("/top-clothing-types", async (_req, res) => {
-  const agg = await OrderItem.aggregate([
-    {
-      $group: {
-        _id: "$clothingType",
-        units: { $sum: "$quantity" },
-        revenue: { $sum: "$lineTotal" }
-      }
-    },
-    { $sort: { units: -1 } },
-    { $limit: 10 }
-  ]);
+  const agg = await prisma.orderItem.groupBy({
+    by: ["clothingType"],
+    _sum: { quantity: true, lineTotal: true }
+  });
   res.json(
-    agg.map((r) => ({
-      clothingType: r._id,
-      units: r.units,
-      revenue: r.revenue
-    }))
+    agg
+      .map((r) => ({
+        clothingType: r.clothingType,
+        units: r._sum.quantity || 0,
+        revenue: r._sum.lineTotal || 0
+      }))
+      .sort((a, b) => b.units - a.units)
+      .slice(0, 10)
   );
 });
 
 /** Item counts by current production stage */
 router.get("/stage-distribution", async (_req, res) => {
-  const items = await OrderItem.find().select("_id clothingType").lean();
-  const itemIds = items.map((i) => i._id);
+  const items = await prisma.orderItem.findMany({ select: { id: true, clothingType: true } });
+  const itemIds = items.map((i) => i.id);
   const checkpoints = itemIds.length
-    ? await StageCheckpoint.find({ orderItemId: { $in: itemIds } }).lean()
+    ? await prisma.stageCheckpoint.findMany({ where: { orderItemId: { in: itemIds } } })
     : [];
 
   const byItem = new Map();
   for (const cp of checkpoints) {
-    const k = String(cp.orderItemId);
+    const k = cp.orderItemId;
     if (!byItem.has(k)) byItem.set(k, []);
     byItem.get(k).push(cp);
   }
 
-  const counts = Object.fromEntries(ProductionStage.map((s) => [s, 0]));
+  const counts = Object.fromEntries(ProductionStage.map((st) => [st, 0]));
   counts.UNSTARTED = 0;
 
   for (const item of items) {
-    const cps = byItem.get(String(item._id)) || [];
+    const cps = byItem.get(item.id) || [];
     const { stageSequence } = await resolveStageSequence(item.clothingType);
     const stage = deriveCurrentStage(cps, stageSequence);
     if (!stage) counts.UNSTARTED += 1;
