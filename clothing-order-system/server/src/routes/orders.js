@@ -287,7 +287,22 @@ router.post(
         lastUpdatedBy: req.user._id
       });
 
-      await createItemsForOrder(doc, itemPayloads);
+      try {
+        await createItemsForOrder(doc, itemPayloads);
+      } catch (itemErr) {
+        // Order creation is not a single atomic transaction here, so if item
+        // creation fails after the order document was inserted we must remove the
+        // half-created order to avoid orphaned orders with no items.
+        const createdItems = await OrderItem.find({ order: doc._id }).select("_id");
+        if (createdItems.length) {
+          await OrderItemImage.deleteMany({
+            orderItemId: { $in: createdItems.map((i) => i._id) }
+          });
+          await OrderItem.deleteMany({ order: doc._id });
+        }
+        await Order.deleteOne({ _id: doc._id });
+        throw itemErr;
+      }
       await logProduction(req.user._id, doc, "order_created", null, doc.productionStatus);
       await refreshStatisticSnapshot();
       res.status(201).json(await hydrateOrder(doc.toObject()));
