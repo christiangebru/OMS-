@@ -1,14 +1,20 @@
-import mongoose from "mongoose";
+import { prisma } from "../db/prisma.js";
 
 /**
- * Connect to MongoDB Atlas (or any MongoDB URI).
+ * Connect to PostgreSQL (Neon in production) via Prisma and verify the
+ * connection with a trivial query.
  */
 export async function connectDb() {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    throw new Error("MONGODB_URI is not set");
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is not set");
   }
-  mongoose.set("strictQuery", true);
-  await mongoose.connect(uri);
-  console.log("[db] Connected to MongoDB");
+  await prisma.$connect();
+  await prisma.$queryRaw`SELECT 1`;
+  console.log("[db] Connected to PostgreSQL");
+}
+
+/** Lightweight health probe used by GET /health. */
+export async function checkDb() {
+  await prisma.$queryRaw`SELECT 1`;
+  return true;
 }
