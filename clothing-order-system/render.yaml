@@ -6,8 +6,11 @@
 #   API_PUBLIC_URL your Render service URL, e.g. https://clothing-order-api.onrender.com
 #   CORS_ORIGIN    your Vercel URL (comma-separated if multiple)
 #
-# Prisma client is generated automatically via the `postinstall` script.
-# Migrations are applied on every deploy via preDeployCommand (idempotent).
+# Build = install deps + generate the Prisma client (`npm run build` -> `prisma generate`).
+# The backend is plain ESM JS and needs no transpile; the Prisma client is the only build artifact.
+# Migrations are applied on every deploy via preDeployCommand (idempotent, not part of build).
+#
+# Node is pinned to 20 (LTS) via both NODE_VERSION below and server/.node-version.
 
 services:
   - type: web
@@ -15,7 +18,7 @@ services:
     runtime: node
     plan: free
     rootDir: server
-    buildCommand: npm install
+    buildCommand: npm install && npm run build
     preDeployCommand: npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /health
