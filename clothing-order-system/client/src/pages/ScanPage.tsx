@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Html5Qrcode } from "html5-qrcode";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, ScanDetails, Staff } from "@/lib/types";
 import { ScanDetailCard } from "@/components/ScanDetailCard";
@@ -27,7 +26,11 @@ export function ScanPage() {
   const [busy, setBusy] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [recent, setRecent] = useState<Recent[]>([]);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerRef = useRef<{
+    isScanning?: boolean;
+    stop: () => Promise<void>;
+    clear: () => void;
+  } | null>(null);
   const lastScanRef = useRef("");
 
   const action = details?.production?.action;
@@ -121,6 +124,7 @@ export function ScanPage() {
   async function startCamera() {
     setFeedback(null);
     try {
+      const { Html5Qrcode } = await import("html5-qrcode");
       const scanner = new Html5Qrcode("scan-reader");
       scannerRef.current = scanner;
       await scanner.start(
