@@ -1,6 +1,13 @@
-# Render Blueprint — deploy the API as a Web Service
-# Set environment variables in the Render dashboard:
-# MONGODB_URI, JWT_SECRET, API_PUBLIC_URL (your Render service URL), CORS_ORIGIN (Vercel URL)
+# Render Blueprint — deploy the API as a Web Service (PostgreSQL / Prisma / Neon)
+# Set these environment variables (secrets) in the Render dashboard:
+#   DATABASE_URL   Neon PostgreSQL connection string (use the POOLED string;
+#                  include ?sslmode=require). Neon requires SSL.
+#   JWT_SECRET     long random string
+#   API_PUBLIC_URL your Render service URL, e.g. https://clothing-order-api.onrender.com
+#   CORS_ORIGIN    your Vercel URL (comma-separated if multiple)
+#
+# Prisma client is generated automatically via the `postinstall` script.
+# Migrations are applied on every deploy via preDeployCommand (idempotent).
 
 services:
   - type: web
@@ -9,7 +16,17 @@ services:
     plan: free
     rootDir: server
     buildCommand: npm install
+    preDeployCommand: npx prisma migrate deploy
     startCommand: npm start
+    healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: API_PUBLIC_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false

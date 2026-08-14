@@ -3,21 +3,23 @@
 Production-oriented monorepo:
 
 - **client** — React 18, Vite, TypeScript, Tailwind CSS, PWA (installable), Recharts
-- **server** — Node.js, Express, MongoDB (Mongoose), JWT, bcrypt, Multer (image uploads)
+- **server** — Node.js, Express, PostgreSQL (Prisma), JWT, bcrypt, Multer (image uploads)
 
 ## Prerequisites
 
 - Node.js 18+
-- MongoDB Atlas cluster and connection string
+- PostgreSQL database (local, or Neon in production) and a `DATABASE_URL`
 
 ## 1. Backend (local)
 
 ```bash
 cd server
 cp .env.example .env
-# Edit .env: MONGODB_URI, JWT_SECRET, CORS_ORIGIN (http://localhost:5173), API_PUBLIC_URL (http://localhost:4000)
-npm install
-npm run migrate:phase1   # one-time: customers, OrderItems, barcodes, clothing type seeds
+# Edit .env: DATABASE_URL, JWT_SECRET, CORS_ORIGIN (http://localhost:5173), API_PUBLIC_URL (http://localhost:4000)
+npm install                  # runs `prisma generate` via postinstall
+npm run db:migrate:deploy    # apply migrations to the database
+npm run seed                 # base reference data (clothing types)
+npm run seed:demo            # optional: demo customers, staff, orders
 npm run dev
 ```
 
@@ -39,9 +41,9 @@ Open `http://localhost:5173`.
 
 ### API — Render
 
-1. New **Web Service**, root directory `server`.
-2. Build: `npm install` · Start: `npm start` (run `npm run migrate:phase1` once against production Mongo before or after first deploy).
-3. Set env: `MONGODB_URI`, `JWT_SECRET`, `API_PUBLIC_URL` (your `https://…onrender.com`), `CORS_ORIGIN` (your Vercel URL, comma-separated if multiple).
+1. New **Web Service**, root directory `server` (or use the included `render.yaml` blueprint).
+2. Build: `npm install` (generates the Prisma client). Pre-deploy: `npx prisma migrate deploy`. Start: `npm start`.
+3. Set env: `DATABASE_URL` (Neon pooled connection string, `?sslmode=require`), `JWT_SECRET`, `API_PUBLIC_URL` (your `https://…onrender.com`), `CORS_ORIGIN` (your Vercel URL, comma-separated if multiple).
 
 **Note:** Uploaded images live on the service filesystem. For durable storage in production, swap Multer disk storage for S3 / Cloudinary and store URLs in MongoDB.
 
