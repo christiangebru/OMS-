@@ -1,145 +1,163 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { imageUrlFromPath } from "@/lib/api";
 import type { ScanDetails } from "@/lib/types";
+import { daysLabel, formatDate, formatMoney, stageLabel } from "@/lib/format";
+import { ProductionTimeline } from "@/components/ProductionTimeline";
+import { Badge } from "@/components/ui/PageHeader";
 import clsx from "clsx";
 
 export function ScanDetailCard({ details }: { details: ScanDetails }) {
-  const [open, setOpen] = useState(false);
   const days = details.timing.daysRemaining;
-  const daysLabel =
-    days == null
-      ? "—"
-      : details.timing.overdue
-        ? `${Math.abs(Math.ceil(days))}d overdue`
-        : `${Math.ceil(days)}d left`;
+  const action = details.production?.action;
+  const worker = details.production?.assignment?.staff;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-900">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <p className="text-xs font-semibold uppercase text-slate-500">Customer</p>
-          <p className="text-2xl font-bold text-slate-900 dark:text-white">
-            {details.customer?.name || "—"}
-          </p>
-          <p className="text-sm text-slate-500">{details.customer?.phone}</p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold uppercase text-slate-500">Item</p>
-          <p className="text-2xl font-bold text-slate-900 dark:text-white">
-            {details.item.clothingType}
-          </p>
-          <p className="text-sm text-slate-500">
-            {details.item.fabricType} · {details.item.color} · {details.item.size}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold uppercase text-slate-500">Stage</p>
-          <p className="text-xl font-bold">
-            {details.timing.currentStage || "UNSTARTED"}
-            <span className="ml-2 text-sm font-normal text-slate-500">
-              → {details.timing.nextExpectedStage}
-            </span>
-          </p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold uppercase text-slate-500">Due</p>
-          <p
-            className={clsx(
-              "text-xl font-bold",
-              details.timing.overdue ? "text-red-600" : "text-slate-900 dark:text-white"
+    <div className="space-y-4">
+      <div className="ui-card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="ui-label">Customer</p>
+            <p className="mt-1 text-xl font-semibold text-ink">{details.customer?.name || "—"}</p>
+            <p className="text-sm text-ink-muted">{details.customer?.phone}</p>
+            {details.customer?._id && (
+              <Link
+                className="mt-1 inline-block text-xs font-medium text-accent hover:underline"
+                to={`/customers/${details.customer._id}`}
+              >
+                Customer history
+              </Link>
             )}
-          >
-            {daysLabel}
-          </p>
-          <p className="text-xs text-slate-500">
-            {String(details.timing.requiredCompletionDate).slice(0, 10)} ·{" "}
+          </div>
+          <div className="text-right">
+            <p className="ui-label">Order</p>
             <Link
-              className="font-semibold text-brand-600 hover:underline"
+              className="mt-1 block font-mono text-sm font-semibold text-ink hover:text-accent"
               to={`/orders/${encodeURIComponent(details.order.orderId)}`}
             >
               {details.order.orderId}
             </Link>
-          </p>
+            <p className="text-xs text-ink-muted">
+              {formatDate(details.order.createdAt)} · due {formatDate(details.timing.requiredCompletionDate)}
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="mt-4 flex flex-wrap gap-4 text-sm">
-        <span>
-          Balance <strong>{details.pricing.balanceRemaining.toFixed(2)}</strong> (deposit{" "}
-          {details.pricing.depositPaid.toFixed(2)} / {details.pricing.totalAgreedPrice.toFixed(2)})
-        </span>
-        {details.order.priority && details.order.priority !== "NORMAL" && (
-          <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-900">
-            {details.order.priority}
-          </span>
+        <div className="mt-5 grid gap-4 border-t border-line pt-4 sm:grid-cols-3">
+          <div>
+            <p className="ui-label">Garment</p>
+            <p className="mt-1 text-lg font-semibold text-ink">{details.item.clothingType}</p>
+            <p className="text-sm text-ink-muted">
+              {details.item.fabricType} · {details.item.color} · {details.item.size}
+            </p>
+            <p className="mt-1 font-mono text-xs text-ink-faint">{details.item.barcodeValue}</p>
+          </div>
+          <div>
+            <p className="ui-label">Production</p>
+            <p className="mt-1 text-lg font-semibold capitalize text-ink">
+              {stageLabel(details.timing.currentStage || "unstarted")}
+            </p>
+            <p className="text-sm text-ink-muted">
+              Next: {stageLabel(details.timing.nextExpectedStage)}
+            </p>
+            {worker && <p className="mt-1 text-xs text-ink-muted">Assigned: {worker.name}</p>}
+          </div>
+          <div>
+            <p className="ui-label">Payment</p>
+            <p className="mt-1 text-lg font-semibold tabular text-ink">
+              {formatMoney(details.pricing.balanceRemaining)}{" "}
+              <span className="text-sm font-normal text-ink-muted">balance</span>
+            </p>
+            <p className="text-xs text-ink-muted">
+              Deposit {formatMoney(details.pricing.depositPaid)} /{" "}
+              {formatMoney(details.pricing.totalAgreedPrice)}
+            </p>
+            <p
+              className={clsx(
+                "mt-2 text-sm font-semibold",
+                details.timing.overdue ? "text-red-700" : "text-ink"
+              )}
+            >
+              {daysLabel(days, details.timing.overdue)}
+            </p>
+            {details.order.priority && details.order.priority !== "NORMAL" && (
+              <div className="mt-2">
+                <Badge tone={details.order.priority === "VIP" ? "accent" : "warn"}>
+                  {details.order.priority}
+                </Badge>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {action && (
+          <p className="mt-4 rounded-control bg-accent-soft px-3 py-2 text-sm text-accent">
+            Ready to <strong>{action === "check_in" ? "check in" : "check out"}</strong> at{" "}
+            <span className="capitalize">{stageLabel(details.production?.actionStage || "")}</span>
+          </p>
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="mt-4 text-sm font-semibold text-brand-600 hover:underline"
-      >
-        {open ? "Hide details" : "Show measurements, images, siblings"}
-      </button>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="ui-card p-5">
+          <h3 className="text-sm font-semibold text-ink">Production timeline</h3>
+          <div className="mt-4">
+            {details.item._id && (
+              <ProductionTimeline
+                orderItemId={details.item._id}
+                stages={details.production?.stageStates}
+              />
+            )}
+          </div>
+        </section>
 
-      {open && (
-        <div className="mt-4 space-y-4 border-t border-slate-100 pt-4 dark:border-slate-800">
-          {details.customer?.secondaryPhone && (
-            <p className="text-sm">Secondary phone: {details.customer.secondaryPhone}</p>
-          )}
+        <section className="ui-card space-y-4 p-5">
+          <h3 className="text-sm font-semibold text-ink">Specifications</h3>
           {details.item.notes && (
-            <p className="text-sm text-slate-600 dark:text-slate-300">Notes: {details.item.notes}</p>
+            <p className="text-sm text-ink-muted">{details.item.notes}</p>
           )}
           {details.item.measurements && (
-            <div>
-              <p className="text-xs font-semibold uppercase text-slate-500">Measurements</p>
-              <div className="mt-1 flex flex-wrap gap-2 text-xs">
-                {Object.entries(details.item.measurements).map(([k, v]) =>
-                  v ? (
-                    <span key={k} className="rounded bg-slate-100 px-2 py-1 dark:bg-slate-800">
-                      {k}: {v}
-                    </span>
-                  ) : null
-                )}
-              </div>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(details.item.measurements).map(([k, v]) =>
+                v ? (
+                  <span key={k} className="rounded bg-canvas px-2 py-1 text-xs capitalize text-ink-muted">
+                    {k}: {v}
+                  </span>
+                ) : null
+              )}
             </div>
           )}
           {details.item.images?.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {details.item.images.map((img) => (
-                <img
-                  key={img._id || img.imageUrl}
-                  src={imageUrlFromPath(img.imageUrl)}
-                  alt={img.caption || ""}
-                  className="h-20 w-20 rounded-lg object-cover"
-                />
+                <figure key={img._id || img.imageUrl} className="w-20">
+                  <img
+                    src={imageUrlFromPath(img.imageUrl)}
+                    alt={img.caption || img.category || "Reference"}
+                    className="h-20 w-20 rounded-control object-cover"
+                  />
+                  {(img.category || img.caption) && (
+                    <figcaption className="mt-1 truncate text-[10px] capitalize text-ink-faint">
+                      {img.caption || img.category}
+                    </figcaption>
+                  )}
+                </figure>
               ))}
             </div>
           )}
-          {details.group.groupCode && (
-            <p className="text-sm">
-              Group <strong>{details.group.groupCode}</strong> —{" "}
-              {details.group.otherOrdersSharingGroup} other orders /{" "}
-              {details.group.otherItemsSharingGroup} other items
-            </p>
+          {details.order.siblingItems.length > 1 && (
+            <div>
+              <p className="ui-label">Other items on this order</p>
+              <ul className="mt-2 space-y-1 text-sm">
+                {details.order.siblingItems.map((s) => (
+                  <li key={s._id} className={clsx(s.isCurrent && "font-semibold text-accent")}>
+                    {s.clothingType} — {stageLabel(s.currentStage || "unstarted")}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
-          <div>
-            <p className="text-xs font-semibold uppercase text-slate-500">Sibling items</p>
-            <ul className="mt-1 space-y-1 text-sm">
-              {details.order.siblingItems.map((s) => (
-                <li
-                  key={s._id}
-                  className={clsx(s.isCurrent && "font-semibold text-brand-700 dark:text-brand-300")}
-                >
-                  {s.clothingType} ({s.clothingCode}) — {s.currentStage || "UNSTARTED"}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
+        </section>
+      </div>
     </div>
   );
 }

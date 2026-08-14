@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { apiJson, ApiError } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
 
 export function LoginPage() {
   const { user, login, loading } = useAuth();
@@ -53,18 +54,15 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-100 dark:bg-slate-950 lg:flex-row">
+    <div className="flex min-h-screen flex-col bg-canvas lg:flex-row">
       <div className="flex flex-1 flex-col justify-center px-6 py-12 lg:px-16">
-        <div className="mx-auto w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-card dark:border-slate-800 dark:bg-slate-900">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Sign in
-          </h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Admin and manager access — JWT secured.
-          </p>
+        <div className="mx-auto w-full max-w-md ui-card p-8">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">Atelier OMS</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-ink">Sign in</h1>
+          <p className="mt-1 text-sm text-ink-muted">Production operations for the floor and the office.</p>
           <form className="mt-8 space-y-4" onSubmit={onSubmit}>
             <div>
-              <label className="text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="email">
+              <label className="ui-label" htmlFor="email">
                 Email
               </label>
               <input
@@ -74,14 +72,11 @@ export function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none ring-brand-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
+                className="ui-input"
               />
             </div>
             <div>
-              <label
-                className="text-xs font-semibold text-slate-600 dark:text-slate-300"
-                htmlFor="password"
-              >
+              <label className="ui-label" htmlFor="password">
                 Password
               </label>
               <input
@@ -91,37 +86,31 @@ export function LoginPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none ring-brand-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
+                className="ui-input"
               />
             </div>
             {error && (
-              <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+              <p className="text-sm text-red-700" role="alert">
                 {error}
               </p>
             )}
-            <button
-              type="submit"
-              disabled={busy}
-              className="w-full rounded-lg bg-brand-600 py-2.5 text-sm font-semibold text-white shadow hover:bg-brand-700 disabled:opacity-60"
-            >
+            <Button type="submit" className="w-full" disabled={busy}>
               {busy ? "Please wait…" : "Continue"}
-            </button>
+            </Button>
           </form>
         </div>
 
-        <div className="mx-auto mt-8 w-full max-w-md rounded-2xl border border-dashed border-slate-300 bg-white/60 p-6 dark:border-slate-700 dark:bg-slate-900/60">
-          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-            First-time setup (empty database)
-          </h2>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Creates the first <strong>admin</strong> user. Disabled once any user exists.
+        <div className="mx-auto mt-8 w-full max-w-md rounded-xl border border-dashed border-line bg-surface/60 p-6">
+          <h2 className="text-sm font-semibold text-ink">First-time setup</h2>
+          <p className="mt-1 text-xs text-ink-muted">
+            Creates the first admin user. Disabled once any user exists.
           </p>
           <form className="mt-4 grid gap-3" onSubmit={onBootstrap}>
             <input
               placeholder="Admin name"
               value={bootName}
               onChange={(e) => setBootName(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="ui-input mt-0"
               required
             />
             <input
@@ -129,7 +118,7 @@ export function LoginPage() {
               placeholder="Admin email"
               value={bootEmail}
               onChange={(e) => setBootEmail(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="ui-input mt-0"
               required
             />
             <input
@@ -137,30 +126,28 @@ export function LoginPage() {
               placeholder="Password (min 8 chars)"
               value={bootPassword}
               onChange={(e) => setBootPassword(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="ui-input mt-0"
               minLength={8}
               required
             />
             {bootMsg && (
-              <p className="text-xs text-red-600 dark:text-red-400" role="status">
+              <p className="text-xs text-red-700" role="status">
                 {bootMsg}
               </p>
             )}
-            <button
-              type="submit"
-              disabled={busy}
-              className="rounded-lg border border-slate-300 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-100 dark:hover:bg-slate-800"
-            >
+            <Button type="submit" variant="secondary" disabled={busy}>
               Create admin &amp; sign in
-            </button>
+            </Button>
           </form>
         </div>
       </div>
-      <div className="hidden flex-1 bg-gradient-to-br from-slate-900 via-slate-800 to-brand-700 lg:flex lg:flex-col lg:justify-end lg:p-16">
-        <p className="max-w-md text-3xl font-semibold text-white">Clothing order management, built for production floors.</p>
-        <p className="mt-4 max-w-md text-sm text-slate-200">
-          Track multi-item orders, grouped jobs, revenue, and delays — on desktop or as an installable PWA.
-        </p>
+      <div className="hidden flex-1 items-end bg-accent lg:flex lg:p-16">
+        <div className="max-w-md text-white">
+          <p className="text-3xl font-semibold leading-tight">Garment production, from order to delivery.</p>
+          <p className="mt-4 text-sm text-white/80">
+            Search the customer. Reuse measurements. Scan the barcode. See exactly where every piece is.
+          </p>
+        </div>
       </div>
     </div>
   );

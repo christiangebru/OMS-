@@ -2,7 +2,9 @@ import { Router } from "express";
 import { prisma } from "../db/prisma.js";
 import { s } from "../utils/serialize.js";
 import { requireAuth } from "../middleware/auth.js";
+import { requireCapability } from "../middleware/permissions.js";
 import { isOrderDelayed } from "../utils/orderId.js";
+import { buildProductionQueue } from "../utils/productionBoard.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -87,6 +89,57 @@ router.get("/notifications", async (_req, res) => {
   }
 
   res.json({ delayed, lowProductionTime: lowTime, thresholdDays: LOW_DAYS_THRESHOLD });
+});
+
+router.get("/operations", requireCapability("dashboard"), async (_req, res) => {
+  const board = await buildProductionQueue();
+  res.json({
+    today: {
+      orders: board.summary.todayCreated,
+      dueToday: board.summary.dueToday,
+      overdue: board.summary.overdueOrders,
+      inProduction: board.summary.inProduction,
+      ready: board.summary.ready
+    },
+    production: Object.fromEntries(
+      Object.entries(board.byStage).map(([stage, v]) => [
+        stage,
+        {
+          waiting: v.waiting,
+          assigned: v.assigned,
+          distributed: v.distributed,
+          inProgress: v.inProgress,
+          total: v.items.length
+        }
+      ])
+    ),
+    distribution: {
+      unassigned: board.summary.itemsWaiting,
+      awaitingDistribution: board.summary.itemsAssigned,
+      assigned: board.summary.itemsAssigned + board.summary.itemsDistributed,
+      inProgress: board.summary.itemsInProgress
+    },
+    staff: {
+      available: board.staff.available,
+      busy: board.staff.busy,
+      unavailable: board.staff.unavailable,
+      overloaded: board.staff.overloaded
+    },
+    urgent: board.items
+      .filter((i) => i.overdue || (i.daysRemaining != null && i.daysRemaining <= 2))
+      .sort((a, b) => (a.daysRemaining ?? 99) - (b.daysRemaining ?? 99))
+      .slice(0, 12)
+      .map((i) => ({
+        orderId: i.orderId,
+        itemId: i.itemId,
+        clothingType: i.clothingType,
+        customerName: i.customer?.name || "—",
+        nextStage: i.nextStage,
+        priority: i.priority,
+        daysRemaining: i.daysRemaining,
+        overdue: i.overdue
+      }))
+  });
 });
 
 router.get("/production-logs", async (req, res) => {

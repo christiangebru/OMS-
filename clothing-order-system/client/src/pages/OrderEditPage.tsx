@@ -2,14 +2,15 @@ import { FormEvent, type ReactNode, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiJson, ApiError, balanceRemaining, apiBaseUrl, authToken } from "@/lib/api";
 import type {
+  ClothingTypeConfig,
   Customer,
   HandType,
   Measurement,
   NeckType,
   Order,
   OrderItem,
-  OrderItemImage,
   OrderPriority,
+  ProductionStage,
   ProductionStatus,
   SizeCategory
 } from "@/lib/types";
@@ -18,7 +19,9 @@ import { CustomerPicker } from "@/components/CustomerPicker";
 import { ImageGalleryUploader } from "@/components/ImageGalleryUploader";
 import { ProductionTimeline } from "@/components/ProductionTimeline";
 import { SuggestedAssignments } from "@/components/SuggestedAssignments";
-import type { ProductionStage } from "@/lib/types";
+import { ClothingTypePicker } from "@/components/ClothingTypePicker";
+import { ItemMeasurementFields } from "@/components/ItemMeasurementFields";
+import { Button } from "@/components/ui/Button";
 
 const NECK: NeckType[] = ["V-shape", "square", "oval"];
 const HAND: HandType[] = ["wide", "normal"];
@@ -106,6 +109,20 @@ export function OrderEditPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(!isCreate);
+  const [clothingTypes, setClothingTypes] = useState<ClothingTypeConfig[]>([]);
+  const [previousOrders, setPreviousOrders] = useState<NonNullable<Customer["orders"]>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiJson<ClothingTypeConfig[]>("/api/clothing-types")
+      .then((data) => {
+        if (!cancelled) setClothingTypes(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (isCreate) return;
@@ -159,6 +176,7 @@ export function OrderEditPage() {
     setCustomerId(c._id);
     setCustomerName(c.name);
     setCustomerPhone(c.phone);
+    setPreviousOrders(c.orders || []);
     if (latest) {
       const snap = measurementToItemSnapshot(latest);
       setItems((prev) =>
@@ -168,6 +186,39 @@ export function OrderEditPage() {
         }))
       );
     }
+  }
+
+  function copyItemTemplate(src: OrderItem): OrderItem {
+    return {
+      ...emptyItem(),
+      clothingCode: src.clothingCode,
+      clothingType: src.clothingType,
+      fabricType: src.fabricType,
+      color: src.color,
+      quantity: 1,
+      notes: src.notes,
+      neckType: src.neckType,
+      handType: src.handType,
+      size: src.size,
+      measurements: src.measurements ? { ...src.measurements } : emptyItem().measurements,
+      productionDays: src.productionDays,
+      unitPrice: src.unitPrice,
+      difficultyLevel: src.difficultyLevel,
+      images: []
+    };
+  }
+
+  function reuseLastOrder() {
+    const last = previousOrders[0];
+    if (!last?.items?.length) return;
+    setItems(last.items.map(copyItemTemplate));
+    if (last.totalAgreedPrice) setTotalAgreedPrice(last.totalAgreedPrice);
+    setMsg(`Copied specifications from ${last.orderId}. Adjust anything that changed.`);
+  }
+
+  function copySimilarItem(index: number) {
+    const src = items[index];
+    setItems((prev) => [...prev, copyItemTemplate(src)]);
   }
 
   async function onSubmit(e: FormEvent) {
@@ -271,11 +322,11 @@ export function OrderEditPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">
             {isCreate ? "New order" : `Order ${orderId}`}
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Customer profiles, multi-image items, pricing, and barcodes.
+          <p className="text-sm text-ink-muted">
+            Search the customer, pick a garment, reuse previous specs if they already ordered.
           </p>
           {!isCreate && barcodeValue && (
             <p className="mt-1 font-mono text-xs text-slate-500">Barcode: {barcodeValue}</p>
@@ -307,7 +358,7 @@ export function OrderEditPage() {
               </button>
             </>
           )}
-          <Link to="/orders" className="text-sm font-semibold text-brand-600 hover:underline">
+          <Link to="/orders" className="text-sm font-semibold text-accent hover:underline">
             ← Back to list
           </Link>
         </div>
@@ -315,7 +366,7 @@ export function OrderEditPage() {
 
       <form
         onSubmit={onSubmit}
-        className="space-y-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-900 sm:p-6"
+        className="ui-card space-y-8 p-4 sm:p-6"
       >
         <section className="relative grid gap-4 sm:grid-cols-2">
           <CustomerPicker
@@ -333,6 +384,17 @@ export function OrderEditPage() {
               setCustomerPhone(p);
             }}
           />
+          {isCreate && previousOrders[0]?.items?.length ? (
+            <div className="sm:col-span-2 rounded-lg border border-line bg-accent-soft/60 px-3 py-3">
+              <p className="text-sm text-ink">
+                Last order {previousOrders[0].orderId}:{" "}
+                {previousOrders[0].items.map((i) => i.clothingType).join(", ")}
+              </p>
+              <Button type="button" size="sm" className="mt-2" onClick={reuseLastOrder}>
+                Use previous order
+              </Button>
+            </div>
+          ) : null}
           <div>
             <label className="text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="group">
               Group code (optional)
@@ -341,7 +403,7 @@ export function OrderEditPage() {
               id="group"
               value={groupCode}
               onChange={(e) => setGroupCode(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="ui-input"
               placeholder="e.g. WEDDING-2026"
             />
           </div>
@@ -355,7 +417,7 @@ export function OrderEditPage() {
               required
               value={requiredDate}
               onChange={(e) => setRequiredDate(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="ui-input"
             />
           </div>
           <div>
@@ -366,7 +428,7 @@ export function OrderEditPage() {
               id="status"
               value={productionStatus}
               onChange={(e) => setProductionStatus(e.target.value as ProductionStatus)}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="ui-input"
             >
               {STATUSES.map((s) => (
                 <option key={s} value={s}>
@@ -383,7 +445,7 @@ export function OrderEditPage() {
               id="priority"
               value={priority}
               onChange={(e) => setPriority(e.target.value as OrderPriority)}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="ui-input"
             >
               {PRIORITIES.map((p) => (
                 <option key={p} value={p}>
@@ -403,7 +465,7 @@ export function OrderEditPage() {
               step="0.01"
               value={totalAgreedPrice}
               onChange={(e) => setTotalAgreedPrice(Number(e.target.value))}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="ui-input"
             />
           </div>
           <div>
@@ -417,7 +479,7 @@ export function OrderEditPage() {
               step="0.01"
               value={depositPaid}
               onChange={(e) => setDepositPaid(Number(e.target.value))}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              className="ui-input"
             />
           </div>
           <div>
@@ -458,27 +520,38 @@ export function OrderEditPage() {
                   <button
                     type="button"
                     onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}
-                    className="text-xs font-semibold text-red-600 hover:underline"
+                    className="text-xs font-semibold text-red-700 hover:underline"
                   >
                     Remove
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => copySimilarItem(index)}
+                  className="text-xs font-semibold text-accent hover:underline"
+                >
+                  Create similar item
+                </button>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <Field label="Clothing code" small>
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <ClothingTypePicker
+                    types={clothingTypes}
+                    value={it.clothingType}
+                    onChange={(t) =>
+                      updateItem(index, {
+                        clothingType: "label" in t ? t.label : t.label,
+                        clothingCode: it.clothingCode || ("key" in t ? t.key.toUpperCase() : it.clothingCode)
+                      })
+                    }
+                  />
+                </div>
+                <Field label="Internal code" small>
                   <input
                     required
                     value={it.clothingCode}
                     onChange={(e) => updateItem(index, { clothingCode: e.target.value })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-                  />
-                </Field>
-                <Field label="Clothing type" small>
-                  <input
-                    required
-                    value={it.clothingType}
-                    onChange={(e) => updateItem(index, { clothingType: e.target.value })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input"
                   />
                 </Field>
                 <Field label="Fabric type" small>
@@ -486,7 +559,7 @@ export function OrderEditPage() {
                     required
                     value={it.fabricType}
                     onChange={(e) => updateItem(index, { fabricType: e.target.value })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input mt-0"
                   />
                 </Field>
                 <Field label="Color" small>
@@ -494,7 +567,7 @@ export function OrderEditPage() {
                     required
                     value={it.color}
                     onChange={(e) => updateItem(index, { color: e.target.value })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input mt-0"
                   />
                 </Field>
                 <Field label="Quantity" small>
@@ -504,7 +577,7 @@ export function OrderEditPage() {
                     required
                     value={it.quantity}
                     onChange={(e) => updateItem(index, { quantity: Number(e.target.value) })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input mt-0"
                   />
                 </Field>
                 <Field label="Unit price" small>
@@ -514,7 +587,7 @@ export function OrderEditPage() {
                     step="0.01"
                     value={it.unitPrice}
                     onChange={(e) => updateItem(index, { unitPrice: Number(e.target.value) })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input mt-0"
                   />
                 </Field>
                 <Field label="Production days" small>
@@ -523,7 +596,7 @@ export function OrderEditPage() {
                     min={1}
                     value={it.productionDays}
                     onChange={(e) => updateItem(index, { productionDays: Number(e.target.value) })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input mt-0"
                   />
                 </Field>
                 <Field label="Difficulty (1–5)" small>
@@ -535,14 +608,14 @@ export function OrderEditPage() {
                     onChange={(e) =>
                       updateItem(index, { difficultyLevel: Number(e.target.value) })
                     }
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input mt-0"
                   />
                 </Field>
                 <Field label="Neck type" small>
                   <select
                     value={it.neckType}
                     onChange={(e) => updateItem(index, { neckType: e.target.value as NeckType })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input mt-0"
                   >
                     {NECK.map((n) => (
                       <option key={n} value={n}>
@@ -555,7 +628,7 @@ export function OrderEditPage() {
                   <select
                     value={it.handType}
                     onChange={(e) => updateItem(index, { handType: e.target.value as HandType })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input mt-0"
                   >
                     {HAND.map((n) => (
                       <option key={n} value={n}>
@@ -568,7 +641,7 @@ export function OrderEditPage() {
                   <select
                     value={it.size}
                     onChange={(e) => updateItem(index, { size: e.target.value as SizeCategory })}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input mt-0"
                   >
                     {SIZES.map((n) => (
                       <option key={n} value={n}>
@@ -578,53 +651,11 @@ export function OrderEditPage() {
                   </select>
                 </Field>
 
-                <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-                  <h3 className="mb-3 text-sm font-semibold">Measurements (per order)</h3>
-                  <select
-                    value={it.measurements?.gender || "female"}
-                    onChange={(e) =>
-                      updateItem(index, {
-                        measurements: {
-                          ...it.measurements,
-                          gender: e.target.value as "female" | "male" | "kids"
-                        }
-                      })
-                    }
-                    className="mb-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-                  >
-                    <option value="female">female</option>
-                    <option value="male">male</option>
-                    <option value="kids">Kids / Babies</option>
-                  </select>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {(
-                      [
-                        ["vest", "Vest"],
-                        ["height", "Height"],
-                        ["breast", "Breast"],
-                        ["chest", "Chest"],
-                        ["waist", "Waist"],
-                        ["shoulder", "Shoulder"],
-                        ["arm", "Arm / sleeve"]
-                      ] as const
-                    ).map(([key, label]) => (
-                      <input
-                        key={key}
-                        placeholder={label}
-                        value={it.measurements?.[key] || ""}
-                        onChange={(e) =>
-                          updateItem(index, {
-                            measurements: {
-                              gender: it.measurements?.gender || "female",
-                              ...it.measurements,
-                              [key]: e.target.value
-                            }
-                          })
-                        }
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-                      />
-                    ))}
-                  </div>
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <ItemMeasurementFields
+                    item={it}
+                    onChange={(measurements) => updateItem(index, { measurements })}
+                  />
                 </div>
 
                 <Field label="Notes" small className="sm:col-span-2 lg:col-span-3">
@@ -632,7 +663,7 @@ export function OrderEditPage() {
                     value={it.notes}
                     onChange={(e) => updateItem(index, { notes: e.target.value })}
                     rows={2}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    className="ui-input mt-0"
                   />
                 </Field>
 
@@ -640,6 +671,7 @@ export function OrderEditPage() {
                   <ImageGalleryUploader
                     images={it.images || []}
                     onChange={(images: OrderItemImage[]) => updateItem(index, { images })}
+                    orderItemId={it._id}
                     onError={setErr}
                   />
                 </div>
@@ -666,7 +698,7 @@ export function OrderEditPage() {
                     />
                     <Link
                       to="/scan"
-                      className="inline-block text-sm font-semibold text-brand-600 hover:underline"
+                      className="inline-block text-sm font-semibold text-accent hover:underline"
                     >
                       Open Scan floor →
                     </Link>
@@ -691,7 +723,7 @@ export function OrderEditPage() {
         <div className="flex flex-wrap gap-3">
           <button
             type="submit"
-            className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-brand-700"
+            className="rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-accent-hover"
           >
             {isCreate ? "Create order" : "Save changes"}
           </button>

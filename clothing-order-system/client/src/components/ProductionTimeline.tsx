@@ -1,31 +1,48 @@
 import { useEffect, useState } from "react";
 import { apiJson, ApiError } from "@/lib/api";
-import type { TimelineEntry } from "@/lib/types";
+import type { StageState, TimelineEntry } from "@/lib/types";
+import { formatDate, formatDuration, stageLabel } from "@/lib/format";
 import clsx from "clsx";
 
-function formatDuration(ms?: number | null) {
-  if (ms == null) return "—";
-  const mins = Math.round(ms / 60000);
-  if (mins < 60) return `${mins}m`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `${h}h ${m}m`;
-}
+type Props = {
+  orderItemId?: string;
+  stages?: StageState[];
+};
 
-export function ProductionTimeline({ orderItemId }: { orderItemId: string }) {
-  const [entries, setEntries] = useState<TimelineEntry[]>([]);
+export function ProductionTimeline({ orderItemId, stages: stagesProp }: Props) {
+  const [stages, setStages] = useState<StageState[]>(stagesProp || []);
   const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!stagesProp && Boolean(orderItemId));
 
   useEffect(() => {
+    if (stagesProp) {
+      setStages(stagesProp);
+      return;
+    }
+    if (!orderItemId) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const data = await apiJson<{ timeline: TimelineEntry[] }>(
+        const data = await apiJson<{ stages?: StageState[]; timeline: TimelineEntry[] }>(
           `/api/order-items/${orderItemId}/timeline`
         );
-        if (!cancelled) setEntries(data.timeline || []);
+        if (cancelled) return;
+        if (data.stages?.length) setStages(data.stages);
+        else {
+          setStages(
+            (data.timeline || []).map((e) => ({
+              stage: e.stage,
+              status: e.open ? "in_progress" : "completed",
+              checkedInAt: e.checkedInAt,
+              checkedOutAt: e.checkedOutAt,
+              durationMs: e.durationMs,
+              open: e.open,
+              checkedInBy: e.checkedInBy,
+              checkedOutBy: e.checkedOutBy
+            }))
+          );
+        }
       } catch (e) {
         if (!cancelled) setErr(e instanceof ApiError ? e.message : "Failed to load timeline");
       } finally {
@@ -35,42 +52,75 @@ export function ProductionTimeline({ orderItemId }: { orderItemId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [orderItemId]);
+  }, [orderItemId, stagesProp]);
 
-  if (loading) return <p className="text-xs text-slate-500">Loading timeline…</p>;
-  if (err) return <p className="text-xs text-red-600">{err}</p>;
-  if (!entries.length) {
-    return <p className="text-xs text-slate-500">No stage checkpoints yet.</p>;
+  if (loading) {
+    return <p className="text-sm text-ink-muted">Loading production timeline…</p>;
+  }
+  if (err) return <p className="text-sm text-red-700">{err}</p>;
+  if (!stages.length) {
+    return (
+      <p className="text-sm text-ink-muted">This garment has not entered production yet.</p>
+    );
   }
 
   return (
-    <ol className="relative space-y-0 border-l-2 border-slate-200 pl-4 dark:border-slate-700">
-      {entries.map((e, i) => (
-        <li key={e._id} className="relative pb-4">
+    <ol className="space-y-0">
+      {stages.map((st, i) => (
+        <li key={st.stage} className="relative flex gap-3 pb-5 last:pb-0">
+          {i < stages.length - 1 && (
+            <span
+              className={clsx(
+                "absolute left-[9px] top-5 h-[calc(100%-8px)] w-px",
+                st.status === "completed" ? "bg-accent" : "bg-line"
+              )}
+            />
+          )}
           <span
             className={clsx(
-              "absolute -left-[1.4rem] top-1 h-3 w-3 rounded-full ring-2 ring-white dark:ring-slate-900",
-              e.open ? "bg-amber-500" : "bg-emerald-500"
+              "relative z-10 mt-0.5 flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold",
+              st.status === "completed" && "border-accent bg-accent text-white",
+              st.status === "in_progress" && "border-sky-600 bg-sky-600 text-white",
+              st.status === "next" && "border-accent bg-surface text-accent",
+              st.status === "waiting" && "border-line bg-surface text-ink-faint"
             )}
-          />
-          <div className="text-sm font-semibold text-slate-900 dark:text-white">
-            {e.stage}{" "}
-            {e.open && <span className="text-xs font-normal text-amber-600">in progress</span>}
-          </div>
-          <div className="text-xs text-slate-500">
-            In: {String(e.checkedInAt).slice(0, 16).replace("T", " ")}
-            {e.checkedInBy ? ` · ${e.checkedInBy.name}` : ""}
-          </div>
-          {e.checkedOutAt && (
-            <div className="text-xs text-slate-500">
-              Out: {String(e.checkedOutAt).slice(0, 16).replace("T", " ")}
-              {e.checkedOutBy ? ` · ${e.checkedOutBy.name}` : ""} · {formatDuration(e.durationMs)}
+            aria-hidden
+          >
+            {st.status === "completed" ? "✓" : st.status === "in_progress" ? "●" : ""}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <p className="text-sm font-semibold capitalize text-ink">{stageLabel(st.stage)}</p>
+              <span
+                className={clsx(
+                  "text-[11px] font-semibold uppercase tracking-wide",
+                  st.status === "completed" && "text-accent",
+                  st.status === "in_progress" && "text-sky-700",
+                  st.status === "next" && "text-accent",
+                  st.status === "waiting" && "text-ink-faint"
+                )}
+              >
+                {st.status === "next" ? "Up next" : st.status.replace("_", " ")}
+              </span>
             </div>
-          )}
-          {!e.checkedOutAt && e.open && (
-            <div className="text-xs text-slate-500">Open · {formatDuration(e.durationMs)}</div>
-          )}
-          {i < entries.length - 1 && null}
+            {st.status === "completed" && (
+              <p className="mt-0.5 text-xs text-ink-muted">
+                {st.checkedOutBy?.name ? `Worker: ${st.checkedOutBy.name}` : st.checkedInBy?.name ? `Worker: ${st.checkedInBy.name}` : "Completed"}
+                {st.durationMs != null ? ` · ${formatDuration(st.durationMs)}` : ""}
+                {st.checkedOutAt ? ` · ${formatDate(st.checkedOutAt, true)}` : ""}
+              </p>
+            )}
+            {st.status === "in_progress" && (
+              <p className="mt-0.5 text-xs text-ink-muted">
+                {st.checkedInBy?.name ? `Worker: ${st.checkedInBy.name}` : "In progress"}
+                {st.checkedInAt ? ` · started ${formatDate(st.checkedInAt, true)}` : ""}
+                {st.durationMs != null ? ` · ${formatDuration(st.durationMs)}` : ""}
+              </p>
+            )}
+            {st.status === "waiting" || st.status === "next" ? (
+              <p className="mt-0.5 text-xs text-ink-faint">Waiting</p>
+            ) : null}
+          </div>
         </li>
       ))}
     </ol>

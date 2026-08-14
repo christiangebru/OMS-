@@ -3,6 +3,7 @@ import { body, param, query, validationResult } from "express-validator";
 import { prisma } from "../db/prisma.js";
 import { s, sMany } from "../utils/serialize.js";
 import { requireAuth } from "../middleware/auth.js";
+import { requireCapability } from "../middleware/permissions.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { normalizePhone } from "../utils/migrateHelpers.js";
 
@@ -15,7 +16,8 @@ router.get("/", query("q").optional().isString(), async (req, res) => {
   if (q) {
     where.OR = [
       { name: { contains: q, mode: "insensitive" } },
-      { phone: { contains: q.replace(/[^\d+]/g, "") } }
+      { phone: { contains: q.replace(/[^\d+]/g, "") } },
+      { email: { contains: q, mode: "insensitive" } }
     ];
   }
 
@@ -64,7 +66,13 @@ router.get("/:id", param("id").isMongoId(), async (req, res) => {
     prisma.order.findMany({
       where: { customerId: customer.id },
       orderBy: { createdAt: "desc" },
-      take: 50
+      take: 50,
+      include: {
+        items: {
+          orderBy: { createdAt: "asc" },
+          include: { images: { orderBy: [{ sortOrder: "asc" }, { uploadedAt: "asc" }] } }
+        }
+      }
     })
   ]);
 
@@ -79,16 +87,38 @@ router.get("/:id", param("id").isMongoId(), async (req, res) => {
       totalAgreedPrice: o.totalAgreedPrice,
       depositPaid: o.depositPaid,
       requiredCompletionDate: o.requiredCompletionDate,
-      createdAt: o.createdAt
+      createdAt: o.createdAt,
+      items: o.items.map((it) => ({
+        _id: it.id,
+        clothingCode: it.clothingCode,
+        clothingType: it.clothingType,
+        fabricType: it.fabricType,
+        color: it.color,
+        quantity: it.quantity,
+        notes: it.notes,
+        neckType: it.neckType,
+        handType: it.handType,
+        size: it.size,
+        measurements: it.measurements,
+        productionDays: it.productionDays,
+        unitPrice: it.unitPrice,
+        difficultyLevel: it.difficultyLevel,
+        barcodeValue: it.barcodeValue,
+        images: sMany(it.images)
+      }))
     }))
   });
 });
 
 router.post(
   "/",
+  requireCapability("customers.write"),
   body("name").trim().notEmpty(),
   body("phone").trim().notEmpty(),
   body("secondaryPhone").optional().isString(),
+  body("email").optional().isString(),
+  body("address").optional().isString(),
+  body("notes").optional().isString(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -102,7 +132,10 @@ router.post(
           tenantId: DEFAULT_TENANT_ID,
           name: req.body.name.trim(),
           phone,
-          secondaryPhone: req.body.secondaryPhone ? normalizePhone(req.body.secondaryPhone) : ""
+          secondaryPhone: req.body.secondaryPhone ? normalizePhone(req.body.secondaryPhone) : "",
+          email: req.body.email ? String(req.body.email).trim() : "",
+          address: req.body.address ? String(req.body.address).trim() : "",
+          notes: req.body.notes ? String(req.body.notes).trim() : ""
         }
       });
       res.status(201).json(s(customer));
@@ -117,10 +150,14 @@ router.post(
 
 router.patch(
   "/:id",
+  requireCapability("customers.write"),
   param("id").isMongoId(),
   body("name").optional().trim().notEmpty(),
   body("phone").optional().trim().notEmpty(),
   body("secondaryPhone").optional().isString(),
+  body("email").optional().isString(),
+  body("address").optional().isString(),
+  body("notes").optional().isString(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -138,6 +175,9 @@ router.patch(
         ? normalizePhone(req.body.secondaryPhone)
         : "";
     }
+    if (req.body.email !== undefined) data.email = String(req.body.email).trim();
+    if (req.body.address !== undefined) data.address = String(req.body.address).trim();
+    if (req.body.notes !== undefined) data.notes = String(req.body.notes).trim();
 
     try {
       const updated = await prisma.customer.update({ where: { id: customer.id }, data });
@@ -153,6 +193,7 @@ router.patch(
 
 router.post(
   "/:id/measurements",
+  requireCapability("customers.write"),
   param("id").isMongoId(),
   body("chest").optional().isFloat(),
   body("waist").optional().isFloat(),
@@ -162,6 +203,8 @@ router.post(
   body("inseam").optional().isFloat(),
   body("neck").optional().isFloat(),
   body("notes").optional().isString(),
+  body("category").optional().isString(),
+  body("fields").optional(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -175,6 +218,7 @@ router.post(
     const measurement = await prisma.measurement.create({
       data: {
         customerId: customer.id,
+        category: req.body.category || "unspecified",
         chest: num(req.body.chest),
         waist: num(req.body.waist),
         hip: num(req.body.hip),
@@ -183,6 +227,7 @@ router.post(
         inseam: num(req.body.inseam),
         neck: num(req.body.neck),
         notes: req.body.notes || "",
+        fields: req.body.fields && typeof req.body.fields === "object" ? req.body.fields : undefined,
         recordedAt: new Date()
       }
     });

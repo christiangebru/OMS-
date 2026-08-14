@@ -6,6 +6,8 @@ import { requireAuth } from "../middleware/auth.js";
 import { uploadItemImages } from "../middleware/upload.js";
 import { buildSingleLabelPdf } from "../utils/labelPdf.js";
 import { buildScanDetails } from "../utils/scanDetails.js";
+import { resolveStageSequence } from "../utils/stageSequence.js";
+import { buildStageStates } from "../utils/stageTimeline.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -47,6 +49,8 @@ router.get("/:id/timeline", param("id").isMongoId(), async (req, res) => {
     : [];
   const staffMap = new Map(staffDocs.map((st) => [st.id, st]));
 
+  const { stageSequence } = await resolveStageSequence(item.clothingType);
+
   const timeline = checkpoints.map((c) => {
     const inStaff = c.checkedInByStaffId ? staffMap.get(c.checkedInByStaffId) : null;
     const outStaff = c.checkedOutByStaffId ? staffMap.get(c.checkedOutByStaffId) : null;
@@ -72,10 +76,21 @@ router.get("/:id/timeline", param("id").isMongoId(), async (req, res) => {
     };
   });
 
+  const stages = buildStageStates(checkpoints, stageSequence).map((st) => {
+    const entry = timeline.find((t) => t.stage === st.stage);
+    return {
+      ...st,
+      checkedInBy: entry?.checkedInBy || null,
+      checkedOutBy: entry?.checkedOutBy || null
+    };
+  });
+
   res.json({
     orderItemId: item.id,
     orderId: item.orderId,
     clothingType: item.clothingType,
+    stageSequence,
+    stages,
     timeline
   });
 });
@@ -101,7 +116,15 @@ router.post("/:id/images", param("id").isMongoId(), (req, res) => {
       : req.body.caption
         ? [req.body.caption]
         : [];
+    const categories = Array.isArray(req.body.categories)
+      ? req.body.categories
+      : req.body.category
+        ? [req.body.category]
+        : [];
 
+    const existingCount = await prisma.orderItemImage.count({
+      where: { orderItemId: item.id }
+    });
     const now = new Date();
     const docs = await Promise.all(
       files.map((f, i) =>
@@ -110,6 +133,8 @@ router.post("/:id/images", param("id").isMongoId(), (req, res) => {
             orderItemId: item.id,
             imageUrl: publicPath(f),
             caption: captions[i] || "",
+            category: categories[i] || "other",
+            sortOrder: existingCount + i,
             uploadedAt: now
           }
         })
@@ -142,6 +167,8 @@ router.patch(
   param("id").isMongoId(),
   param("imageId").isMongoId(),
   body("caption").optional().isString(),
+  body("category").optional().isString(),
+  body("sortOrder").optional().isInt(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -150,13 +177,13 @@ router.patch(
       where: { id: req.params.imageId, orderItemId: req.params.id }
     });
     if (!image) return res.status(404).json({ message: "Image not found" });
-    const updated =
-      req.body.caption !== undefined
-        ? await prisma.orderItemImage.update({
-            where: { id: image.id },
-            data: { caption: String(req.body.caption) }
-          })
-        : image;
+    const data = {};
+    if (req.body.caption !== undefined) data.caption = String(req.body.caption);
+    if (req.body.category !== undefined) data.category = String(req.body.category);
+    if (req.body.sortOrder !== undefined) data.sortOrder = Number(req.body.sortOrder);
+    const updated = Object.keys(data).length
+      ? await prisma.orderItemImage.update({ where: { id: image.id }, data })
+      : image;
     res.json(s(updated));
   }
 );

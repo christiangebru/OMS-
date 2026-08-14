@@ -6,6 +6,7 @@ import {
   nextExpectedStage,
   resolveStageSequence
 } from "./stageSequence.js";
+import { buildStageStates, inferScanAction } from "./stageTimeline.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -30,7 +31,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     order.customerId ? prisma.customer.findUnique({ where: { id: order.customerId } }) : null,
     prisma.orderItemImage.findMany({
       where: { orderItemId: item.id },
-      orderBy: { uploadedAt: "asc" }
+      orderBy: [{ sortOrder: "asc" }, { uploadedAt: "asc" }]
     }),
     prisma.orderItem.findMany({ where: { order: order.id }, orderBy: { createdAt: "asc" } }),
     prisma.stageCheckpoint.findMany({
@@ -84,6 +85,17 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   const currentStage = deriveCurrentStage(checkpoints, seqInfo.stageSequence);
   const nextStage = nextExpectedStage(checkpoints, seqInfo.stageSequence);
   const days = daysUntil(order.requiredCompletionDate);
+  const actionHint = inferScanAction(checkpoints, nextStage);
+  const stageStates = buildStageStates(checkpoints, seqInfo.stageSequence);
+
+  const openAssignment = await prisma.staffAssignment.findFirst({
+    where: {
+      orderItemId: item.id,
+      stage: actionHint.stage,
+      completedAt: null
+    },
+    include: { staff: true }
+  });
 
   return {
     customer: customer
@@ -120,6 +132,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       _id: order.id,
       productionStatus: order.productionStatus,
       priority: order.priority,
+      createdAt: order.createdAt,
       siblingItems: siblingDetails
     },
     pricing: {
@@ -134,6 +147,28 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       currentStage,
       nextExpectedStage: nextStage,
       stageSequence: seqInfo.stageSequence
+    },
+    production: {
+      action: actionHint.action,
+      actionStage: actionHint.stage,
+      stageStates,
+      assignment: openAssignment
+        ? {
+            _id: openAssignment.id,
+            stage: openAssignment.stage,
+            assignedAt: openAssignment.assignedAt,
+            distributedAt: openAssignment.distributedAt,
+            receivedAt: openAssignment.receivedAt,
+            staff: openAssignment.staff
+              ? {
+                  _id: openAssignment.staff.id,
+                  name: openAssignment.staff.name,
+                  role: openAssignment.staff.role,
+                  status: openAssignment.staff.status
+                }
+              : null
+          }
+        : null
     }
   };
 }

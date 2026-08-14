@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "@jest/glo
 import "express-async-errors";
 import express from "express";
 import request from "supertest";
-import { connectTestDb, disconnectTestDb, clearDb, auth } from "./helpers.js";
+import { connectTestDb, disconnectTestDb, clearDb, auth, createUserWithRawRole } from "./helpers.js";
 import { seedClothingTypes } from "./fixtures.js";
 import authRoutes from "../src/routes/auth.js";
 import orderRoutes from "../src/routes/orders.js";
@@ -145,5 +145,89 @@ describe("Orders API (PostgreSQL/Prisma)", () => {
     expect(list.status).toBe(200);
     expect(list.body).toHaveLength(1);
     expect(list.body[0].customerName).toBe("List Me");
+  });
+
+  it("reuses an existing customer by customerId instead of duplicating", async () => {
+    const first = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Abebe",
+        customerPhone: "0911223344",
+        requiredCompletionDate: "2027-02-01",
+        items: [validItem]
+      });
+    expect(first.status).toBe(201);
+    const customerId = first.body.customer._id;
+
+    const second = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerId,
+        requiredCompletionDate: "2027-03-01",
+        items: [{ ...validItem, clothingType: "Thobe", clothingCode: "TH-1" }]
+      });
+    expect(second.status).toBe(201);
+    expect(second.body.customer._id).toBe(customerId);
+
+    const profile = await request(app).get(`/api/customers/${customerId}`).set(auth(token));
+    expect(profile.status).toBe(200);
+    expect(profile.body.orders).toHaveLength(2);
+    expect(profile.body.orders[0].items.length).toBeGreaterThan(0);
+  });
+
+  it("rejects order creation for a tailor login", async () => {
+    const tailor = await createUserWithRawRole("tailor");
+    const res = await request(app)
+      .post("/api/orders")
+      .set(auth(tailor.token))
+      .send({
+        customerName: "Worker Cannot",
+        customerPhone: "5554440000",
+        requiredCompletionDate: "2027-01-15",
+        items: [validItem]
+      });
+    expect(res.status).toBe(403);
+  });
+
+  it("lets reception create an order", async () => {
+    const reception = await createUserWithRawRole("reception");
+    const res = await request(app)
+      .post("/api/orders")
+      .set(auth(reception.token))
+      .send({
+        customerName: "Reception Client",
+        customerPhone: "5555550000",
+        requiredCompletionDate: "2027-01-15",
+        items: [validItem]
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.items[0].barcodeValue).toMatch(/^ITM-/);
+  });
+
+  it("creates one order with multiple garments, each with its own barcode", async () => {
+    const res = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Abebe Multi",
+        customerPhone: "5556660000",
+        requiredCompletionDate: "2027-04-01",
+        depositPaid: 200,
+        totalAgreedPrice: 900,
+        items: [
+          { ...validItem, clothingCode: "SUIT", clothingType: "Suit", unitPrice: 500, quantity: 1 },
+          { ...validItem, clothingCode: "SHIRT", clothingType: "Shirt", unitPrice: 250, quantity: 1 },
+          { ...validItem, clothingCode: "PANT", clothingType: "Trousers", unitPrice: 150, quantity: 1 }
+        ]
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.items).toHaveLength(3);
+    const barcodes = res.body.items.map((it) => it.barcodeValue);
+    expect(new Set(barcodes).size).toBe(3);
+    barcodes.forEach((b) => expect(b).toMatch(/^ITM-/));
+    expect(res.body.totalRevenue).toBe(900);
+    expect(res.body.balanceRemaining).toBe(700);
   });
 });

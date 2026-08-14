@@ -34,18 +34,56 @@ function priorityScore(priority) {
 }
 
 function buildReason({ staff, skillMatch, priority, daysLeft }) {
-  const parts = [];
-  if (staff.status === "AVAILABLE") parts.push("Available");
-  else parts.push(staff.status.replace("_", " "));
-  if (skillMatch >= 0.75) parts.push("skill match");
-  else if (skillMatch < 0.5) parts.push("skill gap");
-  if (daysLeft != null) {
-    if (daysLeft < 0) parts.push(`${Math.abs(Math.ceil(daysLeft))}d overdue`);
-    else parts.push(`${Math.ceil(daysLeft)} days left`);
+  const reasons = [];
+  if (staff.status === "AVAILABLE") {
+    reasons.push({ ok: true, code: "available", label: "Available" });
+  } else {
+    reasons.push({
+      ok: false,
+      code: "availability",
+      label: staff.status === "BUSY" ? "Currently busy" : staff.status.replace("_", " ")
+    });
   }
-  if (priority === "RUSH" || priority === "VIP") parts.push(priority);
-  if ((staff._activeCount || 0) > 0) parts.push(`${staff._activeCount} active jobs`);
-  return parts.join(" · ");
+
+  if (skillMatch >= 0.75) {
+    reasons.push({ ok: true, code: "skill", label: "Required skill + good skill match" });
+  } else if (skillMatch >= 0.5) {
+    reasons.push({ ok: true, code: "skill", label: "Has required skill" });
+  } else {
+    reasons.push({ ok: false, code: "skill", label: "Skill gap for this difficulty" });
+  }
+
+  const active = staff._activeCount || 0;
+  if (active === 0) {
+    reasons.push({ ok: true, code: "workload", label: "No active assignments" });
+  } else if (active <= 2) {
+    reasons.push({ ok: true, code: "workload", label: `Low workload (${active} active)` });
+  } else {
+    reasons.push({ ok: false, code: "workload", label: `${active} active assignments` });
+  }
+
+  if (daysLeft != null) {
+    if (daysLeft < 0) {
+      reasons.push({
+        ok: false,
+        code: "due",
+        label: `${Math.abs(Math.ceil(daysLeft))}d overdue`
+      });
+    } else if (daysLeft <= 2) {
+      reasons.push({ ok: false, code: "due", label: `${Math.ceil(daysLeft)} days left — urgent` });
+    } else {
+      reasons.push({ ok: true, code: "due", label: `${Math.ceil(daysLeft)} days until due` });
+    }
+  }
+
+  if (priority === "VIP" || priority === "RUSH") {
+    reasons.push({ ok: true, code: "priority", label: `${priority} order` });
+  }
+
+  return {
+    reason: reasons.map((r) => r.label).join(" · "),
+    reasons
+  };
 }
 
 /**
@@ -99,6 +137,13 @@ export async function rankStaffForAssignment(orderItemId, stage) {
       const rankedScore =
         w.urgency * u + w.skillMatch * skill + w.availability * avail + w.priority * p;
 
+      const built = buildReason({
+        staff,
+        skillMatch: skill,
+        priority: order.priority,
+        daysLeft
+      });
+
       return {
         staff: {
           _id: staff.id,
@@ -116,12 +161,8 @@ export async function rankStaffForAssignment(orderItemId, stage) {
           priorityScore: Number(p.toFixed(3)),
           rankedScore: Number(rankedScore.toFixed(4))
         },
-        reason: buildReason({
-          staff,
-          skillMatch: skill,
-          priority: order.priority,
-          daysLeft
-        })
+        reason: built.reason,
+        reasons: built.reasons
       };
     })
     .sort((a, b) => b.scores.rankedScore - a.scores.rankedScore);

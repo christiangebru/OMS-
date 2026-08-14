@@ -1,69 +1,39 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import clsx from "clsx";
+import { navForRole } from "@/lib/roles";
+import { Button } from "@/components/ui/Button";
 
 export function Header() {
   const { user, logout } = useAuth();
-
-  function toggleTheme() {
-    const root = document.documentElement;
-    const next = !root.classList.contains("dark");
-    root.classList.toggle("dark", next);
-    localStorage.setItem("theme", next ? "dark" : "light");
-  }
+  const items = navForRole(user?.role);
 
   return (
-    <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90">
+    <header className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
       <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6">
-        <div className="flex items-center gap-3 lg:hidden">
+        <div className="flex min-w-0 items-center gap-3 lg:hidden">
           <Link
             to="/"
-            className="rounded-lg bg-slate-900 px-2 py-1 text-xs font-bold text-white dark:bg-brand-600"
+            className="rounded-control bg-accent px-2 py-1 text-[11px] font-semibold text-white"
           >
-            CO
+            AT
           </Link>
-          <nav className="flex gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
-            <Link className="hover:text-brand-600" to="/">
-              Home
-            </Link>
-            <Link className="hover:text-brand-600" to="/scan">
-              Scan
-            </Link>
-            <Link className="hover:text-brand-600" to="/orders">
-              Orders
-            </Link>
-            <Link className="hover:text-brand-600" to="/customers">
-              Customers
-            </Link>
-            <Link className="hover:text-brand-600" to="/staff">
-              Staff
-            </Link>
+          <nav className="flex gap-2 overflow-x-auto text-xs font-medium text-ink-muted">
+            {items.slice(0, 5).map((l) => (
+              <Link key={l.to} className="whitespace-nowrap hover:text-ink" to={l.to}>
+                {l.label}
+              </Link>
+            ))}
           </nav>
         </div>
         <div className="hidden lg:block" />
-        <div className="flex items-center gap-2 sm:gap-3">
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className={clsx(
-              "rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium",
-              "text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            )}
-            aria-label="Toggle dark mode"
-          >
-            Theme
-          </button>
-          <div className="hidden text-right text-xs sm:block">
-            <p className="font-semibold text-slate-800 dark:text-slate-100">{user?.name}</p>
-            <p className="capitalize text-slate-500 dark:text-slate-400">{user?.role}</p>
+        <div className="flex items-center gap-3">
+          <div className="hidden text-right sm:block">
+            <p className="text-xs font-semibold text-ink">{user?.name}</p>
+            <p className="text-[11px] capitalize text-ink-muted">{user?.role}</p>
           </div>
-          <button
-            type="button"
-            onClick={logout}
-            className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white dark:bg-brand-600"
-          >
+          <Button variant="secondary" size="sm" type="button" onClick={logout}>
             Log out
-          </button>
+          </Button>
         </div>
       </div>
     </header>

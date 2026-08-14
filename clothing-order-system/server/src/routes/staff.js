@@ -3,6 +3,7 @@ import { body, param, query, validationResult } from "express-validator";
 import { prisma } from "../db/prisma.js";
 import { s, sMany } from "../utils/serialize.js";
 import { requireAuth } from "../middleware/auth.js";
+import { requireCapability } from "../middleware/permissions.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { StaffRole, StaffStatus, ProductionStage } from "../constants/production.js";
 
@@ -11,7 +12,24 @@ router.use(requireAuth);
 
 async function withSkills(staff) {
   const skills = await prisma.staffSkill.findMany({ where: { staffId: staff.id } });
-  return { ...s(staff), skills: skills.map((sk) => sk.stage) };
+  return {
+    ...s(staff),
+    skills: skills.map((sk) => sk.stage),
+    skillDetails: skills.map((sk) => ({ stage: sk.stage, level: sk.level || 3 }))
+  };
+}
+
+function normalizeSkillInputs(raw, fallbackLevel = 3) {
+  const out = [];
+  for (const sk of raw || []) {
+    if (typeof sk === "string" && ProductionStage.includes(sk)) {
+      out.push({ stage: sk, level: fallbackLevel });
+    } else if (sk && typeof sk === "object" && ProductionStage.includes(sk.stage)) {
+      const level = Math.min(5, Math.max(1, Number(sk.level) || fallbackLevel));
+      out.push({ stage: sk.stage, level });
+    }
+  }
+  return out;
 }
 
 router.get(
@@ -53,14 +71,37 @@ router.get("/:id/workload", param("id").isMongoId(), async (req, res) => {
   });
   if (!staff) return res.status(404).json({ message: "Staff not found" });
 
-  const activeCount = await prisma.staffAssignment.count({
-    where: { staffId: staff.id, completedAt: null }
+  const active = await prisma.staffAssignment.findMany({
+    where: { staffId: staff.id, completedAt: null },
+    include: { orderItem: true }
+  });
+  const activeCount = active.length;
+
+  const completedCount = await prisma.staffAssignment.count({
+    where: { staffId: staff.id, completedAt: { not: null } }
   });
 
   const recentCompletions = await prisma.staffAssignment.findMany({
     where: { staffId: staff.id, completedAt: { not: null } },
     orderBy: { completedAt: "desc" },
     take: 20
+  });
+
+  const orderIds = [...new Set(active.map((a) => a.orderItem.order).filter(Boolean))];
+  const orders = orderIds.length
+    ? await prisma.order.findMany({
+        where: { id: { in: orderIds } },
+        include: { customer: true }
+      })
+    : [];
+  const orderById = new Map(orders.map((o) => [o.id, o]));
+  const now = new Date();
+  const overdueItems = active.filter((a) => {
+    const o = orderById.get(a.orderItem.order);
+    if (!o) return false;
+    return (
+      o.requiredCompletionDate < now && !["completed", "delivered"].includes(o.productionStatus)
+    );
   });
 
   const checkpoints = await prisma.stageCheckpoint.findMany({
@@ -83,9 +124,34 @@ router.get("/:id/workload", param("id").isMongoId(), async (req, res) => {
     staffId: staff.id,
     name: staff.name,
     activeAssignmentCount: activeCount,
+    completedAssignmentCount: completedCount,
+    overdueAssignmentCount: overdueItems.length,
     recentCompletions: sMany(recentCompletions),
     averageStageDurationMs: avgStageDurationMs,
-    completedCheckpointSample: checkpoints.length
+    completedCheckpointSample: checkpoints.length,
+    assignedItems: active.map((a) => {
+      const o = orderById.get(a.orderItem.order);
+      return {
+        assignmentId: a.id,
+        stage: a.stage,
+        assignedAt: a.assignedAt,
+        distributedAt: a.distributedAt,
+        receivedAt: a.receivedAt,
+        item: {
+          _id: a.orderItem.id,
+          clothingType: a.orderItem.clothingType,
+          barcodeValue: a.orderItem.barcodeValue,
+          orderId: a.orderItem.orderId
+        },
+        due: o?.requiredCompletionDate || null,
+        overdue: o
+          ? o.requiredCompletionDate < now &&
+            !["completed", "delivered"].includes(o.productionStatus)
+          : false,
+        customerName: o?.customer?.name || null,
+        priority: o?.priority || null
+      };
+    })
   });
 });
 
@@ -102,6 +168,7 @@ router.get("/:id", param("id").isMongoId(), async (req, res) => {
 
 router.post(
   "/",
+  requireCapability("staff.write"),
   body("name").trim().notEmpty(),
   body("phone").trim().notEmpty(),
   body("role").isIn(StaffRole),
@@ -112,7 +179,7 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    const skills = (req.body.skills || []).filter((sk) => ProductionStage.includes(sk));
+    const skills = normalizeSkillInputs(req.body.skills, req.body.skillLevel || 3);
     const staff = await prisma.staff.create({
       data: {
         tenantId: DEFAULT_TENANT_ID,
@@ -127,7 +194,7 @@ router.post(
 
     if (skills.length) {
       await prisma.staffSkill.createMany({
-        data: skills.map((stage) => ({ staffId: staff.id, stage })),
+        data: skills.map((sk) => ({ staffId: staff.id, stage: sk.stage, level: sk.level })),
         skipDuplicates: true
       });
     }
@@ -138,6 +205,7 @@ router.post(
 
 router.patch(
   "/:id",
+  requireCapability("staff.write"),
   param("id").isMongoId(),
   body("name").optional().trim().notEmpty(),
   body("phone").optional().trim().notEmpty(),
@@ -166,11 +234,11 @@ router.patch(
     const updated = await prisma.staff.update({ where: { id: staff.id }, data });
 
     if (Array.isArray(req.body.skills)) {
-      const skills = req.body.skills.filter((sk) => ProductionStage.includes(sk));
+      const skills = normalizeSkillInputs(req.body.skills, updated.skillLevel || 3);
       await prisma.staffSkill.deleteMany({ where: { staffId: staff.id } });
       if (skills.length) {
         await prisma.staffSkill.createMany({
-          data: skills.map((stage) => ({ staffId: staff.id, stage })),
+          data: skills.map((sk) => ({ staffId: staff.id, stage: sk.stage, level: sk.level })),
           skipDuplicates: true
         });
       }
@@ -180,7 +248,7 @@ router.patch(
   }
 );
 
-router.post("/:id/deactivate", param("id").isMongoId(), async (req, res) => {
+router.post("/:id/deactivate", requireCapability("staff.write"), param("id").isMongoId(), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 

@@ -37,6 +37,9 @@ model Customer {
   name           String
   phone          String
   secondaryPhone String   @default("")
+  email          String   @default("")
+  address        String   @default("")
+  notes          String   @default("")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -52,6 +55,8 @@ model Customer {
 model Measurement {
   id           String   @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
   customerId   String
+  /// male | female | child | baby | unspecified
+  category     String   @default("unspecified")
   chest        Float?
   waist        Float?
   hip          Float?
@@ -60,12 +65,15 @@ model Measurement {
   inseam       Float?
   neck         Float?
   notes        String   @default("")
+  /// Extra category-specific fields (e.g. bust, dressLength) without schema churn.
+  fields       Json?
   recordedAt   DateTime @default(now())
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
   @@index([recordedAt])
+  @@index([category])
   @@map("measurements")
 }
 
@@ -138,6 +146,9 @@ model OrderItemImage {
   orderItemId String
   imageUrl    String
   caption     String   @default("")
+  /// front | back | sleeve | collar | embroidery | fabric | design | customer | other
+  category    String   @default("other")
+  sortOrder   Int      @default(0)
   uploadedAt  DateTime @default(now())
 
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
@@ -201,6 +212,7 @@ model StaffSkill {
   id      String @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
   staffId String
   stage   String
+  level   Int    @default(3)
 
   staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
 
@@ -210,14 +222,19 @@ model StaffSkill {
 }
 
 model StaffAssignment {
-  id                String    @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
-  staffId           String
-  orderItemId       String
-  stage             String
-  assignedAt        DateTime  @default(now())
-  completedAt       DateTime?
-  suggestedStaffId  String?
-  followedSuggestion Boolean  @default(false)
+  id                 String    @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
+  staffId            String
+  orderItemId        String
+  stage              String
+  assignedAt         DateTime  @default(now())
+  completedAt        DateTime?
+  suggestedStaffId   String?
+  followedSuggestion Boolean   @default(false)
+  /// Manager handed the physical garment to the worker (distinct from assigned).
+  distributedAt      DateTime?
+  distributedByUserId String?
+  /// Worker acknowledged receipt of the garment.
+  receivedAt         DateTime?
 
   staff     Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)

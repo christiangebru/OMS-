@@ -1,4 +1,13 @@
-export type UserRole = "admin" | "manager";
+export type UserRole =
+  | "admin"
+  | "manager"
+  | "reception"
+  | "cutter"
+  | "tailor"
+  | "embroiderer"
+  | "finisher"
+  | "packer"
+  | "delivery";
 
 export type NeckType = "V-shape" | "square" | "oval";
 export type HandType = "wide" | "normal";
@@ -30,6 +39,8 @@ export interface OrderItemImage {
   orderItemId?: string;
   imageUrl: string;
   caption?: string;
+  category?: string;
+  sortOrder?: number;
   uploadedAt?: string;
 }
 
@@ -82,6 +93,9 @@ export interface CustomerSummary {
   name: string;
   phone: string;
   secondaryPhone?: string;
+  email?: string;
+  address?: string;
+  notes?: string;
 }
 
 export interface Order {
@@ -111,6 +125,7 @@ export interface Order {
 export interface Measurement {
   _id: string;
   customerId: string;
+  category?: string;
   chest?: number;
   waist?: number;
   hip?: number;
@@ -119,6 +134,7 @@ export interface Measurement {
   inseam?: number;
   neck?: number;
   notes?: string;
+  fields?: Record<string, string | number | null>;
   recordedAt: string;
 }
 
@@ -137,6 +153,7 @@ export interface Customer extends CustomerSummary {
     depositPaid?: number;
     requiredCompletionDate: string;
     createdAt: string;
+    items?: OrderItem[];
   }>;
 }
 
@@ -149,6 +166,7 @@ export interface Staff {
   skillLevel: number;
   active: boolean;
   skills?: ProductionStage[];
+  skillDetails?: Array<{ stage: ProductionStage; level: number }>;
   createdAt?: string;
 }
 
@@ -207,6 +225,7 @@ export interface ScanDetails {
     _id: string;
     productionStatus: ProductionStatus;
     priority?: OrderPriority;
+    createdAt?: string;
     siblingItems: Array<{
       _id: string;
       clothingType: string;
@@ -229,6 +248,19 @@ export interface ScanDetails {
     nextExpectedStage: ProductionStage;
     stageSequence: ProductionStage[];
   };
+  production?: {
+    action: "check_in" | "check_out";
+    actionStage: ProductionStage;
+    stageStates: StageState[];
+    assignment?: {
+      _id: string;
+      stage: string;
+      assignedAt: string;
+      distributedAt?: string | null;
+      receivedAt?: string | null;
+      staff?: { _id: string; name: string; role: string; status: string } | null;
+    } | null;
+  };
 }
 
 export interface StaffRanking {
@@ -249,6 +281,20 @@ export interface StaffRanking {
     rankedScore: number;
   };
   reason: string;
+  reasons?: Array<{ ok: boolean; code: string; label: string }>;
+}
+
+export interface StageState {
+  stage: ProductionStage;
+  status: "completed" | "in_progress" | "waiting" | "next";
+  checkedInAt?: string | null;
+  checkedOutAt?: string | null;
+  durationMs?: number | null;
+  open?: boolean;
+  isCurrent?: boolean;
+  notes?: string;
+  checkedInBy?: { _id: string; name: string; role: string } | null;
+  checkedOutBy?: { _id: string; name: string; role: string } | null;
 }
 
 export interface TimelineEntry {
@@ -261,4 +307,106 @@ export interface TimelineEntry {
   checkedOutBy?: { _id: string; name: string; role: string } | null;
   durationMs?: number | null;
   open: boolean;
+}
+
+export interface ClothingTypeConfig {
+  _id: string;
+  key: string;
+  label: string;
+  stageSequence: ProductionStage[];
+  includesEmbroidery: boolean;
+}
+
+export interface DashboardOperations {
+  today: {
+    orders: number;
+    dueToday: number;
+    overdue: number;
+    inProduction: number;
+    ready: number;
+  };
+  production: Record<
+    string,
+    { waiting: number; assigned: number; distributed: number; inProgress: number; total: number }
+  >;
+  distribution: {
+    unassigned: number;
+    awaitingDistribution: number;
+    assigned: number;
+    inProgress: number;
+  };
+  staff: { available: number; busy: number; unavailable: number; overloaded: number };
+  urgent: Array<{
+    orderId: string;
+    itemId: string;
+    clothingType: string;
+    customerName: string;
+    nextStage: string;
+    priority: string;
+    daysRemaining: number | null;
+    overdue: boolean;
+  }>;
+}
+
+export interface QueueItem {
+  itemId: string;
+  barcodeValue: string;
+  clothingType: string;
+  clothingCode: string;
+  difficultyLevel?: number;
+  orderId: string;
+  productionStatus: ProductionStatus;
+  priority: OrderPriority;
+  requiredCompletionDate: string;
+  daysRemaining: number | null;
+  overdue: boolean;
+  customer: CustomerSummary | null;
+  currentStage: ProductionStage | null;
+  nextStage: ProductionStage;
+  openStage?: string | null;
+  boardStatus: "waiting" | "assigned" | "distributed" | "received" | "in_progress";
+  assignment?: {
+    _id: string;
+    stage: string;
+    assignedAt: string;
+    distributedAt?: string | null;
+    receivedAt?: string | null;
+    staff?: { _id: string; name: string; role: string; status: string; skillLevel: number } | null;
+  } | null;
+  recommended?: StaffRanking | null;
+}
+
+export interface ProductionQueue {
+  generatedAt: string;
+  summary: {
+    itemsWaiting: number;
+    itemsAssigned: number;
+    itemsDistributed: number;
+    itemsInProgress: number;
+    overdueItems: number;
+    todayCreated: number;
+    dueToday: number;
+    overdueOrders: number;
+    inProduction: number;
+    ready: number;
+  };
+  staff: {
+    available: number;
+    busy: number;
+    unavailable: number;
+    overloaded: number;
+    workers: Staff[];
+  };
+  byStage: Record<
+    string,
+    {
+      stage: string;
+      waiting: number;
+      assigned: number;
+      distributed: number;
+      inProgress: number;
+      items: QueueItem[];
+    }
+  >;
+  items: QueueItem[];
 }

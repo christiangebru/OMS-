@@ -5,6 +5,7 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import "./index.css";
 import { AuthProvider } from "./context/AuthContext";
+import { ToastProvider } from "./context/ToastContext";
 
 registerSW({
   immediate: true,
@@ -19,7 +20,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        <ToastProvider>
+          <App />
+        </ToastProvider>
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>

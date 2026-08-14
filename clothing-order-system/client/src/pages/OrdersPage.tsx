@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiJson, ApiError, imageUrlFromPath } from "@/lib/api";
-import type { Order, ProductionStatus } from "@/lib/types";
+import type { Order, OrderPriority, ProductionStatus } from "@/lib/types";
+import { formatDate } from "@/lib/format";
+import { PageHeader, EmptyState, ErrorState, Badge } from "@/components/ui/PageHeader";
+import { Button } from "@/components/ui/Button";
+import { useToast } from "@/context/ToastContext";
+import { useAuth } from "@/context/AuthContext";
+import { canWriteOrders } from "@/lib/roles";
 import clsx from "clsx";
 
 const STATUSES: ProductionStatus[] = [
@@ -12,77 +18,38 @@ const STATUSES: ProductionStatus[] = [
   "completed",
   "delivered"
 ];
+const PRIORITIES: Array<OrderPriority | ""> = ["", "NORMAL", "RUSH", "VIP"];
 
 export function OrdersPage() {
+  const { push } = useToast();
+  const { user } = useAuth();
+  const canCreate = canWriteOrders(user?.role);
   const [orders, setOrders] = useState<Order[]>([]);
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<string>("");
-  const [clothingType, setClothingType] = useState("");
+  const [status, setStatus] = useState("");
+  const [priority, setPriority] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
     if (q.trim()) p.set("q", q.trim());
     if (status) p.set("status", status);
-    if (clothingType.trim()) p.set("clothingType", clothingType.trim());
     const s = p.toString();
     return s ? `?${s}` : "";
-  }, [q, status, clothingType]);
-const copyTailorDetails = (order: Order) => {
-  const customerLabel = order.customerName || order.customer?.name || "—";
-  let text = `CUSTOMER: ${customerLabel}\n\n`;
+  }, [q, status]);
 
-  order.items.forEach((item, index) => {
-    text += `ITEM ${index + 1}\n`;
-    text += `Type: ${item.clothingType}\n`;
-
-    if (item.color) {
-      text += `Color: ${item.color}\n`;
-    }
-
-    if (item.fabricType) {
-      text += `Fabric: ${item.fabricType}\n`;
-    }
-
-    text += `Quantity: ${item.quantity}\n`;
-
-    if (item.neckType) {
-      text += `Neck: ${item.neckType}\n`;
-    }
-
-    if (item.handType) {
-      text += `Hand: ${item.handType}\n`;
-    }
-
-    if (item.notes) {
-      text += `Notes: ${item.notes}\n`;
-    }
-
-    if (item.measurements) {
-      text += `\nMEASUREMENTS\n`;
-
-      Object.entries(item.measurements).forEach(([key, value]) => {
-        if (value) {
-          text += `${key}: ${value}\n`;
-        }
-      });
-    }
-
-    text += `\n------------------\n\n`;
-  });
-
-  navigator.clipboard.writeText(text);
-
-  alert("Tailor details copied!");
-};
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      setLoading(true);
       try {
         const data = await apiJson<Order[]>(`/api/orders${queryString}`);
         if (!cancelled) setOrders(data);
       } catch (e) {
         if (!cancelled) setErr(e instanceof ApiError ? e.message : "Failed to load orders");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
@@ -90,26 +57,46 @@ const copyTailorDetails = (order: Order) => {
     };
   }, [queryString]);
 
+  const visible = orders.filter((o) => (priority ? o.priority === priority : true));
+
+  function copyTailorDetails(order: Order) {
+    const customerLabel = order.customerName || order.customer?.name || "—";
+    let text = `CUSTOMER: ${customerLabel}\n\n`;
+    order.items.forEach((item, index) => {
+      text += `ITEM ${index + 1}\nType: ${item.clothingType}\n`;
+      if (item.color) text += `Color: ${item.color}\n`;
+      if (item.fabricType) text += `Fabric: ${item.fabricType}\n`;
+      text += `Quantity: ${item.quantity}\n`;
+      if (item.notes) text += `Notes: ${item.notes}\n`;
+      if (item.measurements) {
+        text += `\nMEASUREMENTS\n`;
+        Object.entries(item.measurements).forEach(([key, value]) => {
+          if (value) text += `${key}: ${value}\n`;
+        });
+      }
+      text += `\n------------------\n\n`;
+    });
+    navigator.clipboard.writeText(text);
+    push("Copied garment details", "ok");
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Orders</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Search by customer, order ID, or clothing type. Filter by status.
-          </p>
-        </div>
-        <Link
-          to="/orders/new"
-          className="inline-flex justify-center rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow hover:bg-brand-700"
-        >
-          New order
-        </Link>
-      </div>
+      <PageHeader
+        title="Orders"
+        description="Find work by customer, due date, stage, or priority."
+        actions={
+          canCreate ? (
+            <Link to="/orders/new">
+              <Button>New order</Button>
+            </Link>
+          ) : undefined
+        }
+      />
 
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-card dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-3">
         <div>
-          <label className="text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="search-q">
+          <label className="ui-label" htmlFor="search-q">
             Search
           </label>
           <input
@@ -117,19 +104,14 @@ const copyTailorDetails = (order: Order) => {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Name, order ID, type…"
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            className="ui-input"
           />
         </div>
         <div>
-          <label className="text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="search-status">
+          <label className="ui-label" htmlFor="search-status">
             Status
           </label>
-          <select
-            id="search-status"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          >
+          <select id="search-status" value={status} onChange={(e) => setStatus(e.target.value)} className="ui-input">
             <option value="">All</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -138,136 +120,126 @@ const copyTailorDetails = (order: Order) => {
             ))}
           </select>
         </div>
-        <div className="sm:col-span-2">
-          <label
-            className="text-xs font-semibold text-slate-600 dark:text-slate-300"
-            htmlFor="search-type"
-          >
-            Clothing type contains
+        <div>
+          <label className="ui-label" htmlFor="search-priority">
+            Priority
           </label>
-          <input
-            id="search-type"
-            value={clothingType}
-            onChange={(e) => setClothingType(e.target.value)}
-            placeholder="e.g. Shirt"
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
+          <select
+            id="search-priority"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+            className="ui-input"
+          >
+            {PRIORITIES.map((p) => (
+              <option key={p || "all"} value={p}>
+                {p || "All"}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {err && <p className="text-sm text-red-600 dark:text-red-400">{err}</p>}
+      {err && <ErrorState message={err} />}
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-card dark:border-slate-800 dark:bg-slate-900">
+      <div className="overflow-hidden ui-card">
         <div className="overflow-x-auto">
-          <table className="min-w-[900px] w-full border-collapse text-left text-sm">
-            <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <table className="ui-table min-w-[880px] w-full text-sm">
+            <thead className="border-b border-line bg-canvas/70">
               <tr>
-                <th className="px-4 py-3">Order</th>
-                <th className="px-4 py-3">Customer</th>
-                <th className="px-4 py-3">Items</th>
-                <th className="px-4 py-3">Due</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Group</th>
-                <th className="px-4 py-3" />
+                <th>Order</th>
+                <th>Customer</th>
+                <th>Items</th>
+                <th>Due</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th />
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => (
-                <tr
-                  key={o.orderId}
-                  className="border-t border-slate-100 dark:border-slate-800"
-                >
-                  <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800 dark:text-slate-100">
-                    {o.orderId}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900 dark:text-white">
-                      {o.customerName || o.customer?.name || "—"}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      {o.customerPhone || o.customer?.phone || ""}
-                    </div>
-                    {(o.totalAgreedPrice != null || o.balanceRemaining != null) && (
-                      <div className="mt-1 text-xs text-slate-500">
-                        Balance{" "}
-                        {(
-                          o.balanceRemaining ??
-                          Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0))
-                        ).toFixed(2)}
+              {visible.map((o) => {
+                const due = new Date(o.requiredCompletionDate);
+                const overdue =
+                  due.getTime() < Date.now() && !["completed", "delivered"].includes(o.productionStatus);
+                return (
+                  <tr key={o.orderId} className="border-t border-line">
+                    <td className="font-mono text-xs font-semibold">{o.orderId}</td>
+                    <td>
+                      <div className="font-medium text-ink">{o.customerName || o.customer?.name || "—"}</div>
+                      <div className="text-xs text-ink-muted">{o.customerPhone || o.customer?.phone || ""}</div>
+                    </td>
+                    <td>
+                      <div className="flex flex-wrap gap-1.5">
+                        {o.items.slice(0, 3).map((it) => {
+                          const first = it.images?.[0]?.imageUrl || it.imagePath || "";
+                          return (
+                            <span
+                              key={it._id || it.clothingCode}
+                              className="inline-flex items-center gap-1 rounded bg-canvas px-1.5 py-0.5 text-xs"
+                            >
+                              {first ? (
+                                <img src={imageUrlFromPath(first)} alt="" className="h-5 w-5 rounded object-cover" />
+                              ) : null}
+                              {it.clothingType}
+                            </span>
+                          );
+                        })}
+                        {o.items.length > 3 && (
+                          <span className="text-xs text-ink-faint">+{o.items.length - 3}</span>
+                        )}
                       </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      {o.items.slice(0, 3).map((it) => {
-                        const first =
-                          it.images?.[0]?.imageUrl || it.imagePath || "";
-                        const extra = Math.max(0, (it.images?.length || (it.imagePath ? 1 : 0)) - 1);
-                        return (
-                          <span
-                            key={it._id || it.clothingCode}
-                            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-800"
-                          >
-                            {first ? (
-                              <span className="relative">
-                                <img
-                                  src={imageUrlFromPath(first)}
-                                  alt=""
-                                  className="h-6 w-6 rounded object-cover"
-                                />
-                                {extra > 0 && (
-                                  <span className="absolute -right-1 -top-1 rounded bg-slate-900 px-1 text-[9px] text-white">
-                                    +{extra}
-                                  </span>
-                                )}
-                              </span>
-                            ) : null}
-                            {it.clothingType} ×{it.quantity}
-                          </span>
-                        );
-                      })}
-                      {o.items.length > 3 && (
-                        <span className="text-xs text-slate-400">+{o.items.length - 3}</span>
+                    </td>
+                    <td className={clsx("text-xs", overdue && "font-semibold text-red-700")}>
+                      {formatDate(o.requiredCompletionDate)}
+                    </td>
+                    <td>
+                      <Badge
+                        tone={
+                          o.productionStatus === "delivered" || o.productionStatus === "completed"
+                            ? "ok"
+                            : o.productionStatus === "pending"
+                              ? "neutral"
+                              : "progress"
+                        }
+                      >
+                        {o.productionStatus}
+                      </Badge>
+                    </td>
+                    <td>
+                      {o.priority && o.priority !== "NORMAL" ? (
+                        <Badge tone={o.priority === "VIP" ? "accent" : "warn"}>{o.priority}</Badge>
+                      ) : (
+                        <span className="text-xs text-ink-faint">Normal</span>
                       )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
-                    {o.requiredCompletionDate?.slice(0, 10)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={clsx(
-                        "inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize",
-                        statusClass(o.productionStatus)
-                      )}
-                    >
-                      {o.productionStatus}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500">{o.groupCode || "—"}</td>
-                  <td className="px-4 py-3 text-right">
-  <div className="flex justify-end gap-2">
-    <button
-      onClick={() => copyTailorDetails(o)}
-      className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
-    >
-      Copy
-    </button>
-
-    <Link
-      to={`/orders/${encodeURIComponent(o.orderId)}`}
-      className="rounded-lg bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-white"
-    >
-      Open
-    </Link>
-  </div>
-</td>
-                </tr>
-              ))}
-              {!orders.length && (
+                    </td>
+                    <td className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button type="button" size="sm" variant="ghost" onClick={() => copyTailorDetails(o)}>
+                          Copy
+                        </Button>
+                        <Link to={`/orders/${encodeURIComponent(o.orderId)}`}>
+                          <Button size="sm" variant="secondary">
+                            Open
+                          </Button>
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!loading && !visible.length && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                    No orders match your filters.
+                  <td colSpan={7} className="p-0">
+                    <EmptyState
+                      title="No orders match"
+                      body="Try clearing filters, or create a new order."
+                      action={
+                        canCreate ? (
+                          <Link to="/orders/new">
+                            <Button>New order</Button>
+                          </Link>
+                        ) : undefined
+                      }
+                    />
                   </td>
                 </tr>
               )}
@@ -277,16 +249,4 @@ const copyTailorDetails = (order: Order) => {
       </div>
     </div>
   );
-}
-
-function statusClass(s: ProductionStatus) {
-  switch (s) {
-    case "completed":
-    case "delivered":
-      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
-    case "pending":
-      return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
-    default:
-      return "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100";
-  }
 }

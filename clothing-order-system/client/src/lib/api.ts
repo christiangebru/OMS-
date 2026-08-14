@@ -63,6 +63,21 @@ export async function uploadOrderItemImages(
   return data;
 }
 
+export async function patchOrderItemImage(
+  itemId: string,
+  imageId: string,
+  data: { caption?: string; category?: string; sortOrder?: number }
+) {
+  return apiJson(`/api/order-items/${itemId}/images/${imageId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteOrderItemImage(itemId: string, imageId: string) {
+  return apiJson(`/api/order-items/${itemId}/images/${imageId}`, { method: "DELETE" });
+}
+
 export function imageUrlFromPath(path: string): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;

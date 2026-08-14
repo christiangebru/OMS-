@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { body, param, query, validationResult } from "express-validator";
 import { prisma } from "../db/prisma.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAuth } from "../middleware/auth.js";
+import { requireCapability } from "../middleware/permissions.js";
 import { newId } from "../utils/ids.js";
 import { generateOrderId, computeEstimatedCompletion } from "../utils/orderId.js";
 import { refreshStatisticSnapshot } from "../utils/stats.js";
@@ -289,6 +290,7 @@ router.get("/:orderId", param("orderId").notEmpty(), async (req, res) => {
 
 router.post(
   "/",
+  requireCapability("orders.write"),
   body("requiredCompletionDate").isISO8601(),
   body("items").isArray({ min: 1 }),
   body("productionStatus").optional().isIn(ProductionStatus),
@@ -356,6 +358,7 @@ router.post(
 
 router.put(
   "/:orderId",
+  requireCapability("orders.write"),
   param("orderId").notEmpty(),
   body("requiredCompletionDate").optional().isISO8601(),
   body("items").optional().isArray({ min: 1 }),
@@ -438,7 +441,7 @@ router.put(
 
 router.delete(
   "/:orderId",
-  requireRole("admin"),
+  requireCapability("orders.delete"),
   param("orderId").notEmpty(),
   async (req, res) => {
     const order = await prisma.order.findUnique({ where: { orderId: req.params.orderId } });

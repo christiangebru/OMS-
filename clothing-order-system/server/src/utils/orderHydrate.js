@@ -40,7 +40,7 @@ export async function hydrateOrder(order, { includeCheckpoints = true } = {}) {
     itemIds.length
       ? prisma.orderItemImage.findMany({
           where: { orderItemId: { in: itemIds } },
-          orderBy: { uploadedAt: "asc" }
+          orderBy: [{ sortOrder: "asc" }, { uploadedAt: "asc" }]
         })
       : Promise.resolve([]),
     includeCheckpoints && itemIds.length
@@ -79,7 +79,7 @@ export async function hydrateOrders(orders) {
   const images = allItemIds.length
     ? await prisma.orderItemImage.findMany({
         where: { orderItemId: { in: allItemIds } },
-        orderBy: { uploadedAt: "asc" }
+        orderBy: [{ sortOrder: "asc" }, { uploadedAt: "asc" }]
       })
     : [];
 

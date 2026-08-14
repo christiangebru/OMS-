@@ -1,15 +1,17 @@
 import { Router } from "express";
-import { body, query, validationResult } from "express-validator";
+import { body, query, param, validationResult } from "express-validator";
 import { prisma } from "../db/prisma.js";
 import { s } from "../utils/serialize.js";
 import { requireAuth } from "../middleware/auth.js";
-import { ProductionStage } from "../constants/production.js";
+import { ProductionStage, stagesForUserRole } from "../constants/production.js";
+import { requireCapability } from "../middleware/permissions.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { resolveItemByBarcode, buildScanDetails } from "../utils/scanDetails.js";
 import { resolveStageSequence, validateCheckIn } from "../utils/stageSequence.js";
 import { syncOrderStatusFromItems } from "../utils/syncOrderFromStages.js";
 import { rankStaffForAssignment } from "../utils/assignmentScore.js";
 import { hydrateOrder } from "../utils/orderHydrate.js";
+import { buildProductionQueue } from "../utils/productionBoard.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -145,6 +147,7 @@ router.post(
 
 router.get(
   "/suggest-assignment",
+  requireCapability("distribution"),
   query("orderItemId").isMongoId(),
   query("stage").isIn(ProductionStage),
   async (req, res) => {
@@ -167,6 +170,7 @@ router.get(
 
 router.post(
   "/assignments",
+  requireCapability("distribution"),
   body("staffId").isMongoId(),
   body("orderItemId").isMongoId(),
   body("stage").isIn(ProductionStage),
@@ -180,6 +184,14 @@ router.post(
       await assertStaffForStage(req.body.staffId, req.body.stage, { requireAvailable: false });
 
       const assignment = await prisma.$transaction(async (tx) => {
+        await tx.staffAssignment.updateMany({
+          where: {
+            orderItemId: req.body.orderItemId,
+            stage: req.body.stage,
+            completedAt: null
+          },
+          data: { completedAt: new Date() }
+        });
         const created = await tx.staffAssignment.create({
           data: {
             staffId: req.body.staffId,
@@ -214,5 +226,81 @@ router.get("/lookup", query("barcodeValue").trim().notEmpty(), async (req, res) 
     throw e;
   }
 });
+
+router.get("/queue", requireCapability("distribution"), async (_req, res) => {
+  const board = await buildProductionQueue();
+  res.json(board);
+});
+
+router.get("/floor", requireCapability("scan"), async (req, res) => {
+  const stages = stagesForUserRole(req.user.role);
+  const board = await buildProductionQueue();
+  if (!stages) {
+    return res.json({
+      stages: [],
+      role: req.user.role,
+      items: board.items || []
+    });
+  }
+  const items = (board.items || []).filter((row) => {
+    const active = row.inProgress ? row.openStage : row.nextStage;
+    return stages.includes(active) || stages.includes(row.currentStage);
+  });
+  res.json({
+    stages,
+    role: req.user.role,
+    items
+  });
+});
+
+router.post(
+  "/assignments/:id/distribute",
+  requireCapability("distribution"),
+  param("id").isMongoId(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    const assignment = await prisma.staffAssignment.findUnique({
+      where: { id: req.params.id }
+    });
+    if (!assignment || assignment.completedAt) {
+      return res.status(404).json({ message: "Active assignment not found" });
+    }
+    const updated = await prisma.staffAssignment.update({
+      where: { id: assignment.id },
+      data: {
+        distributedAt: new Date(),
+        distributedByUserId: req.user.id
+      }
+    });
+    res.json(s(updated));
+  }
+);
+
+router.post(
+  "/assignments/:id/receive",
+  param("id").isMongoId(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    const assignment = await prisma.staffAssignment.findUnique({
+      where: { id: req.params.id }
+    });
+    if (!assignment || assignment.completedAt) {
+      return res.status(404).json({ message: "Active assignment not found" });
+    }
+    const updated = await prisma.staffAssignment.update({
+      where: { id: assignment.id },
+      data: {
+        receivedAt: new Date(),
+        distributedAt: assignment.distributedAt || new Date(),
+        distributedByUserId: assignment.distributedByUserId || req.user.id
+      }
+    });
+    res.json(s(updated));
+  }
+);
 
 export default router;

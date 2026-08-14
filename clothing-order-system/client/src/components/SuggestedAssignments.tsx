@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, StaffRanking } from "@/lib/types";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/PageHeader";
 
 type Props = {
   orderItemId: string;
@@ -58,46 +60,51 @@ export function SuggestedAssignments({ orderItemId, stage, onAssigned }: Props) 
     }
   }
 
-  if (loading) {
-    return <p className="text-sm text-slate-500">Loading suggestions…</p>;
-  }
+  if (loading) return <p className="text-sm text-ink-muted">Loading worker recommendations…</p>;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-      <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-        Suggested assignments — {stage}
-      </h3>
-      <p className="mt-1 text-xs text-slate-500">
-        Manager confirms — nothing is auto-assigned.
-      </p>
-      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+    <div className="ui-card p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-ink">Recommended workers</h3>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            Scoring uses skill, availability, workload, priority, and due date. Nothing is auto-assigned.
+          </p>
+        </div>
+        <Badge tone="neutral">{stage}</Badge>
+      </div>
+      {err && <p className="mt-2 text-sm text-red-700">{err}</p>}
       {!rankings.length && (
-        <p className="mt-3 text-sm text-slate-500">No eligible staff for this stage.</p>
+        <p className="mt-3 text-sm text-ink-muted">No eligible staff for this stage.</p>
       )}
-      <ul className="mt-3 space-y-2">
-        {rankings.slice(0, 8).map((r, idx) => (
-          <li
-            key={r.staff._id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800/60"
-          >
+      <ul className="mt-4 space-y-3">
+        {rankings.slice(0, 6).map((r, idx) => (
+          <li key={r.staff._id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg bg-canvas px-3 py-3">
             <div>
-              <p className="text-sm font-semibold">
-                {idx === 0 ? "★ " : ""}
-                {r.staff.name}{" "}
-                <span className="text-xs font-normal text-slate-500">
-                  skill {r.staff.skillLevel} · score {r.scores.rankedScore.toFixed(2)}
+              <p className="text-sm font-semibold text-ink">
+                {idx === 0 ? "Recommended · " : ""}
+                {r.staff.name}
+                <span className="ml-2 text-xs font-normal text-ink-muted">
+                  skill {r.staff.skillLevel} · {r.staff.activeAssignmentCount} active
                 </span>
               </p>
-              <p className="text-xs text-slate-500">{r.reason}</p>
+              <ul className="mt-1 space-y-0.5 text-[12px]">
+                {(r.reasons || [{ ok: true, code: "reason", label: r.reason }]).map((reason) => (
+                  <li key={reason.code + reason.label} className={reason.ok ? "text-accent" : "text-ink-muted"}>
+                    {reason.ok ? "✓" : "–"} {reason.label}
+                  </li>
+                ))}
+              </ul>
             </div>
-            <button
+            <Button
               type="button"
+              size="sm"
+              variant={idx === 0 ? "primary" : "secondary"}
               disabled={busyId === r.staff._id}
               onClick={() => assign(r, idx === 0)}
-              className="rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
             >
-              Assign to {r.staff.name.split(" ")[0]}
-            </button>
+              {idx === 0 ? "Accept" : "Assign"}
+            </Button>
           </li>
         ))}
       </ul>

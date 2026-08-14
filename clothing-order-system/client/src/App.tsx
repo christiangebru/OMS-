@@ -5,31 +5,23 @@ import { LoginPage } from "@/pages/LoginPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { OrdersPage } from "@/pages/OrdersPage";
 import { OrderEditPage } from "@/pages/OrderEditPage";
+import { NewOrderPage } from "@/pages/NewOrderPage";
 import { CustomersPage } from "@/pages/CustomersPage";
 import { CustomerDetailPage } from "@/pages/CustomerDetailPage";
 import { StaffPage } from "@/pages/StaffPage";
 import { StaffDetailPage } from "@/pages/StaffDetailPage";
-import { PrintLabelsPage } from "@/pages/PrintLabelsPage";
+import { LabelsWorkspacePage, PrintLabelsPage } from "@/pages/PrintLabelsPage";
 import { ScanPage } from "@/pages/ScanPage";
-import { useEffect, type ReactElement } from "react";
-
-function ThemeInit() {
-  useEffect(() => {
-    const stored = localStorage.getItem("theme");
-    const dark =
-      stored === "dark" ||
-      (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    document.documentElement.classList.toggle("dark", dark);
-  }, []);
-  return null;
-}
+import { DistributionPage } from "@/pages/DistributionPage";
+import type { ReactElement } from "react";
+import { canSee, canWriteOrders, isManagerRole } from "@/lib/roles";
 
 function Protected({ children }: { children: ReactElement }) {
   const { user, loading } = useAuth();
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+      <div className="flex min-h-screen items-center justify-center bg-canvas">
+        <div className="h-8 w-8 animate-pulse rounded-full bg-line" />
       </div>
     );
   }
@@ -37,40 +29,96 @@ function Protected({ children }: { children: ReactElement }) {
   return children;
 }
 
+function ManagerOnly({ children }: { children: ReactElement }) {
+  const { user } = useAuth();
+  if (!isManagerRole(user?.role)) return <Navigate to="/scan" replace />;
+  return children;
+}
+
+function HomeRoute() {
+  return <DashboardPage />;
+}
+
+function WriterOnly({ children }: { children: ReactElement }) {
+  const { user } = useAuth();
+  if (!canWriteOrders(user?.role)) return <Navigate to="/orders" replace />;
+  return children;
+}
+
+function LabelsOnly({ children }: { children: ReactElement }) {
+  const { user } = useAuth();
+  if (!canSee(user?.role, "labels")) return <Navigate to="/scan" replace />;
+  return children;
+}
+
 export default function App() {
   return (
-    <>
-      <ThemeInit />
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/orders/:orderId/print-labels"
+        element={
+          <Protected>
+            <PrintLabelsPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/"
+        element={
+          <Protected>
+            <AppLayout />
+          </Protected>
+        }
+      >
+        <Route index element={<HomeRoute />} />
+        <Route path="orders" element={<OrdersPage />} />
         <Route
-          path="/orders/:orderId/print-labels"
+          path="orders/new"
           element={
-            <Protected>
-              <PrintLabelsPage />
-            </Protected>
+            <WriterOnly>
+              <NewOrderPage />
+            </WriterOnly>
+          }
+        />
+        <Route path="orders/:orderId" element={<OrderEditPage />} />
+        <Route path="customers" element={<CustomersPage />} />
+        <Route path="customers/:id" element={<CustomerDetailPage />} />
+        <Route
+          path="staff"
+          element={
+            <ManagerOnly>
+              <StaffPage />
+            </ManagerOnly>
           }
         />
         <Route
-          path="/"
+          path="staff/:id"
           element={
-            <Protected>
-              <AppLayout />
-            </Protected>
+            <ManagerOnly>
+              <StaffDetailPage />
+            </ManagerOnly>
           }
-        >
-          <Route index element={<DashboardPage />} />
-          <Route path="orders" element={<OrdersPage />} />
-          <Route path="orders/new" element={<OrderEditPage />} />
-          <Route path="orders/:orderId" element={<OrderEditPage />} />
-          <Route path="customers" element={<CustomersPage />} />
-          <Route path="customers/:id" element={<CustomerDetailPage />} />
-          <Route path="staff" element={<StaffPage />} />
-          <Route path="staff/:id" element={<StaffDetailPage />} />
-          <Route path="scan" element={<ScanPage />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </>
+        />
+        <Route path="scan" element={<ScanPage />} />
+        <Route
+          path="distribution"
+          element={
+            <ManagerOnly>
+              <DistributionPage />
+            </ManagerOnly>
+          }
+        />
+        <Route
+          path="labels"
+          element={
+            <LabelsOnly>
+              <LabelsWorkspacePage />
+            </LabelsOnly>
+          }
+        />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

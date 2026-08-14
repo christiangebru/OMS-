@@ -2,8 +2,14 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { Customer } from "@/lib/types";
+import { formatDate } from "@/lib/format";
+import { PageHeader, ErrorState, EmptyState, Skeleton } from "@/components/ui/PageHeader";
+import { Button } from "@/components/ui/Button";
+import { useAuth } from "@/context/AuthContext";
+import { canWriteOrders } from "@/lib/roles";
 
 export function CustomersPage() {
+  const { user } = useAuth();
   const [q, setQ] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -11,7 +17,7 @@ export function CustomersPage() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const t = setTimeout(async () => {
       setLoading(true);
       try {
         const qs = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
@@ -22,69 +28,69 @@ export function CustomersPage() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    }, q ? 200 : 0);
     return () => {
       cancelled = true;
+      clearTimeout(t);
     };
   }, [q]);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Customers</h1>
-        <p className="text-sm text-slate-500">Reusable profiles with order and measurement history.</p>
-      </div>
+      <PageHeader
+        title="Customers"
+        description="Find someone by name, phone, or email, then open their profile."
+        actions={
+          canWriteOrders(user?.role) ? (
+            <Link to="/orders/new">
+              <Button>New order</Button>
+            </Link>
+          ) : undefined
+        }
+      />
 
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Search name or phone…"
-        className="w-full max-w-md rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+        placeholder="Search name, phone, or email…"
+        className="ui-input max-w-md"
+        aria-label="Search customers"
       />
 
-      {err && <p className="text-sm text-red-600">{err}</p>}
+      {err && <ErrorState message={err} />}
       {loading ? (
-        <div className="flex justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-        </div>
+        <Skeleton className="h-40" />
+      ) : customers.length === 0 ? (
+        <EmptyState title="No customers match" body="Try a shorter name or phone number." />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-card dark:border-slate-800 dark:bg-slate-900">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-800">
+        <div className="ui-card overflow-hidden">
+          <table className="ui-table min-w-full text-sm">
+            <thead className="bg-canvas">
               <tr>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Phone</th>
-                <th className="px-4 py-3">Orders</th>
-                <th className="px-4 py-3">Last order</th>
-                <th className="px-4 py-3" />
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Orders</th>
+                <th>Last order</th>
+                <th />
               </tr>
             </thead>
             <tbody>
               {customers.map((c) => (
-                <tr key={c._id} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="px-4 py-3 font-medium">{c.name}</td>
-                  <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.phone}</td>
-                  <td className="px-4 py-3">{c.orderCount ?? 0}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500">
-                    {c.lastOrderDate ? String(c.lastOrderDate).slice(0, 10) : "—"}
+                <tr key={c._id} className="border-t border-line">
+                  <td className="font-medium text-ink">
+                    {c.name}
+                    {c.email ? <span className="block text-xs text-ink-muted">{c.email}</span> : null}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      to={`/customers/${c._id}`}
-                      className="text-xs font-semibold text-brand-600 hover:underline"
-                    >
+                  <td className="text-ink-muted">{c.phone}</td>
+                  <td className="tabular">{c.orderCount ?? 0}</td>
+                  <td className="text-xs text-ink-muted">{formatDate(c.lastOrderDate)}</td>
+                  <td className="text-right">
+                    <Link to={`/customers/${c._id}`} className="text-xs font-semibold text-accent hover:underline">
                       Open
                     </Link>
                   </td>
                 </tr>
               ))}
-              {!customers.length && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                    No customers found.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
