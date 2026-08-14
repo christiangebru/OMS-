@@ -128,7 +128,7 @@ export function ImageGalleryUploader({ images, onChange, orderItemId, onError }:
   return (
     <div>
       <p className="ui-label">Reference images</p>
-      <p className="mt-1 text-xs text-ink-muted">Drop files, pick from the camera, then tag Front / Back / Detail.</p>
+      <p className="mt-1 text-xs text-ink-muted">Drop files or add photos, then tag Front / Back / Detail.</p>
       <div
         className={clsx(
           "mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4",
@@ -189,12 +189,22 @@ export function ImageGalleryUploader({ images, onChange, orderItemId, onError }:
           </div>
         ))}
         <label className="flex h-24 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-line text-xs font-medium text-ink-muted hover:bg-canvas">
-          {busy ? "Uploading…" : "Add / drop / camera"}
+          {busy ? "Uploading…" : "Add files"}
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            disabled={busy}
+            onChange={(e) => onAdd(e.target.files)}
+          />
+        </label>
+        <label className="flex h-24 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-line text-xs font-medium text-ink-muted hover:bg-canvas sm:hidden">
+          Take photo
           <input
             type="file"
             accept="image/*"
             capture="environment"
-            multiple
             className="hidden"
             disabled={busy}
             onChange={(e) => onAdd(e.target.files)}

@@ -313,7 +313,7 @@ export function OrderEditPage() {
   if (loading) {
     return (
       <div className="flex justify-center py-16">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+        <div className="h-10 w-10 animate-pulse rounded-full bg-line" />
       </div>
     );
   }
@@ -329,7 +329,7 @@ export function OrderEditPage() {
             Search the customer, pick a garment, reuse previous specs if they already ordered.
           </p>
           {!isCreate && barcodeValue && (
-            <p className="mt-1 font-mono text-xs text-slate-500">Barcode: {barcodeValue}</p>
+            <p className="mt-1 font-mono text-xs text-ink-muted">Barcode: {barcodeValue}</p>
           )}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -337,13 +337,13 @@ export function OrderEditPage() {
             <>
               <Link
                 to={`/orders/${encodeURIComponent(orderId!)}/print-labels?mode=order`}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold dark:border-slate-600"
+                className="rounded-control border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-canvas"
               >
                 Print order label
               </Link>
               <Link
                 to={`/orders/${encodeURIComponent(orderId!)}/print-labels`}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold dark:border-slate-600"
+                className="rounded-control border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-canvas"
               >
                 Print all item labels
               </Link>
@@ -352,7 +352,7 @@ export function OrderEditPage() {
                 onClick={() =>
                   openPdf(`/api/orders/${encodeURIComponent(orderId!)}/barcode-labels/batch`)
                 }
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold dark:border-slate-600"
+                className="rounded-control border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-canvas"
               >
                 PDF batch
               </button>
@@ -396,7 +396,7 @@ export function OrderEditPage() {
             </div>
           ) : null}
           <div>
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="group">
+            <label className="ui-label" htmlFor="group">
               Group code (optional)
             </label>
             <input
@@ -408,7 +408,7 @@ export function OrderEditPage() {
             />
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="due">
+            <label className="ui-label" htmlFor="due">
               Required completion date
             </label>
             <input
@@ -421,7 +421,7 @@ export function OrderEditPage() {
             />
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="status">
+            <label className="ui-label" htmlFor="status">
               Production status
             </label>
             <select
@@ -438,7 +438,7 @@ export function OrderEditPage() {
             </select>
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="priority">
+            <label className="ui-label" htmlFor="priority">
               Priority
             </label>
             <select
@@ -455,7 +455,7 @@ export function OrderEditPage() {
             </select>
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="agreed">
+            <label className="ui-label" htmlFor="agreed">
               Total agreed price
             </label>
             <input
@@ -469,7 +469,7 @@ export function OrderEditPage() {
             />
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor="deposit">
+            <label className="ui-label" htmlFor="deposit">
               Deposit paid
             </label>
             <input
@@ -483,20 +483,18 @@ export function OrderEditPage() {
             />
           </div>
           <div>
-            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Balance remaining</p>
-            <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
-              {balance.toFixed(2)}
-            </p>
+            <p className="ui-label">Balance remaining</p>
+            <p className="mt-2 text-lg font-bold text-ink">{balance.toFixed(2)}</p>
           </div>
         </section>
 
         <section className="space-y-4">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Clothing items</h2>
+            <h2 className="text-sm font-semibold text-ink">Clothing items</h2>
             <button
               type="button"
               onClick={() => setItems((prev) => [...prev, emptyItem()])}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+              className="rounded-control border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-canvas"
             >
               Add item
             </button>
@@ -505,13 +503,13 @@ export function OrderEditPage() {
           {items.map((it, index) => (
             <div
               key={it._id || index}
-              className="rounded-xl border border-slate-200 p-4 dark:border-slate-700"
+              className="ui-card p-4"
             >
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                <span className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                   Item {index + 1}
                   {it.barcodeValue ? (
-                    <span className="ml-2 font-mono font-normal normal-case text-slate-400">
+                    <span className="ml-2 font-mono font-normal normal-case text-ink-faint">
                       {it.barcodeValue}
                     </span>
                   ) : null}
@@ -679,7 +677,7 @@ export function OrderEditPage() {
                 {!isCreate && it._id && (
                   <div className="sm:col-span-2 lg:col-span-3 space-y-4">
                     <div>
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <p className="mb-2 ui-label">
                         Production timeline
                       </p>
                       <ProductionTimeline orderItemId={it._id} />
@@ -710,12 +708,12 @@ export function OrderEditPage() {
         </section>
 
         {err && (
-          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+          <p className="text-sm text-red-700" role="alert">
             {err}
           </p>
         )}
         {msg && (
-          <p className="text-sm text-emerald-600 dark:text-emerald-400" role="status">
+          <p className="text-sm text-accent" role="status">
             {msg}
           </p>
         )}
@@ -731,7 +729,7 @@ export function OrderEditPage() {
             <button
               type="button"
               onClick={onDelete}
-              className="rounded-lg border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+              className="rounded-control border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50"
             >
               Delete order
             </button>
@@ -756,7 +754,7 @@ function Field({
   return (
     <div className={className}>
       <label
-        className={`font-semibold text-slate-600 dark:text-slate-300 ${small ? "text-xs" : "text-sm"}`}
+        className={`font-semibold text-ink-muted ${small ? "text-xs" : "text-sm"}`}
       >
         {label}
       </label>

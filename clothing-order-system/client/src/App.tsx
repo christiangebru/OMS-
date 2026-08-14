@@ -1,20 +1,40 @@
+import { lazy, Suspense, type ReactElement } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { AppLayout } from "@/components/Layout/AppLayout";
-import { LoginPage } from "@/pages/LoginPage";
-import { DashboardPage } from "@/pages/DashboardPage";
-import { OrdersPage } from "@/pages/OrdersPage";
-import { OrderEditPage } from "@/pages/OrderEditPage";
-import { NewOrderPage } from "@/pages/NewOrderPage";
-import { CustomersPage } from "@/pages/CustomersPage";
-import { CustomerDetailPage } from "@/pages/CustomerDetailPage";
-import { StaffPage } from "@/pages/StaffPage";
-import { StaffDetailPage } from "@/pages/StaffDetailPage";
-import { LabelsWorkspacePage, PrintLabelsPage } from "@/pages/PrintLabelsPage";
-import { ScanPage } from "@/pages/ScanPage";
-import { DistributionPage } from "@/pages/DistributionPage";
-import type { ReactElement } from "react";
 import { canSee, canWriteOrders, isManagerRole } from "@/lib/roles";
+
+const LoginPage = lazy(() => import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
+const DashboardPage = lazy(() => import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
+const OrdersPage = lazy(() => import("@/pages/OrdersPage").then((m) => ({ default: m.OrdersPage })));
+const OrderEditPage = lazy(() => import("@/pages/OrderEditPage").then((m) => ({ default: m.OrderEditPage })));
+const NewOrderPage = lazy(() => import("@/pages/NewOrderPage").then((m) => ({ default: m.NewOrderPage })));
+const CustomersPage = lazy(() => import("@/pages/CustomersPage").then((m) => ({ default: m.CustomersPage })));
+const CustomerDetailPage = lazy(() =>
+  import("@/pages/CustomerDetailPage").then((m) => ({ default: m.CustomerDetailPage }))
+);
+const StaffPage = lazy(() => import("@/pages/StaffPage").then((m) => ({ default: m.StaffPage })));
+const StaffDetailPage = lazy(() =>
+  import("@/pages/StaffDetailPage").then((m) => ({ default: m.StaffDetailPage }))
+);
+const PrintLabelsPage = lazy(() =>
+  import("@/pages/PrintLabelsPage").then((m) => ({ default: m.PrintLabelsPage }))
+);
+const LabelsWorkspacePage = lazy(() =>
+  import("@/pages/PrintLabelsPage").then((m) => ({ default: m.LabelsWorkspacePage }))
+);
+const ScanPage = lazy(() => import("@/pages/ScanPage").then((m) => ({ default: m.ScanPage })));
+const DistributionPage = lazy(() =>
+  import("@/pages/DistributionPage").then((m) => ({ default: m.DistributionPage }))
+);
+
+function Boot() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center">
+      <div className="h-8 w-8 animate-pulse rounded-full bg-line" />
+    </div>
+  );
+}
 
 function Protected({ children }: { children: ReactElement }) {
   const { user, loading } = useAuth();
@@ -35,10 +55,6 @@ function ManagerOnly({ children }: { children: ReactElement }) {
   return children;
 }
 
-function HomeRoute() {
-  return <DashboardPage />;
-}
-
 function WriterOnly({ children }: { children: ReactElement }) {
   const { user } = useAuth();
   if (!canWriteOrders(user?.role)) return <Navigate to="/orders" replace />;
@@ -53,72 +69,74 @@ function LabelsOnly({ children }: { children: ReactElement }) {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        path="/orders/:orderId/print-labels"
-        element={
-          <Protected>
-            <PrintLabelsPage />
-          </Protected>
-        }
-      />
-      <Route
-        path="/"
-        element={
-          <Protected>
-            <AppLayout />
-          </Protected>
-        }
-      >
-        <Route index element={<HomeRoute />} />
-        <Route path="orders" element={<OrdersPage />} />
+    <Suspense fallback={<Boot />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
         <Route
-          path="orders/new"
+          path="/orders/:orderId/print-labels"
           element={
-            <WriterOnly>
-              <NewOrderPage />
-            </WriterOnly>
-          }
-        />
-        <Route path="orders/:orderId" element={<OrderEditPage />} />
-        <Route path="customers" element={<CustomersPage />} />
-        <Route path="customers/:id" element={<CustomerDetailPage />} />
-        <Route
-          path="staff"
-          element={
-            <ManagerOnly>
-              <StaffPage />
-            </ManagerOnly>
+            <Protected>
+              <PrintLabelsPage />
+            </Protected>
           }
         />
         <Route
-          path="staff/:id"
+          path="/"
           element={
-            <ManagerOnly>
-              <StaffDetailPage />
-            </ManagerOnly>
+            <Protected>
+              <AppLayout />
+            </Protected>
           }
-        />
-        <Route path="scan" element={<ScanPage />} />
-        <Route
-          path="distribution"
-          element={
-            <ManagerOnly>
-              <DistributionPage />
-            </ManagerOnly>
-          }
-        />
-        <Route
-          path="labels"
-          element={
-            <LabelsOnly>
-              <LabelsWorkspacePage />
-            </LabelsOnly>
-          }
-        />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        >
+          <Route index element={<DashboardPage />} />
+          <Route path="orders" element={<OrdersPage />} />
+          <Route
+            path="orders/new"
+            element={
+              <WriterOnly>
+                <NewOrderPage />
+              </WriterOnly>
+            }
+          />
+          <Route path="orders/:orderId" element={<OrderEditPage />} />
+          <Route path="customers" element={<CustomersPage />} />
+          <Route path="customers/:id" element={<CustomerDetailPage />} />
+          <Route
+            path="staff"
+            element={
+              <ManagerOnly>
+                <StaffPage />
+              </ManagerOnly>
+            }
+          />
+          <Route
+            path="staff/:id"
+            element={
+              <ManagerOnly>
+                <StaffDetailPage />
+              </ManagerOnly>
+            }
+          />
+          <Route path="scan" element={<ScanPage />} />
+          <Route
+            path="distribution"
+            element={
+              <ManagerOnly>
+                <DistributionPage />
+              </ManagerOnly>
+            }
+          />
+          <Route
+            path="labels"
+            element={
+              <LabelsOnly>
+                <LabelsWorkspacePage />
+              </LabelsOnly>
+            }
+          />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }

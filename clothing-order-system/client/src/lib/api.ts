@@ -28,6 +28,17 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
+    if (
+      res.status === 401 &&
+      typeof window !== "undefined" &&
+      !path.startsWith("/api/auth/login") &&
+      !path.startsWith("/api/auth/bootstrap")
+    ) {
+      localStorage.removeItem("token");
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
+    }
     const msg = data?.message || data?.errors?.[0]?.msg || res.statusText;
     throw new ApiError(msg || "Request failed", res.status);
   }
