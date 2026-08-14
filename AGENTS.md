@@ -81,3 +81,6 @@ Three processes are needed for full end-to-end use:
   (no orphaned orders).
 - Uploaded images are stored on local disk under `server/uploads/` (auto-created). This is
   **ephemeral on Render** (lost on redeploy/restart) — production needs S3/Cloudinary.
+- Render **free** web services cannot run a Pre-Deploy Command (locked / ignored). Production
+  `npm start` therefore runs `prisma migrate deploy` before listening. Use `npm run dev` locally
+  so watch-mode restarts do not re-run migrations.

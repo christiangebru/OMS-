@@ -8,7 +8,11 @@
 #
 # Build = install deps + generate the Prisma client (`npm run build` -> `prisma generate`).
 # The backend is plain ESM JS and needs no transpile; the Prisma client is the only build artifact.
-# Migrations are applied on every deploy via preDeployCommand (idempotent, not part of build).
+#
+# IMPORTANT: Render's pre-deploy command is available only for PAID web services
+# (https://render.com/docs/deploys#pre-deploy-command). This service uses plan: free,
+# so `preDeployCommand` is ignored and the dashboard Pre-Deploy field is locked.
+# Migrations therefore run as part of `npm start` (see server/package.json).
 #
 # Node is pinned to 20 (LTS) via both NODE_VERSION below and server/.node-version.
 
@@ -19,7 +23,6 @@ services:
     plan: free
     rootDir: server
     buildCommand: npm install && npm run build
-    preDeployCommand: npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /health
     envVars:
