@@ -71,7 +71,8 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
         isCurrent: false,
         overdue: overdueOrder && status === "next",
         assigned: assignedHere,
-        assignedTo
+        assignedTo,
+        handoverStatus: assignedHere ? handoverStatus(assignment) : null
       };
       return row;
     }
@@ -99,10 +100,18 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
       overdue: overdueOrder && open,
       assigned: assignedHere,
       assignedTo,
+      handoverStatus: assignedHere ? handoverStatus(assignment) : null,
       notes: cp.notes || "",
       checkpointId: cp.id
     };
   });
+}
+
+function handoverStatus(assignment) {
+  if (!assignment) return null;
+  if (assignment.receivedAt) return "received";
+  if (assignment.distributedAt) return "handed_over";
+  return "assigned";
 }
 
 export function inferScanAction(checkpoints, nextStage) {
@@ -111,4 +120,45 @@ export function inferScanAction(checkpoints, nextStage) {
     return { action: "check_out", stage: open.stage, openCheckpoint: open };
   }
   return { action: "check_in", stage: nextStage, openCheckpoint: null };
+}
+
+const WORK_STAGES = new Set(["CUTTING", "SEWING", "EMBROIDERY", "FINISHING"]);
+
+/**
+ * Manager/floor next action for a garment. Scanner remains the check-in/out path.
+ */
+export function inferNextAction({ checkpoints = [], assignment, nextStage, currentStage }) {
+  const deliveredDone = checkpoints.some((c) => c.stage === "DELIVERED" && c.checkedOutAt);
+  if (deliveredDone || currentStage === "DELIVERED") {
+    return { code: "done", label: "Delivered", stage: "DELIVERED" };
+  }
+  const open = checkpoints.find((c) => c.checkedInAt && !c.checkedOutAt);
+  if (open) {
+    return { code: "check_out", label: "Check out", stage: open.stage };
+  }
+  if (assignment && !assignment.distributedAt) {
+    return { code: "handover", label: "Mark handed over", stage: assignment.stage };
+  }
+  if (assignment && assignment.distributedAt && !assignment.receivedAt) {
+    return { code: "receive", label: "Confirm received", stage: assignment.stage };
+  }
+  if (!assignment && WORK_STAGES.has(nextStage)) {
+    return { code: "assign", label: "Assign worker", stage: nextStage };
+  }
+  if (nextStage === "DELIVERED") {
+    return { code: "check_in", label: "Mark delivered", stage: "DELIVERED" };
+  }
+  if (nextStage === "READY") {
+    return { code: "check_in", label: "Mark ready", stage: "READY" };
+  }
+  return { code: "check_in", label: "Check in", stage: nextStage };
+}
+
+export function boardStatusFrom({ checkpoints = [], assignment }) {
+  const inProgress = checkpoints.some((c) => c.checkedInAt && !c.checkedOutAt);
+  if (inProgress) return "in_progress";
+  if (!assignment) return "waiting";
+  if (assignment.receivedAt) return "received";
+  if (assignment.distributedAt) return "distributed";
+  return "assigned";
 }

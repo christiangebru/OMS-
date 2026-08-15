@@ -247,11 +247,18 @@ export function CustomerDetailPage() {
                   </p>
                 </div>
               </div>
-              <Link to={`/orders/new?customerId=${customer._id}&reuseItem=${g.item._id || ""}`}>
-                <Button size="sm" variant="secondary">
-                  Use for new order
-                </Button>
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                {g.item._id && (
+                  <Link to={`/garments/${encodeURIComponent(g.item._id)}`}>
+                    <Button size="sm">Open garment</Button>
+                  </Link>
+                )}
+                <Link to={`/orders/new?customerId=${customer._id}&reuseItem=${g.item._id || ""}`}>
+                  <Button size="sm" variant="secondary">
+                    Use for new order
+                  </Button>
+                </Link>
+              </div>
             </div>
           ))}
         </div>

@@ -241,6 +241,14 @@ export function StaffDetailPage() {
                     <span className={a.overdue ? "text-xs font-semibold text-red-700" : "text-xs text-ink-muted"}>
                       {a.due ? formatDate(a.due) : "—"}
                     </span>
+                    {a.item._id && (
+                      <Link
+                        to={`/garments/${encodeURIComponent(a.item._id)}`}
+                        className="mt-1 block text-xs font-semibold text-accent"
+                      >
+                        Garment
+                      </Link>
+                    )}
                     {a.item.barcodeValue && (
                       <Link
                         to={`/scan?barcode=${encodeURIComponent(a.item.barcodeValue)}`}

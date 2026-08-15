@@ -58,3 +58,16 @@ export function stageLabel(stage: string) {
     .toLowerCase()
     .replace(/_/g, " ");
 }
+
+export function handoverLabel(status?: string | null) {
+  switch (status) {
+    case "assigned":
+      return "Assigned";
+    case "handed_over":
+      return "Handed over";
+    case "received":
+      return "Received";
+    default:
+      return null;
+  }
+}

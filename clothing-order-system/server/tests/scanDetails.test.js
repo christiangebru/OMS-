@@ -64,5 +64,9 @@ describe("GET /api/order-items/:id/scan-details", () => {
     expect(res.body.order.siblingItems[0].isCurrent).toBe(true);
     expect(res.body.timing).toBeTruthy();
     expect(res.body.timing.stageSequence).toEqual(expect.any(Array));
+    expect(res.body.production.boardStatus).toBe("waiting");
+    expect(res.body.production.nextAction).toEqual(
+      expect.objectContaining({ code: expect.any(String), label: expect.any(String), stage: expect.any(String) })
+    );
   });
 });

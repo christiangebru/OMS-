@@ -5,6 +5,7 @@ import type { ScanDetails } from "@/lib/types";
 import { daysLabel, formatDate, formatMoney, stageLabel } from "@/lib/format";
 import { ProductionTimeline } from "@/components/ProductionTimeline";
 import { Badge } from "@/components/ui/PageHeader";
+import { garmentPath } from "@/components/GarmentCard";
 import clsx from "clsx";
 
 export function ScanDetailCard({ details }: { details: ScanDetails }) {
@@ -38,6 +39,12 @@ export function ScanDetailCard({ details }: { details: ScanDetails }) {
               to={`/orders/${encodeURIComponent(details.order.orderId)}`}
             >
               {details.order.orderId}
+            </Link>
+            <Link
+              className="mt-1 inline-block text-xs font-semibold text-accent hover:underline"
+              to={garmentPath(details.item._id)}
+            >
+              Garment view
             </Link>
             <p className="text-xs text-ink-muted">
               {formatDate(details.order.createdAt)} · due {formatDate(details.timing.requiredCompletionDate)}
@@ -137,7 +144,15 @@ export function ScanDetailCard({ details }: { details: ScanDetails }) {
             <ul className="mt-2 space-y-1 text-sm">
               {details.order.siblingItems.map((s) => (
                 <li key={s._id} className={clsx(s.isCurrent && "font-semibold text-accent")}>
-                  {s.clothingType} — {stageLabel(s.currentStage || "unstarted")}
+                  {s.isCurrent ? (
+                    <span>
+                      {s.clothingType} — {stageLabel(s.currentStage || "unstarted")}
+                    </span>
+                  ) : (
+                    <Link to={garmentPath(s._id)} className="hover:underline">
+                      {s.clothingType} — {stageLabel(s.currentStage || "unstarted")}
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>

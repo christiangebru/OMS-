@@ -8,6 +8,8 @@ const LoginPage = lazy(() => import("@/pages/LoginPage").then((m) => ({ default:
 const DashboardPage = lazy(() => import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const OrdersPage = lazy(() => import("@/pages/OrdersPage").then((m) => ({ default: m.OrdersPage })));
 const OrderEditPage = lazy(() => import("@/pages/OrderEditPage").then((m) => ({ default: m.OrderEditPage })));
+const OrderDetailPage = lazy(() => import("@/pages/OrderDetailPage").then((m) => ({ default: m.OrderDetailPage })));
+const GarmentPage = lazy(() => import("@/pages/GarmentPage").then((m) => ({ default: m.GarmentPage })));
 const NewOrderPage = lazy(() => import("@/pages/NewOrderPage").then((m) => ({ default: m.NewOrderPage })));
 const CustomersPage = lazy(() => import("@/pages/CustomersPage").then((m) => ({ default: m.CustomersPage })));
 const CustomerDetailPage = lazy(() =>
@@ -98,7 +100,16 @@ export default function App() {
               </WriterOnly>
             }
           />
-          <Route path="orders/:orderId" element={<OrderEditPage />} />
+          <Route path="orders/:orderId" element={<OrderDetailPage />} />
+          <Route
+            path="orders/:orderId/edit"
+            element={
+              <WriterOnly>
+                <OrderEditPage />
+              </WriterOnly>
+            }
+          />
+          <Route path="garments/:itemId" element={<GarmentPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route path="customers/:id" element={<CustomerDetailPage />} />
           <Route

@@ -86,6 +86,10 @@ export interface OrderItem {
     arm?: string;
     chest?: string;
   };
+  currentStage?: ProductionStage | null;
+  nextStage?: ProductionStage | null;
+  boardStatus?: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | null;
+  workerName?: string | null;
 }
 
 export interface CustomerSummary {
@@ -226,6 +230,7 @@ export interface ScanDetails {
     measurements?: OrderItem["measurements"];
     difficultyLevel?: number;
     barcodeValue?: string;
+    unitPrice?: number;
     images: OrderItemImage[];
   };
   group: {
@@ -264,6 +269,8 @@ export interface ScanDetails {
   production?: {
     action: "check_in" | "check_out";
     actionStage: ProductionStage;
+    boardStatus?: "waiting" | "assigned" | "distributed" | "received" | "in_progress";
+    nextAction?: { code: string; label: string; stage: ProductionStage };
     stageStates: StageState[];
     assignment?: {
       _id: string;
@@ -310,6 +317,7 @@ export interface StageState {
   overdue?: boolean;
   assigned?: boolean;
   assignedTo?: string | null;
+  handoverStatus?: "assigned" | "handed_over" | "received" | null;
   notes?: string;
   checkedInBy?: { _id: string; name: string; role: string } | null;
   checkedOutBy?: { _id: string; name: string; role: string } | null;

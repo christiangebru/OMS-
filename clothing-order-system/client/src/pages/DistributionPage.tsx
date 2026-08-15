@@ -187,7 +187,11 @@ export function DistributionPage() {
                 {items.map((item) => (
                   <li key={item.itemId} className="ui-card space-y-3 p-4">
                     <div>
-                      <p className="font-medium text-ink">{item.clothingType}</p>
+                      <p className="font-medium text-ink">
+                        <Link className="hover:text-accent" to={`/garments/${encodeURIComponent(item.itemId)}`}>
+                          {item.clothingType}
+                        </Link>
+                      </p>
                       <p className="text-xs text-ink-muted">
                         {item.customer?.name || "—"} · {item.orderId}
                       </p>
@@ -233,7 +237,11 @@ export function DistributionPage() {
                     {items.map((item) => (
                       <tr key={item.itemId} className="border-t border-line">
                         <td>
-                          <p className="font-medium text-ink">{item.clothingType}</p>
+                          <p className="font-medium text-ink">
+                            <Link className="hover:text-accent" to={`/garments/${encodeURIComponent(item.itemId)}`}>
+                              {item.clothingType}
+                            </Link>
+                          </p>
                           <p className="text-xs text-ink-muted">
                             {item.customer?.name || "—"} ·{" "}
                             <Link className="hover:text-accent" to={`/orders/${encodeURIComponent(item.orderId)}`}>

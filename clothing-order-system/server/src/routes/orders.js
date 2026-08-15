@@ -226,11 +226,18 @@ router.get(
       });
       const customerIds = customers.map((c) => c.id);
       const itemOrders = await prisma.orderItem.findMany({
-        where: { clothingType: { contains: q, mode: "insensitive" } },
+        where: {
+          OR: [
+            { clothingType: { contains: q, mode: "insensitive" } },
+            { barcodeValue: { contains: q, mode: "insensitive" } },
+            { clothingCode: { contains: q, mode: "insensitive" } }
+          ]
+        },
         select: { order: true }
       });
       where.OR = [
         { orderId: { contains: q, mode: "insensitive" } },
+        { barcodeValue: { contains: q, mode: "insensitive" } },
         { customerId: { in: customerIds } },
         { id: { in: [...new Set(itemOrders.map((o) => o.order))] } }
       ];

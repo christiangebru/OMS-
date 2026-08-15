@@ -1,12 +1,37 @@
-import { NavLink, Link } from "react-router-dom";
+import { FormEvent, useState } from "react";
+import { NavLink, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { navForRole } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
+import { apiJson } from "@/lib/api";
+import { garmentPath } from "@/components/GarmentCard";
 import clsx from "clsx";
 
 export function Header() {
   const { user, logout } = useAuth();
   const items = navForRole(user?.role);
+  const navigate = useNavigate();
+  const [q, setQ] = useState("");
+
+  async function onFind(e: FormEvent) {
+    e.preventDefault();
+    const term = q.trim();
+    if (!term) return;
+    if (/^ITM-/i.test(term)) {
+      try {
+        const data = await apiJson<{ scanDetails: { item: { _id: string } } }>(
+          `/api/production/lookup?barcodeValue=${encodeURIComponent(term)}`
+        );
+        setQ("");
+        navigate(garmentPath(data.scanDetails.item._id));
+        return;
+      } catch {
+        /* fall through to order search */
+      }
+    }
+    setQ("");
+    navigate(`/orders?q=${encodeURIComponent(term)}`);
+  }
 
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
@@ -36,7 +61,21 @@ export function Header() {
             ))}
           </nav>
         </div>
-        <div className="hidden lg:block" />
+        <div className="hidden min-w-0 flex-1 px-4 lg:block">
+          <form onSubmit={onFind} className="mx-auto max-w-sm">
+            <label className="sr-only" htmlFor="oms-find">
+              Find garment or order
+            </label>
+            <input
+              id="oms-find"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="ITM barcode, order, customer…"
+              className="ui-input mt-0 h-9 text-sm"
+              autoComplete="off"
+            />
+          </form>
+        </div>
         <div className="flex items-center gap-3">
           <div className="hidden text-right sm:block">
             <p className="text-xs font-semibold text-ink">{user?.name}</p>

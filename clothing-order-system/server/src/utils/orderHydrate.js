@@ -1,5 +1,7 @@
 import { prisma } from "../db/prisma.js";
 import { s } from "./serialize.js";
+import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./stageSequence.js";
+import { boardStatusFrom } from "./stageTimeline.js";
 
 export function balanceRemaining(order) {
   const total = Number(order.totalAgreedPrice) || 0;
@@ -36,7 +38,7 @@ export async function hydrateOrder(order, { includeCheckpoints = true } = {}) {
   ]);
 
   const itemIds = items.map((i) => i.id);
-  const [images, checkpoints] = await Promise.all([
+  const [images, checkpoints, assignments] = await Promise.all([
     itemIds.length
       ? prisma.orderItemImage.findMany({
           where: { orderItemId: { in: itemIds } },
@@ -48,10 +50,17 @@ export async function hydrateOrder(order, { includeCheckpoints = true } = {}) {
           where: { orderItemId: { in: itemIds } },
           orderBy: { checkedInAt: "asc" }
         })
+      : Promise.resolve([]),
+    includeCheckpoints && itemIds.length
+      ? prisma.staffAssignment.findMany({
+          where: { orderItemId: { in: itemIds }, completedAt: null },
+          include: { staff: true }
+        })
       : Promise.resolve([])
   ]);
 
-  return assembleOrder(order, customer, items, images, checkpoints);
+  const presence = await itemPresence(items, checkpoints, assignments);
+  return assembleOrder(order, customer, items, images, checkpoints, presence);
 }
 
 /**
@@ -93,7 +102,8 @@ export async function hydrateOrders(orders) {
       customerById.get(order.customerId) || null,
       itemsByOrder.get(order.id) || [],
       imagesForItems(itemsByOrder.get(order.id) || [], imagesByItem),
-      []
+      [],
+      new Map()
     )
   );
 }
@@ -104,17 +114,44 @@ function imagesForItems(items, imagesByItem) {
   return out;
 }
 
-function assembleOrder(order, customer, items, images, checkpoints) {
+async function itemPresence(items, checkpoints, assignments) {
+  const cpsByItem = groupBy(checkpoints, (cp) => cp.orderItemId);
+  const asgByItem = groupBy(assignments, (a) => a.orderItemId);
+  const map = new Map();
+  for (const it of items) {
+    const { stageSequence } = await resolveStageSequence(it.clothingType);
+    const cps = cpsByItem.get(it.id) || [];
+    const nextStage = nextExpectedStage(cps, stageSequence);
+    const assignment =
+      (asgByItem.get(it.id) || []).find((a) => a.stage === nextStage) ||
+      (asgByItem.get(it.id) || [])[0] ||
+      null;
+    map.set(it.id, {
+      currentStage: deriveCurrentStage(cps, stageSequence),
+      nextStage,
+      boardStatus: boardStatusFrom({ checkpoints: cps, assignment }),
+      workerName: assignment?.staff?.name || null
+    });
+  }
+  return map;
+}
+
+function assembleOrder(order, customer, items, images, checkpoints, presence = new Map()) {
   const imagesByItem = groupBy(images, (img) => img.orderItemId);
   const checkpointsByItem = groupBy(checkpoints, (cp) => cp.orderItemId);
 
   const hydratedItems = items.map((it) => {
     const imgs = (imagesByItem.get(it.id) || []).map(s);
+    const ops = presence.get(it.id) || {};
     return {
       ...s(it),
       images: imgs,
       stageCheckpoints: (checkpointsByItem.get(it.id) || []).map(s),
-      imagePath: imgs[0]?.imageUrl || ""
+      imagePath: imgs[0]?.imageUrl || "",
+      currentStage: ops.currentStage ?? null,
+      nextStage: ops.nextStage ?? null,
+      boardStatus: ops.boardStatus ?? null,
+      workerName: ops.workerName ?? null
     };
   });
 

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, ScanDetails, Staff } from "@/lib/types";
 import { ScanDetailCard } from "@/components/ScanDetailCard";
@@ -313,6 +313,14 @@ export function ScanPage() {
                 Next: {action === "check_out" ? "Check out" : "Check in"} {stageLabel(actionStage)}
                 {details.timing.overdue ? " · overdue" : ""}
               </p>
+              {details.item._id && (
+                <Link
+                  to={`/garments/${encodeURIComponent(details.item._id)}`}
+                  className="mt-2 inline-block text-sm font-semibold text-accent hover:underline"
+                >
+                  Open garment view
+                </Link>
+              )}
             </div>
           )}
 

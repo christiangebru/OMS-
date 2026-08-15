@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiJson, ApiError, imageUrlFromPath } from "@/lib/api";
 import type { Order, OrderPriority, ProductionStatus } from "@/lib/types";
 import { formatDate } from "@/lib/format";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/context/ToastContext";
 import { useAuth } from "@/context/AuthContext";
 import { canWriteOrders } from "@/lib/roles";
+import { garmentPath } from "@/components/GarmentCard";
 import clsx from "clsx";
 
 const STATUSES: ProductionStatus[] = [
@@ -24,12 +25,14 @@ export function OrdersPage() {
   const { push } = useToast();
   const { user } = useAuth();
   const canCreate = canWriteOrders(user?.role);
+  const [searchParams] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(searchParams.get("q") || "");
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [barcodeHit, setBarcodeHit] = useState<{ id: string; type: string } | null>(null);
 
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
@@ -56,6 +59,30 @@ export function OrdersPage() {
       cancelled = true;
     };
   }, [queryString]);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (!/^ITM-/i.test(term)) {
+      setBarcodeHit(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiJson<{ scanDetails: { item: { _id: string; clothingType: string } } }>(
+          `/api/production/lookup?barcodeValue=${encodeURIComponent(term)}`
+        );
+        if (!cancelled) {
+          setBarcodeHit({ id: data.scanDetails.item._id, type: data.scanDetails.item.clothingType });
+        }
+      } catch {
+        if (!cancelled) setBarcodeHit(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [q]);
 
   const visible = orders.filter((o) => (priority ? o.priority === priority : true));
 
@@ -103,7 +130,7 @@ export function OrdersPage() {
             id="search-q"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Name, order ID, type…"
+            placeholder="Name, order ID, ITM barcode, type…"
             className="ui-input"
           />
         </div>
@@ -138,6 +165,21 @@ export function OrdersPage() {
           </select>
         </div>
       </div>
+
+      {barcodeHit && (
+        <Link
+          to={garmentPath(barcodeHit.id)}
+          className="ui-card flex items-center justify-between gap-3 p-4"
+        >
+          <div>
+            <p className="text-sm font-semibold text-ink">Open garment</p>
+            <p className="text-xs text-ink-muted">
+              {barcodeHit.type} matches {q.trim()}
+            </p>
+          </div>
+          <span className="text-sm font-semibold text-accent">View →</span>
+        </Link>
+      )}
 
       {err && <ErrorState message={err} />}
 

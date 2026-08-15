@@ -101,8 +101,17 @@ export function ProductionTimeline({ orderItemId, stages: stagesProp }: Props) {
             >
               {st.overdue && st.status === "in_progress" ? "Overdue" : STATUS_COPY[st.status]}
             </p>
-            {st.assigned && worker && (
-              <p className="mt-1 truncate text-xs text-ink">{worker}</p>
+            {st.assigned && (worker || st.handoverStatus) && (
+              <p className="mt-1 truncate text-xs text-ink">
+                {worker || "Assigned"}
+                {st.handoverStatus === "handed_over"
+                  ? " · handed over"
+                  : st.handoverStatus === "received"
+                    ? " · received"
+                    : st.handoverStatus === "assigned"
+                      ? " · assigned"
+                      : ""}
+              </p>
             )}
             {!st.assigned && worker && st.status !== "skipped" && (
               <p className="mt-1 truncate text-xs text-ink-muted">{worker}</p>

@@ -230,4 +230,24 @@ describe("Orders API (PostgreSQL/Prisma)", () => {
     expect(res.body.totalRevenue).toBe(900);
     expect(res.body.balanceRemaining).toBe(700);
   });
+
+  it("finds an order by garment barcode", async () => {
+    const created = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Barcode Find",
+        customerPhone: "5557770000",
+        requiredCompletionDate: "2027-05-01",
+        items: [validItem]
+      });
+    expect(created.status).toBe(201);
+    const barcode = created.body.items[0].barcodeValue;
+    expect(created.body.items[0].currentStage).toBeDefined();
+
+    const list = await request(app).get("/api/orders").query({ q: barcode }).set(auth(token));
+    expect(list.status).toBe(200);
+    expect(list.body).toHaveLength(1);
+    expect(list.body[0].orderId).toBe(created.body.orderId);
+  });
 });

@@ -10,15 +10,12 @@ import type {
   Order,
   OrderItem,
   OrderPriority,
-  ProductionStage,
   ProductionStatus,
   SizeCategory
 } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 import { CustomerPicker } from "@/components/CustomerPicker";
 import { ImageGalleryUploader } from "@/components/ImageGalleryUploader";
-import { ProductionTimeline } from "@/components/ProductionTimeline";
-import { SuggestedAssignments } from "@/components/SuggestedAssignments";
 import { ClothingTypePicker } from "@/components/ClothingTypePicker";
 import { ItemMeasurementFields } from "@/components/ItemMeasurementFields";
 import { Button } from "@/components/ui/Button";
@@ -330,10 +327,10 @@ export function OrderEditPage() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            {isCreate ? "New order" : `Order ${orderId}`}
+            {isCreate ? "New order" : `Edit ${orderId}`}
           </h1>
           <p className="text-sm text-ink-muted">
-            Search the customer, pick a garment, reuse previous specs if they already ordered.
+            Commercial fields and garment specifications. Production lives on each garment.
           </p>
           {!isCreate && barcodeValue && (
             <p className="mt-1 font-mono text-xs text-ink-muted">Barcode: {barcodeValue}</p>
@@ -365,9 +362,9 @@ export function OrderEditPage() {
               </button>
             </>
           )}
-          <Link to="/orders" className="text-sm font-semibold text-accent hover:underline">
-            ← Back to list
-          </Link>
+              <Link to={`/orders/${encodeURIComponent(orderId!)}`} className="text-sm font-semibold text-accent hover:underline">
+                ← Order
+              </Link>
         </div>
       </div>
 
@@ -721,40 +718,18 @@ export function OrderEditPage() {
                 </div>
 
                 {!isCreate && it._id && (
-                  <div className="sm:col-span-2 lg:col-span-3 space-y-4">
+                  <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap items-center gap-3">
                     {it.barcodeValue && (
                       <div className="max-w-xs rounded-lg bg-canvas p-3">
                         <p className="ui-label">Item barcode</p>
                         <BarcodeImage value={it.barcodeValue} className="mt-2 h-14 w-full object-contain" />
                       </div>
                     )}
-                    <div>
-                      <p className="mb-2 ui-label">
-                        Production timeline
-                      </p>
-                      <ProductionTimeline orderItemId={it._id} />
-                    </div>
-                    <SuggestedAssignments
-                      orderItemId={it._id}
-                      stage={
-                        (it.stageCheckpoints?.find((c) => !c.checkedOutAt)?.stage as
-                          | ProductionStage
-                          | undefined) ||
-                        ("RECEIVED" as ProductionStage)
-                      }
-                      onAssigned={() =>
-                        setMsg("Staff assigned — use Scan page to check in")
-                      }
-                    />
                     <Link
-                      to={
-                        it.barcodeValue
-                          ? `/scan?barcode=${encodeURIComponent(it.barcodeValue)}`
-                          : "/scan"
-                      }
-                      className="inline-block text-sm font-semibold text-accent hover:underline"
+                      to={`/garments/${encodeURIComponent(it._id)}`}
+                      className="text-sm font-semibold text-accent hover:underline"
                     >
-                      Open Scan floor →
+                      Open garment floor view →
                     </Link>
                   </div>
                 )}

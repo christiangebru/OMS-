@@ -187,10 +187,10 @@ function OfficeDashboard() {
                           </p>
                           {g.barcodeValue && (
                             <Link
-                              to={`/scan?barcode=${encodeURIComponent(g.barcodeValue)}`}
+                              to={`/garments/${encodeURIComponent(g.itemId)}`}
                               className="mt-1 inline-block text-[11px] font-semibold text-accent"
                             >
-                              Scan
+                              Open garment
                             </Link>
                           )}
                         </li>
@@ -227,7 +227,7 @@ function OfficeDashboard() {
                     {u.priority !== "NORMAL" ? ` · ${u.priority}` : ""}
                   </p>
                 </div>
-                <Link to={`/orders/${encodeURIComponent(u.orderId)}`} className="text-xs font-semibold text-accent">
+                <Link to={`/garments/${encodeURIComponent(u.itemId)}`} className="text-xs font-semibold text-accent">
                   {daysLabel(u.daysRemaining, u.overdue)}
                 </Link>
               </li>
@@ -310,10 +310,10 @@ function FloorDashboard() {
                   {daysLabel(row.daysRemaining, row.overdue)}
                 </p>
                 <Link
-                  to={`/scan?barcode=${encodeURIComponent(row.barcodeValue)}`}
+                  to={`/garments/${encodeURIComponent(row.itemId)}`}
                   className="text-xs font-semibold text-accent hover:underline"
                 >
-                  Scan
+                  Open garment
                 </Link>
               </div>
             </li>

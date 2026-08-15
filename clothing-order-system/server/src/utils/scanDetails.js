@@ -6,7 +6,7 @@ import {
   nextExpectedStage,
   resolveStageSequence
 } from "./stageSequence.js";
-import { buildStageStates, inferScanAction } from "./stageTimeline.js";
+import { buildStageStates, inferScanAction, inferNextAction, boardStatusFrom } from "./stageTimeline.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -107,7 +107,8 @@ export async function buildScanDetails(orderItemIdOrDoc) {
           _id: customer.id,
           name: customer.name,
           phone: customer.phone,
-          secondaryPhone: customer.secondaryPhone || ""
+          secondaryPhone: customer.secondaryPhone || "",
+          email: customer.email || ""
         }
       : null,
     item: {
@@ -123,6 +124,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       quantity: item.quantity,
       measurements: item.measurements,
       difficultyLevel: item.difficultyLevel,
+      unitPrice: item.unitPrice || 0,
       barcodeValue: item.barcodeValue,
       images: images.map(s)
     },
@@ -155,6 +157,13 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     production: {
       action: actionHint.action,
       actionStage: actionHint.stage,
+      boardStatus: boardStatusFrom({ checkpoints, assignment: openAssignment }),
+      nextAction: inferNextAction({
+        checkpoints,
+        assignment: openAssignment,
+        nextStage,
+        currentStage
+      }),
       stageStates,
       assignment: openAssignment
         ? {
