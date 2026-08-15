@@ -8,13 +8,10 @@ import { buildSingleLabelPdf } from "../utils/labelPdf.js";
 import { buildScanDetails } from "../utils/scanDetails.js";
 import { resolveStageSequence } from "../utils/stageSequence.js";
 import { buildStageStates } from "../utils/stageTimeline.js";
+import { persistPublicImage } from "../utils/objectStore.js";
 
 const router = Router();
 router.use(requireAuth);
-
-function publicPath(file) {
-  return `uploads/${file.filename}`;
-}
 
 router.get("/:id/scan-details", param("id").isMongoId(), async (req, res) => {
   const errors = validationResult(req);
@@ -138,11 +135,11 @@ router.post("/:id/images", param("id").isMongoId(), (req, res) => {
     });
     const now = new Date();
     const docs = await Promise.all(
-      files.map((f, i) =>
+      files.map(async (f, i) =>
         prisma.orderItemImage.create({
           data: {
             orderItemId: item.id,
-            imageUrl: publicPath(f),
+            imageUrl: await persistPublicImage(f),
             caption: captions[i] || "",
             category: categories[i] || "other",
             sortOrder: existingCount + i,

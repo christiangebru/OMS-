@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, Staff, StaffRole, StaffStatus } from "@/lib/types";
@@ -7,6 +7,7 @@ import { PageHeader, EmptyState, ErrorState, Badge, Skeleton } from "@/component
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { boardStatusLabel, stageLabel } from "@/lib/format";
+import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import clsx from "clsx";
 
 const ROLES: StaffRole[] = ["TAILOR", "EMBROIDERER", "FINISHER", "CUTTER", "MANAGER"];
@@ -20,6 +21,7 @@ export function StaffPage() {
   const [readyOnly, setReadyOnly] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const hydrated = useRef(false);
   const [form, setForm] = useState({
     name: "",
     phone: "",
@@ -27,7 +29,7 @@ export function StaffPage() {
     skillLevel: 3
   });
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const p = new URLSearchParams();
       if (role) p.set("role", role);
@@ -35,15 +37,17 @@ export function StaffPage() {
       if (stage) p.set("stage", stage);
       p.set("includeInactive", "true");
       setStaff(await apiJson<Staff[]>(`/api/staff?${p}`));
+      hydrated.current = true;
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Failed to load staff");
+      if (!hydrated.current) setErr(e instanceof ApiError ? e.message : "Failed to load staff");
     }
-  }
+  }, [role, status, stage]);
 
   useEffect(() => {
     load();
-  }, [role, status, stage]);
+  }, [load]);
+  useLiveRefresh(load, 25000);
 
   const visible = useMemo(() => {
     const list = staff || [];

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, Staff, StaffStatus } from "@/lib/types";
@@ -8,6 +8,7 @@ import { PageHeader, ErrorState, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { formatDate, formatDuration, stageLabel } from "@/lib/format";
 import { useToast } from "@/context/ToastContext";
+import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 
 type Workload = {
   activeAssignmentCount: number;
@@ -36,8 +37,9 @@ export function StaffDetailPage() {
   const [err, setErr] = useState<string | null>(null);
   const [skillMap, setSkillMap] = useState<Partial<Record<ProductionStage, number>>>({});
   const [tab, setTab] = useState<"identity" | "skills" | "work">("work");
+  const hydrated = useRef(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!id) return;
     try {
       const [data, wl] = await Promise.all([
@@ -50,15 +52,17 @@ export function StaffDetailPage() {
       for (const s of data.skills || []) if (map[s] == null) map[s] = data.skillLevel || 3;
       setSkillMap(map);
       setWork(wl);
+      hydrated.current = true;
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Failed to load");
+      if (!hydrated.current) setErr(e instanceof ApiError ? e.message : "Failed to load");
     }
-  }
+  }, [id]);
 
   useEffect(() => {
     load();
-  }, [id]);
+  }, [load]);
+  useLiveRefresh(load, 25000);
 
   async function setStatus(status: StaffStatus) {
     if (!id) return;
@@ -233,9 +237,19 @@ export function StaffDetailPage() {
                       {a.receivedAt ? " · received" : ""}
                     </p>
                   </div>
-                  <span className={a.overdue ? "text-xs font-semibold text-red-700" : "text-xs text-ink-muted"}>
-                    {a.due ? formatDate(a.due) : "—"}
-                  </span>
+                  <div className="text-right">
+                    <span className={a.overdue ? "text-xs font-semibold text-red-700" : "text-xs text-ink-muted"}>
+                      {a.due ? formatDate(a.due) : "—"}
+                    </span>
+                    {a.item.barcodeValue && (
+                      <Link
+                        to={`/scan?barcode=${encodeURIComponent(a.item.barcodeValue)}`}
+                        className="mt-1 block text-xs font-semibold text-accent"
+                      >
+                        Scan
+                      </Link>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

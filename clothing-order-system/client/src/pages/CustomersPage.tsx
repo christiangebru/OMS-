@@ -63,7 +63,22 @@ export function CustomersPage() {
       ) : customers.length === 0 ? (
         <EmptyState title="No customers match" body="Try a shorter name or phone number." />
       ) : (
-        <div className="ui-card overflow-hidden">
+        <>
+          <ul className="space-y-3 md:hidden">
+            {customers.map((c) => (
+              <li key={c._id}>
+                <Link to={`/customers/${c._id}`} className="ui-card block p-4">
+                  <p className="font-medium text-ink">{c.name}</p>
+                  <p className="text-sm text-ink-muted">{c.phone}</p>
+                  <p className="mt-1 text-xs text-ink-faint">
+                    {c.orderCount ?? 0} order{(c.orderCount || 0) === 1 ? "" : "s"}
+                    {c.lastOrderDate ? ` · last ${formatDate(c.lastOrderDate)}` : ""}
+                  </p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-hidden ui-card md:block">
           <table className="ui-table min-w-full text-sm">
             <thead className="bg-canvas">
               <tr>
@@ -93,7 +108,8 @@ export function CustomersPage() {
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

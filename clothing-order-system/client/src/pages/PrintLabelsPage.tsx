@@ -5,7 +5,7 @@ import type { Order, ScanDetails } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { PageHeader, EmptyState, ErrorState } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
-import { useToast } from "@/context/ToastContext";
+import { BarcodeImage } from "@/components/BarcodeImage";
 
 type LabelItem = {
   key: string;
@@ -214,6 +214,7 @@ export function LabelsWorkspacePage() {
               </div>
               <p className="text-base font-semibold">{l.garment}</p>
               <div>
+                {l.barcode ? <BarcodeImage value={l.barcode} className="h-10 w-full object-contain" /> : null}
                 <p className="font-mono text-sm tracking-[0.2em]">{l.barcode}</p>
                 <p className="text-[11px] text-neutral-600">Due {formatDate(l.due)}</p>
               </div>
@@ -311,6 +312,7 @@ export function PrintLabelsPage() {
               <p className="text-base font-semibold">{l.title}</p>
             </div>
             <div>
+              {l.barcode ? <BarcodeImage value={l.barcode} className="h-10 w-full object-contain print:h-12" /> : null}
               <p className="font-mono text-sm tracking-[0.2em]">{l.barcode}</p>
               <p className="text-[11px]">Due {formatDate(l.due)}</p>
             </div>

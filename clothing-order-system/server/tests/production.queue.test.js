@@ -125,4 +125,15 @@ describe("production queue and distribution", () => {
     expect(open).toHaveLength(1);
     expect(open[0].staffId).toBe(other.id);
   });
+
+  it("renders a PNG barcode for an item code", async () => {
+    const { item } = await seedOrderWithItem({ clothingType: "thobe" });
+    const res = await request(app)
+      .get("/api/production/barcode.png")
+      .query({ value: item.barcodeValue })
+      .set(auth(token));
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/image\/png/);
+    expect(res.body.length).toBeGreaterThan(40);
+  });
 });

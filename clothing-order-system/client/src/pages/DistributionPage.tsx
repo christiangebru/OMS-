@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionQueue, ProductionStage, QueueItem, Staff, StaffRanking } from "@/lib/types";
@@ -6,6 +6,7 @@ import { PRODUCTION_STAGES } from "@/lib/types";
 import { daysLabel, formatDate, stageLabel, boardStatusLabel } from "@/lib/format";
 import { PageHeader, EmptyState, ErrorState, Badge, Skeleton } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
+import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import clsx from "clsx";
 
 export function DistributionPage() {
@@ -17,20 +18,23 @@ export function DistributionPage() {
   const [lane, setLane] = useState<
     "ALL" | "waiting" | "assigned" | "distributed" | "received" | "in_progress"
   >("ALL");
+  const hydrated = useRef(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const data = await apiJson<ProductionQueue>("/api/production/queue");
+      hydrated.current = true;
       setBoard(data);
       setErr(null);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Failed to load distribution board");
+      if (!hydrated.current) setErr(e instanceof ApiError ? e.message : "Failed to load distribution board");
     }
-  }
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
+  useLiveRefresh(load, 20000);
 
   const items = (board?.items || []).filter((i) => {
     const stageOk = stage === "ALL" ? true : i.nextStage === stage || i.openStage === stage;

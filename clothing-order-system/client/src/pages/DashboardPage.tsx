@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { DashboardOperations, QueueItem } from "@/lib/types";
@@ -8,6 +8,7 @@ import { PageHeader, ErrorState, Skeleton, EmptyState, Badge } from "@/component
 import { Button } from "@/components/ui/Button";
 import { isFloorRole, isManagerRole, canWriteOrders } from "@/lib/roles";
 import { useAuth } from "@/context/AuthContext";
+import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import clsx from "clsx";
 
 export function DashboardPage() {
@@ -20,22 +21,24 @@ function OfficeDashboard() {
   const { user } = useAuth();
   const [ops, setOps] = useState<DashboardOperations | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const hydrated = useRef(false);
   const reception = user?.role === "reception";
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await apiJson<DashboardOperations>("/api/dashboard/operations");
-        if (!cancelled) setOps(data);
-      } catch (e) {
-        if (!cancelled) setErr(e instanceof ApiError ? e.message : "Failed to load operations");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async () => {
+    try {
+      const data = await apiJson<DashboardOperations>("/api/dashboard/operations");
+      hydrated.current = true;
+      setOps(data);
+      setErr(null);
+    } catch (e) {
+      if (!hydrated.current) setErr(e instanceof ApiError ? e.message : "Failed to load operations");
+    }
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+  useLiveRefresh(load, 20000);
 
   if (err) return <ErrorState message={err} />;
   if (!ops) {
@@ -241,24 +244,24 @@ function FloorDashboard() {
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [stages, setStages] = useState<string[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const hydrated = useRef(false);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await apiJson<{ stages: string[]; items: QueueItem[] }>("/api/production/floor");
+      hydrated.current = true;
+      setItems(data.items || []);
+      setStages(data.stages || []);
+      setErr(null);
+    } catch (e) {
+      if (!hydrated.current) setErr(e instanceof ApiError ? e.message : "Failed to load work");
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await apiJson<{ stages: string[]; items: QueueItem[] }>("/api/production/floor");
-        if (!cancelled) {
-          setItems(data.items || []);
-          setStages(data.stages || []);
-        }
-      } catch (e) {
-        if (!cancelled) setErr(e instanceof ApiError ? e.message : "Failed to load work");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    load();
+  }, [load]);
+  useLiveRefresh(load, 15000);
 
   if (err) return <ErrorState message={err} />;
   if (!items) return <Skeleton className="h-40" />;

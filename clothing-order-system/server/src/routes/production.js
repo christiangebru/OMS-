@@ -12,6 +12,7 @@ import { syncOrderStatusFromItems } from "../utils/syncOrderFromStages.js";
 import { rankStaffForAssignment } from "../utils/assignmentScore.js";
 import { hydrateOrder } from "../utils/orderHydrate.js";
 import { buildProductionQueue } from "../utils/productionBoard.js";
+import { renderBarcodePng } from "../utils/barcode.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -216,6 +217,16 @@ router.post(
 );
 
 /** Preview scan details by barcode without mutating */
+router.get("/barcode.png", query("value").trim().notEmpty(), async (req, res) => {
+  try {
+    const png = await renderBarcodePng(req.query.value, { scale: 2, height: 10, includetext: true });
+    res.set("Cache-Control", "private, max-age=86400");
+    res.type("image/png").send(png);
+  } catch {
+    res.status(400).json({ message: "Could not render barcode" });
+  }
+});
+
 router.get("/lookup", query("barcodeValue").trim().notEmpty(), async (req, res) => {
   try {
     const item = await resolveItemByBarcode(req.query.barcodeValue);

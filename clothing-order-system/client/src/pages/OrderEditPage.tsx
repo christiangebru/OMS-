@@ -22,6 +22,8 @@ import { SuggestedAssignments } from "@/components/SuggestedAssignments";
 import { ClothingTypePicker } from "@/components/ClothingTypePicker";
 import { ItemMeasurementFields } from "@/components/ItemMeasurementFields";
 import { Button } from "@/components/ui/Button";
+import { formatDate, formatMoney } from "@/lib/format";
+import { BarcodeImage } from "@/components/BarcodeImage";
 
 const NECK: NeckType[] = ["V-shape", "square", "oval"];
 const HAND: HandType[] = ["wide", "normal"];
@@ -108,6 +110,7 @@ export function OrderEditPage() {
   const [items, setItems] = useState<OrderItem[]>([emptyItem()]);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(!isCreate);
   const [clothingTypes, setClothingTypes] = useState<ClothingTypeConfig[]>([]);
   const [previousOrders, setPreviousOrders] = useState<NonNullable<Customer["orders"]>>([]);
@@ -223,8 +226,10 @@ export function OrderEditPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (saving) return;
     setErr(null);
     setMsg(null);
+    setSaving(true);
     const payload = {
       customerId: customerId || undefined,
       customerName: customerId ? undefined : customerName,
@@ -281,6 +286,8 @@ export function OrderEditPage() {
       }
     } catch (ex) {
       setErr(ex instanceof ApiError ? ex.message : "Save failed");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -363,6 +370,39 @@ export function OrderEditPage() {
           </Link>
         </div>
       </div>
+
+      {!isCreate && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="ui-card px-4 py-3">
+            <p className="ui-label">Customer</p>
+            {customerId ? (
+              <Link to={`/customers/${customerId}`} className="mt-1 block font-semibold text-ink hover:text-accent">
+                {customerName || "—"}
+              </Link>
+            ) : (
+              <p className="mt-1 font-semibold text-ink">{customerName || "—"}</p>
+            )}
+            <p className="text-xs text-ink-muted">{customerPhone}</p>
+          </div>
+          <div className="ui-card px-4 py-3">
+            <p className="ui-label">Garments</p>
+            <p className="mt-1 text-xl font-semibold tabular">{items.length}</p>
+            <p className="truncate text-xs text-ink-muted">{items.map((i) => i.clothingType).join(" · ")}</p>
+          </div>
+          <div className="ui-card px-4 py-3">
+            <p className="ui-label">Due</p>
+            <p className="mt-1 font-semibold text-ink">{formatDate(requiredDate)}</p>
+            <p className="text-xs capitalize text-ink-muted">{priority.toLowerCase()} · {productionStatus}</p>
+          </div>
+          <div className="ui-card px-4 py-3">
+            <p className="ui-label">Balance</p>
+            <p className="mt-1 text-xl font-semibold tabular">{formatMoney(balance)}</p>
+            <p className="text-xs text-ink-muted">
+              {formatMoney(depositPaid)} of {formatMoney(totalAgreedPrice)} paid
+            </p>
+          </div>
+        </div>
+      )}
 
       <form
         onSubmit={onSubmit}
@@ -509,8 +549,14 @@ export function OrderEditPage() {
                 <span className="text-xs font-bold uppercase tracking-wide text-ink-muted">
                   Item {index + 1}
                   {it.barcodeValue ? (
-                    <span className="ml-2 font-mono font-normal normal-case text-ink-faint">
+                    <span className="ml-2 inline-flex items-center gap-2 font-mono font-normal normal-case text-ink-faint">
                       {it.barcodeValue}
+                      <Link
+                        to={`/scan?barcode=${encodeURIComponent(it.barcodeValue)}`}
+                        className="font-sans font-semibold text-accent hover:underline"
+                      >
+                        Scan
+                      </Link>
                     </span>
                   ) : null}
                 </span>
@@ -676,6 +722,12 @@ export function OrderEditPage() {
 
                 {!isCreate && it._id && (
                   <div className="sm:col-span-2 lg:col-span-3 space-y-4">
+                    {it.barcodeValue && (
+                      <div className="max-w-xs rounded-lg bg-canvas p-3">
+                        <p className="ui-label">Item barcode</p>
+                        <BarcodeImage value={it.barcodeValue} className="mt-2 h-14 w-full object-contain" />
+                      </div>
+                    )}
                     <div>
                       <p className="mb-2 ui-label">
                         Production timeline
@@ -695,7 +747,11 @@ export function OrderEditPage() {
                       }
                     />
                     <Link
-                      to="/scan"
+                      to={
+                        it.barcodeValue
+                          ? `/scan?barcode=${encodeURIComponent(it.barcodeValue)}`
+                          : "/scan"
+                      }
                       className="inline-block text-sm font-semibold text-accent hover:underline"
                     >
                       Open Scan floor →
@@ -721,9 +777,10 @@ export function OrderEditPage() {
         <div className="flex flex-wrap gap-3">
           <button
             type="submit"
-            className="rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-accent-hover"
+            disabled={saving}
+            className="rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
           >
-            {isCreate ? "Create order" : "Save changes"}
+            {isCreate ? "Create order" : saving ? "Saving…" : "Save changes"}
           </button>
           {!isCreate && user?.role === "admin" && (
             <button

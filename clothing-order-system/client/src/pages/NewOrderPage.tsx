@@ -519,17 +519,29 @@ export function NewOrderPage() {
             {editStep === 3 && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <Labeled label="Fabric">
+                  <ChipRow
+                    options={["cotton", "linen", "wool", "silk", "polyester", "viscose"]}
+                    value={editing.fabricType}
+                    onPick={(v) => setEditing((d) => (d ? { ...d, fabricType: v } : d))}
+                  />
                   <input
                     className="ui-input"
                     value={editing.fabricType}
                     onChange={(e) => setEditing((d) => (d ? { ...d, fabricType: e.target.value } : d))}
+                    placeholder="Or type a fabric"
                   />
                 </Labeled>
                 <Labeled label="Color">
+                  <ChipRow
+                    options={["white", "black", "cream", "navy", "beige", "grey", "brown", "olive"]}
+                    value={editing.color}
+                    onPick={(v) => setEditing((d) => (d ? { ...d, color: v } : d))}
+                  />
                   <input
                     className="ui-input"
                     value={editing.color}
                     onChange={(e) => setEditing((d) => (d ? { ...d, color: e.target.value } : d))}
+                    placeholder="Or type a color"
                   />
                 </Labeled>
                 <Labeled label="Collar / neck">
@@ -709,6 +721,37 @@ export function NewOrderPage() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function ChipRow({
+  options,
+  value,
+  onPick
+}: {
+  options: string[];
+  value: string;
+  onPick: (v: string) => void;
+}) {
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5">
+      {options.map((opt) => {
+        const on = value.trim().toLowerCase() === opt;
+        return (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => onPick(opt)}
+            className={clsx(
+              "rounded-control px-2.5 py-1 text-xs capitalize",
+              on ? "bg-accent text-white" : "bg-canvas text-ink-muted hover:text-ink"
+            )}
+          >
+            {opt}
+          </button>
+        );
+      })}
     </div>
   );
 }

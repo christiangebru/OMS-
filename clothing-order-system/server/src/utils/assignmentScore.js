@@ -87,11 +87,20 @@ function buildReason({ staff, skillMatch, stageSkill, priority, daysLeft }) {
         ? "Can take this deadline"
         : "Workload may delay this deadline";
 
+  const dueBit =
+    daysLeft != null && daysLeft < 0
+      ? "Overdue"
+      : daysLeft != null && daysLeft <= 2
+        ? "Due soon"
+        : daysLeft != null
+          ? `${Math.ceil(daysLeft)}d until due`
+          : dueCapacity;
+
   const summary = [
-    `Skill ${stageSkill}/5`,
-    `${active} active`,
+    stageSkill >= 4 ? `High Skill ${stageSkill}/5` : `Skill ${stageSkill}/5`,
+    active === 0 ? "Low workload" : `${active} active`,
     staff.status === "AVAILABLE" ? "Available" : staff.status.replace("_", " ").toLowerCase(),
-    dueCapacity
+    dueBit
   ].join(" · ");
 
   return {
