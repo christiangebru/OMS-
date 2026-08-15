@@ -133,7 +133,8 @@ export async function buildProductionQueue() {
               staff: top.staff,
               scores: top.scores,
               reason: top.reason,
-              reasons: top.reasons || []
+              reasons: top.reasons || [],
+              summary: top.summary || top.reason
             }
           : null;
       } catch {
@@ -149,9 +150,8 @@ export async function buildProductionQueue() {
       stage,
       waiting: stageRows.filter((r) => r.boardStatus === "waiting").length,
       assigned: stageRows.filter((r) => r.boardStatus === "assigned").length,
-      distributed: stageRows.filter((r) =>
-        ["distributed", "received"].includes(r.boardStatus)
-      ).length,
+      distributed: stageRows.filter((r) => r.boardStatus === "distributed").length,
+      received: stageRows.filter((r) => r.boardStatus === "received").length,
       inProgress: stageRows.filter((r) => r.boardStatus === "in_progress").length,
       items: stageRows
     };
@@ -207,9 +207,8 @@ export async function buildProductionQueue() {
     summary: {
       itemsWaiting: rows.filter((r) => r.boardStatus === "waiting").length,
       itemsAssigned: rows.filter((r) => r.boardStatus === "assigned").length,
-      itemsDistributed: rows.filter((r) =>
-        ["distributed", "received"].includes(r.boardStatus)
-      ).length,
+      itemsDistributed: rows.filter((r) => r.boardStatus === "distributed").length,
+      itemsReceived: rows.filter((r) => r.boardStatus === "received").length,
       itemsInProgress: rows.filter((r) => r.boardStatus === "in_progress").length,
       overdueItems: rows.filter((r) => r.overdue).length,
       todayCreated,

@@ -1,7 +1,8 @@
-import { Link } from "react-router-dom";
+import { NavLink, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { navForRole } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
+import clsx from "clsx";
 
 export function Header() {
   const { user, logout } = useAuth();
@@ -17,11 +18,21 @@ export function Header() {
           >
             AT
           </Link>
-          <nav className="flex gap-2 overflow-x-auto text-xs font-medium text-ink-muted">
-            {items.slice(0, 5).map((l) => (
-              <Link key={l.to} className="whitespace-nowrap hover:text-ink" to={l.to}>
+          <nav className="flex gap-1 overflow-x-auto text-xs font-medium" aria-label="Mobile">
+            {items.map((l) => (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                end={l.end}
+                className={({ isActive }) =>
+                  clsx(
+                    "whitespace-nowrap rounded-control px-2 py-1",
+                    isActive ? "bg-accent-soft text-accent" : "text-ink-muted hover:text-ink"
+                  )
+                }
+              >
                 {l.label}
-              </Link>
+              </NavLink>
             ))}
           </nav>
         </div>

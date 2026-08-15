@@ -168,6 +168,19 @@ export interface Staff {
   skills?: ProductionStage[];
   skillDetails?: Array<{ stage: ProductionStage; level: number }>;
   createdAt?: string;
+  activeAssignmentCount?: number;
+  completedAssignmentCount?: number;
+  overdueAssignmentCount?: number;
+  strongestStage?: ProductionStage | null;
+  strongestLevel?: number;
+  presence?: "idle" | "assigned" | "handed_over" | "received" | "in_progress";
+  currentGarment?: {
+    clothingType: string;
+    barcodeValue: string;
+    stage: string;
+    customerName: string | null;
+    orderId: string;
+  } | null;
 }
 
 export interface AuthUser {
@@ -332,11 +345,20 @@ export interface DashboardOperations {
   };
   production: Record<
     string,
-    { waiting: number; assigned: number; distributed: number; inProgress: number; total: number }
+    {
+      waiting: number;
+      assigned: number;
+      distributed: number;
+      received?: number;
+      inProgress: number;
+      total: number;
+    }
   >;
   distribution: {
     unassigned: number;
     awaitingDistribution: number;
+    handedOver?: number;
+    received?: number;
     assigned: number;
     inProgress: number;
   };
@@ -350,6 +372,23 @@ export interface DashboardOperations {
     priority: string;
     daysRemaining: number | null;
     overdue: boolean;
+    boardStatus?: string;
+    workerName?: string | null;
+    barcodeValue?: string;
+  }>;
+  floor?: Array<{
+    itemId: string;
+    barcodeValue: string;
+    clothingType: string;
+    clothingCode?: string;
+    customerName: string;
+    orderId: string;
+    stage: string | null;
+      boardStatus: "waiting" | "assigned" | "distributed" | "received" | "in_progress";
+    workerName: string | null;
+    overdue: boolean;
+    priority: OrderPriority;
+    daysRemaining: number | null;
   }>;
 }
 
@@ -387,6 +426,7 @@ export interface ProductionQueue {
     itemsWaiting: number;
     itemsAssigned: number;
     itemsDistributed: number;
+    itemsReceived?: number;
     itemsInProgress: number;
     overdueItems: number;
     todayCreated: number;

@@ -47,6 +47,7 @@ type Draft = {
   difficultyLevel: number;
   category: MeasurementCategory;
   measureValues: Record<string, string>;
+  copiedFromPrevious?: boolean;
 };
 
 const EDIT_LABELS = ["Type", "Reuse", "Fit", "Specs", "Images", "Price"];
@@ -167,7 +168,7 @@ export function NewOrderPage() {
         if (reuseId) {
           const found = c.orders?.flatMap((o) => o.items || []).find((it) => it._id === reuseId);
           if (found) {
-            setDrafts([draftFromItem(found)]);
+            setDrafts([{ ...draftFromItem(found), copiedFromPrevious: true }]);
             setPhase("garments");
           }
         }
@@ -203,7 +204,7 @@ export function NewOrderPage() {
   function applyPreviousToEdit(src: OrderItem) {
     if (!editing) return;
     const next = draftFromItem(src);
-    setEditing({ ...next, key: editing.key });
+    setEditing({ ...next, key: editing.key, copiedFromPrevious: true });
     setReuseMode("previous");
     setEditStep(2);
   }
@@ -363,6 +364,9 @@ export function NewOrderPage() {
                     <div>
                       <p className="text-sm font-medium text-ink">
                         {i + 1}. {d.clothingType || "Untitled garment"}
+                        {d.copiedFromPrevious ? (
+                          <span className="ml-2 text-[11px] font-medium text-accent">Copied · still editable</span>
+                        ) : null}
                       </p>
                       <p className="text-xs text-ink-muted">
                         {d.fabricType || "Fabric TBD"} · {d.color || "Color TBD"} · {formatMoney(d.unitPrice)}
@@ -425,6 +429,11 @@ export function NewOrderPage() {
 
             {editStep === 1 && (
               <div className="space-y-3">
+                {editing.copiedFromPrevious && (
+                  <p className="rounded-control bg-accent-soft px-3 py-2 text-xs text-accent">
+                    Copied from a previous garment. Change anything that is different this time.
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <Button
                     type="button"

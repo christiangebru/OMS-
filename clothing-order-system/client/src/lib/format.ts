@@ -33,6 +33,26 @@ export function daysLabel(daysRemaining?: number | null, overdue?: boolean) {
   return `${Math.ceil(daysRemaining)}d left`;
 }
 
+export function boardStatusLabel(status?: string | null) {
+  switch (status) {
+    case "waiting":
+      return "Waiting";
+    case "assigned":
+      return "Assigned";
+    case "distributed":
+    case "handed_over":
+      return "Handed over";
+    case "received":
+      return "Received";
+    case "in_progress":
+      return "Checked in";
+    case "idle":
+      return "Available";
+    default:
+      return status || "—";
+  }
+}
+
 export function stageLabel(stage: string) {
   return String(stage || "")
     .toLowerCase()

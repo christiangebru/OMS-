@@ -45,6 +45,7 @@ describe("production queue and distribution", () => {
     expect(found.nextStage).toBe("RECEIVED");
     expect(found.boardStatus).toBe("waiting");
     expect(found.recommended?.staff?._id || found.recommended?.staff?.name).toBeTruthy();
+    expect(found.recommended.summary).toEqual(expect.any(String));
   });
 
   it("assign then distribute then receive", async () => {
@@ -85,6 +86,11 @@ describe("production queue and distribution", () => {
       .set(auth(token));
     expect(recv.status).toBe(200);
     expect(recv.body.receivedAt).toBeTruthy();
+
+    const afterRecv = await request(app).get("/api/production/queue").set(auth(token));
+    const received = afterRecv.body.items.find((r) => r.itemId === item.id);
+    expect(received.boardStatus).toBe("received");
+    expect(afterRecv.body.summary.itemsReceived).toBeGreaterThanOrEqual(1);
   });
 
   it("reassign closes the previous open assignment", async () => {

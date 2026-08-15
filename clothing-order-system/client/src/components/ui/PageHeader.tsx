@@ -66,7 +66,7 @@ export function Badge({
         tone === "ok" && "bg-accent-soft text-accent",
         tone === "warn" && "bg-amber-50 text-amber-800",
         tone === "urgent" && "bg-red-50 text-red-800",
-        tone === "progress" && "bg-sky-50 text-sky-800",
+        tone === "progress" && "bg-accent-soft text-ink",
         tone === "accent" && "bg-accent text-white"
       )}
     >

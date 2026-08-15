@@ -105,18 +105,21 @@ router.get("/operations", requireCapability("dashboard"), async (_req, res) => {
       Object.entries(board.byStage).map(([stage, v]) => [
         stage,
         {
-          waiting: v.waiting,
-          assigned: v.assigned,
-          distributed: v.distributed,
-          inProgress: v.inProgress,
-          total: v.items.length
+            waiting: v.waiting,
+            assigned: v.assigned,
+            distributed: v.distributed,
+            received: v.received || 0,
+            inProgress: v.inProgress,
+            total: v.items.length
         }
       ])
     ),
     distribution: {
       unassigned: board.summary.itemsWaiting,
       awaitingDistribution: board.summary.itemsAssigned,
-      assigned: board.summary.itemsAssigned + board.summary.itemsDistributed,
+      handedOver: board.summary.itemsDistributed,
+      received: board.summary.itemsReceived || 0,
+      assigned: board.summary.itemsAssigned + board.summary.itemsDistributed + (board.summary.itemsReceived || 0),
       inProgress: board.summary.itemsInProgress
     },
     staff: {
@@ -137,8 +140,25 @@ router.get("/operations", requireCapability("dashboard"), async (_req, res) => {
         nextStage: i.nextStage,
         priority: i.priority,
         daysRemaining: i.daysRemaining,
-        overdue: i.overdue
-      }))
+        overdue: i.overdue,
+        boardStatus: i.boardStatus,
+        workerName: i.assignment?.staff?.name || null,
+        barcodeValue: i.barcodeValue
+      })),
+    floor: board.items.map((i) => ({
+      itemId: i.itemId,
+      barcodeValue: i.barcodeValue,
+      clothingType: i.clothingType,
+      clothingCode: i.clothingCode,
+      customerName: i.customer?.name || "—",
+      orderId: i.orderId,
+      stage: i.inProgress ? i.openStage : i.nextStage,
+      boardStatus: i.boardStatus,
+      workerName: i.assignment?.staff?.name || null,
+      overdue: i.overdue,
+      priority: i.priority,
+      daysRemaining: i.daysRemaining
+    }))
   });
 });
 

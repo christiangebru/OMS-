@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireCapability } from "../middleware/permissions.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { StaffRole, StaffStatus, ProductionStage } from "../constants/production.js";
+import { attachStaffBoard } from "../utils/staffBoard.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -58,7 +59,7 @@ router.get(
     }
 
     const withSk = await Promise.all(staff.map(withSkills));
-    res.json(withSk);
+    res.json(await attachStaffBoard(prisma, withSk));
   }
 );
 

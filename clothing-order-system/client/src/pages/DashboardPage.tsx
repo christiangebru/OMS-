@@ -3,8 +3,8 @@ import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { DashboardOperations, QueueItem } from "@/lib/types";
 import { PRODUCTION_STAGES } from "@/lib/types";
-import { daysLabel, stageLabel } from "@/lib/format";
-import { PageHeader, ErrorState, Skeleton, EmptyState } from "@/components/ui/PageHeader";
+import { daysLabel, stageLabel, boardStatusLabel } from "@/lib/format";
+import { PageHeader, ErrorState, Skeleton, EmptyState, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { isFloorRole, isManagerRole, canWriteOrders } from "@/lib/roles";
 import { useAuth } from "@/context/AuthContext";
@@ -126,11 +126,80 @@ function OfficeDashboard() {
             <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
               <Pair label="Unassigned" value={ops.distribution.unassigned} />
               <Pair label="Awaiting handover" value={ops.distribution.awaitingDistribution} />
-              <Pair label="In progress" value={ops.distribution.inProgress} />
+              <Pair label="Handed over" value={ops.distribution.handedOver || 0} />
+              <Pair label="Received" value={ops.distribution.received || 0} />
+              <Pair label="Checked in" value={ops.distribution.inProgress} />
               <Pair label="Available staff" value={ops.staff.available} />
-              <Pair label="Busy" value={ops.staff.busy} />
-              <Pair label="Overloaded" value={ops.staff.overloaded} warn={ops.staff.overloaded > 0} />
             </dl>
+          </div>
+        </section>
+      )}
+
+      {!reception && ops.floor && ops.floor.length > 0 && (
+        <section>
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Floor presence</h2>
+              <p className="text-xs text-ink-muted">
+                Assigned is not the same as handed over, received, or checked in.
+              </p>
+            </div>
+            <Link to="/distribution" className="text-xs font-semibold text-accent hover:underline">
+              Open distribution
+            </Link>
+          </div>
+          <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+            <div className="flex min-w-max gap-3 pb-2 lg:grid lg:min-w-0 lg:grid-cols-4 xl:grid-cols-7">
+              {PRODUCTION_STAGES.map((stage) => {
+                const cards = (ops.floor || []).filter((g) => g.stage === stage);
+                if (!cards.length && ["RECEIVED", "DELIVERED"].includes(stage)) return null;
+                return (
+                  <div key={stage} className="w-[220px] shrink-0 lg:w-auto">
+                    <p className="ui-label">{stageLabel(stage)}</p>
+                    <p className="mt-0.5 text-xs tabular text-ink-muted">{cards.length}</p>
+                    <ul className="mt-2 space-y-2">
+                      {cards.slice(0, 6).map((g) => (
+                        <li key={g.itemId} className="ui-card p-2.5">
+                          <p className="truncate text-xs font-medium text-ink">
+                            {g.customerName} · {g.clothingType}
+                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <Badge
+                              tone={
+                                g.overdue
+                                  ? "urgent"
+                                  : g.boardStatus === "in_progress"
+                                    ? "progress"
+                                    : g.boardStatus === "waiting"
+                                      ? "warn"
+                                      : "ok"
+                              }
+                            >
+                              {boardStatusLabel(g.boardStatus)}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 truncate text-[11px] text-ink-muted">
+                            {g.workerName || "Unassigned"}
+                            {g.overdue ? " · overdue" : ""}
+                          </p>
+                          {g.barcodeValue && (
+                            <Link
+                              to={`/scan?barcode=${encodeURIComponent(g.barcodeValue)}`}
+                              className="mt-1 inline-block text-[11px] font-semibold text-accent"
+                            >
+                              Scan
+                            </Link>
+                          )}
+                        </li>
+                      ))}
+                      {cards.length > 6 && (
+                        <li className="text-[11px] text-ink-faint">+{cards.length - 6} more</li>
+                      )}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </section>
       )}
@@ -231,7 +300,9 @@ function FloorDashboard() {
                 <p className="text-xs font-mono text-ink-muted">{row.barcodeValue}</p>
               </div>
               <div className="text-right">
-                <p className="text-xs capitalize text-ink-muted">{stageLabel(row.nextStage)}</p>
+                <p className="text-xs capitalize text-ink-muted">
+                  {boardStatusLabel(row.boardStatus)} · {stageLabel(row.openStage || row.nextStage)}
+                </p>
                 <p className={clsx("text-xs font-semibold", row.overdue ? "text-red-700" : "text-ink-muted")}>
                   {daysLabel(row.daysRemaining, row.overdue)}
                 </p>

@@ -241,7 +241,7 @@ export function ScanPage() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form id="scan-form" onSubmit={onSubmit} className="space-y-4">
           <div className="ui-card overflow-hidden">
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
               <p className="text-sm font-semibold text-ink">Scanner</p>
@@ -295,6 +295,27 @@ export function ScanPage() {
             </div>
           </div>
 
+          {details && (
+            <div className="ui-card p-4">
+              <p className="text-lg font-semibold text-ink">
+                {details.item.clothingType}
+                <span className="ml-2 font-mono text-sm font-normal text-ink-muted">
+                  {details.item.barcodeValue}
+                </span>
+              </p>
+              <p className="text-sm text-ink-muted">
+                {details.customer?.name || "—"} · {stageLabel(details.timing.currentStage || actionStage)}
+                {details.production?.assignment?.staff?.name
+                  ? ` · ${details.production.assignment.staff.name}`
+                  : " · unassigned"}
+              </p>
+              <p className="mt-1 text-xs text-ink-muted">
+                Next: {action === "check_out" ? "Check out" : "Check in"} {stageLabel(actionStage)}
+                {details.timing.overdue ? " · overdue" : ""}
+              </p>
+            </div>
+          )}
+
           <div className="ui-card space-y-4 p-4">
             <div>
               <label className="ui-label" htmlFor="staff">
@@ -343,13 +364,13 @@ export function ScanPage() {
                 Override stage sequence (manager)
               </label>
             )}
-            {details?.production?.assignment?.distributedAt &&
+                {details?.production?.assignment?.distributedAt &&
               !details.production.assignment.receivedAt && (
                 <Button
                   type="button"
                   size="lg"
                   variant="secondary"
-                  className="min-h-12 w-full"
+                  className="min-h-12 w-full max-sm:hidden"
                   disabled={busy}
                   onClick={receiveAssignment}
                 >
@@ -359,7 +380,7 @@ export function ScanPage() {
             <Button
               type="submit"
               size="lg"
-              className="min-h-14 w-full text-base"
+              className="min-h-14 w-full text-base max-sm:hidden"
               disabled={busy || !barcode.trim() || !staffId || !details}
             >
               {busy ? "Working…" : details ? actionLabel : "Scan an item first"}
@@ -419,6 +440,31 @@ export function ScanPage() {
           </div>
         </aside>
       </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:hidden">
+        {details?.production?.assignment?.distributedAt && !details.production.assignment.receivedAt ? (
+          <Button
+            type="button"
+            size="lg"
+            variant="secondary"
+            className="mb-2 min-h-12 w-full"
+            disabled={busy}
+            onClick={receiveAssignment}
+          >
+            Confirm received
+          </Button>
+        ) : null}
+        <Button
+          type="submit"
+          form="scan-form"
+          size="lg"
+          className="min-h-14 w-full text-base"
+          disabled={busy || !barcode.trim() || !staffId || !details}
+        >
+          {busy ? "Working…" : details ? actionLabel : "Scan an item first"}
+        </Button>
+      </div>
+      <div className="h-24 sm:hidden" aria-hidden />
 
       {feedback && !feedback.ok && <ErrorState message={feedback.message} />}
 

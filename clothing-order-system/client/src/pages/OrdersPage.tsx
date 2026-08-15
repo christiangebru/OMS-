@@ -141,7 +141,44 @@ export function OrdersPage() {
 
       {err && <ErrorState message={err} />}
 
-      <div className="overflow-hidden ui-card">
+      {!loading && !visible.length && (
+        <EmptyState
+          title="No orders match"
+          body="Try clearing filters, or create a new order."
+          action={
+            canCreate ? (
+              <Link to="/orders/new">
+                <Button>New order</Button>
+              </Link>
+            ) : undefined
+          }
+        />
+      )}
+
+      <ul className="space-y-3 md:hidden">
+        {visible.map((o) => {
+          const due = new Date(o.requiredCompletionDate);
+          const overdue =
+            due.getTime() < Date.now() && !["completed", "delivered"].includes(o.productionStatus);
+          return (
+            <li key={o.orderId} className="ui-card p-4">
+              <Link to={`/orders/${encodeURIComponent(o.orderId)}`} className="block">
+                <p className="font-mono text-xs font-semibold text-ink">{o.orderId}</p>
+                <p className="mt-1 font-medium text-ink">{o.customerName || o.customer?.name || "—"}</p>
+                <p className="mt-1 text-xs text-ink-muted">
+                  {o.items.map((it) => it.clothingType).join(" · ")}
+                </p>
+                <p className={clsx("mt-2 text-xs", overdue && "font-semibold text-red-700")}>
+                  {formatDate(o.requiredCompletionDate)} · {o.productionStatus}
+                  {o.priority && o.priority !== "NORMAL" ? ` · ${o.priority}` : ""}
+                </p>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="hidden overflow-hidden ui-card md:block">
         <div className="overflow-x-auto">
           <table className="ui-table min-w-[880px] w-full text-sm">
             <thead className="border-b border-line bg-canvas/70">
@@ -228,19 +265,7 @@ export function OrdersPage() {
               })}
               {!loading && !visible.length && (
                 <tr>
-                  <td colSpan={7} className="p-0">
-                    <EmptyState
-                      title="No orders match"
-                      body="Try clearing filters, or create a new order."
-                      action={
-                        canCreate ? (
-                          <Link to="/orders/new">
-                            <Button>New order</Button>
-                          </Link>
-                        ) : undefined
-                      }
-                    />
-                  </td>
+                  <td colSpan={7} className="p-0" />
                 </tr>
               )}
             </tbody>

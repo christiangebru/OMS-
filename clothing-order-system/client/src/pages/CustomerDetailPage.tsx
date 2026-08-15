@@ -14,7 +14,7 @@ export function CustomerDetailPage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"profile" | "garments" | "payments" | "measures">("profile");
+  const [tab, setTab] = useState<"profile" | "orders" | "garments" | "payments" | "measures">("profile");
   const [identity, setIdentity] = useState({
     name: "",
     phone: "",
@@ -151,6 +151,7 @@ export function CustomerDetailPage() {
         {(
           [
             ["profile", "Profile"],
+            ["orders", "Orders"],
             ["garments", "Garments"],
             ["measures", "Measurements"],
             ["payments", "Payments"]
@@ -197,6 +198,29 @@ export function CustomerDetailPage() {
             <Button type="submit">Save profile</Button>
           </div>
         </form>
+      )}
+
+      {tab === "orders" && (
+        <div className="space-y-2">
+          {!(customer.orders || []).length && (
+            <EmptyState title="No orders yet" body="Start a new order for this customer." />
+          )}
+          {(customer.orders || []).map((o) => (
+            <Link
+              key={o._id}
+              to={`/orders/${encodeURIComponent(o.orderId)}`}
+              className="ui-card flex items-center justify-between gap-3 p-4"
+            >
+              <div>
+                <p className="font-mono text-xs font-semibold text-ink">{o.orderId}</p>
+                <p className="mt-1 text-sm text-ink-muted">
+                  {(o.items || []).map((it) => it.clothingType).join(" · ") || "No garments"}
+                </p>
+              </div>
+              <span className="text-xs capitalize text-ink-muted">{o.productionStatus}</span>
+            </Link>
+          ))}
+        </div>
       )}
 
       {tab === "garments" && (

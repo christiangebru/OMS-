@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
-import type { ProductionQueue, ProductionStage, QueueItem, StaffRanking } from "@/lib/types";
+import type { ProductionQueue, ProductionStage, QueueItem, Staff, StaffRanking } from "@/lib/types";
 import { PRODUCTION_STAGES } from "@/lib/types";
-import { daysLabel, formatDate, stageLabel } from "@/lib/format";
+import { daysLabel, formatDate, stageLabel, boardStatusLabel } from "@/lib/format";
 import { PageHeader, EmptyState, ErrorState, Badge, Skeleton } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import clsx from "clsx";
@@ -126,11 +126,12 @@ export function DistributionPage() {
         <Skeleton className="h-40" />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Stat label="Waiting assignment" value={waiting} />
             <Stat label="Assigned" value={board.summary.itemsAssigned} />
             <Stat label="Handed over" value={board.summary.itemsDistributed} />
-            <Stat label="In progress" value={board.summary.itemsInProgress} />
+            <Stat label="Received" value={board.summary.itemsReceived || 0} />
+            <Stat label="Checked in" value={board.summary.itemsInProgress} />
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -177,7 +178,41 @@ export function DistributionPage() {
           {items.length === 0 ? (
             <EmptyState title="Nothing waiting in this stage" body="New orders will appear here once they are created." />
           ) : (
-            <div className="overflow-hidden ui-card">
+            <>
+              <ul className="space-y-3 lg:hidden">
+                {items.map((item) => (
+                  <li key={item.itemId} className="ui-card space-y-3 p-4">
+                    <div>
+                      <p className="font-medium text-ink">{item.clothingType}</p>
+                      <p className="text-xs text-ink-muted">
+                        {item.customer?.name || "—"} · {item.orderId}
+                      </p>
+                      <p className="mt-1 text-xs capitalize text-ink-muted">
+                        {stageLabel(item.nextStage)} · {boardStatusLabel(item.boardStatus)}
+                        {item.assignment?.staff ? ` · ${item.assignment.staff.name}` : ""}
+                      </p>
+                      {item.recommended && item.boardStatus === "waiting" && (
+                        <p className="mt-1 text-[11px] text-ink-muted">
+                          Recommended: {item.recommended.staff.name}
+                          {item.recommended.summary ? ` — ${item.recommended.summary}` : ""}
+                        </p>
+                      )}
+                    </div>
+                    <LaneActions
+                      item={item}
+                      busy={busy}
+                      manual={manual}
+                      workers={board.staff.workers || []}
+                      onManual={(id, value) => setManual((m) => ({ ...m, [id]: value }))}
+                      onAssign={assign}
+                      onAssignManual={assignManual}
+                      onDistribute={distribute}
+                      onReceive={receive}
+                    />
+                  </li>
+                ))}
+              </ul>
+              <div className="hidden overflow-hidden ui-card lg:block">
               <div className="overflow-x-auto">
                 <table className="ui-table min-w-[960px] w-full text-sm">
                   <thead className="border-b border-line bg-canvas/70">
@@ -229,13 +264,6 @@ export function DistributionPage() {
                                 {item.recommended.summary ||
                                   `Skill ${item.recommended.staff.skillLevel}/5 · ${item.recommended.staff.activeAssignmentCount} active`}
                               </p>
-                              <ul className="mt-1 space-y-0.5 text-[11px]">
-                                {(item.recommended.reasons || []).slice(0, 3).map((r) => (
-                                  <li key={r.code + r.label} className={r.ok ? "text-accent" : "text-ink-muted"}>
-                                    {r.ok ? "✓" : "–"} {r.label}
-                                  </li>
-                                ))}
-                              </ul>
                             </div>
                           ) : (
                             <span className="text-xs text-ink-muted">No eligible worker</span>
@@ -251,84 +279,25 @@ export function DistributionPage() {
                                   : "ok"
                             }
                           >
-                            {item.boardStatus.replace("_", " ")}
+                            {boardStatusLabel(item.boardStatus)}
                           </Badge>
                           {item.assignment?.staff && (
                             <p className="mt-1 text-xs text-ink-muted">{item.assignment.staff.name}</p>
                           )}
                         </td>
                         <td className="text-right">
-                          <div className="flex flex-col items-end gap-1.5">
-                            {item.boardStatus === "waiting" && item.recommended && (
-                              <Button
-                                size="sm"
-                                disabled={busy === item.itemId}
-                                onClick={() => assign(item, item.recommended!, true)}
-                              >
-                                Assign {item.recommended.staff.name.split(" ")[0]}
-                              </Button>
-                            )}
-                            {item.boardStatus === "assigned" && (
-                              <Button
-                                size="sm"
-                                disabled={busy === item.itemId}
-                                onClick={() => distribute(item)}
-                              >
-                                Mark handed over
-                              </Button>
-                            )}
-                            {item.boardStatus === "distributed" && (
-                              <Button
-                                size="sm"
-                                disabled={busy === item.itemId}
-                                onClick={() => receive(item)}
-                              >
-                                Confirm received
-                              </Button>
-                            )}
-                            {item.boardStatus === "waiting" && (
-                              <div className="flex gap-1">
-                                <select
-                                  className="rounded-control border border-line bg-surface px-2 py-1 text-xs"
-                                  value={manual[item.itemId] || ""}
-                                  onChange={(e) =>
-                                    setManual((m) => ({ ...m, [item.itemId]: e.target.value }))
-                                  }
-                                >
-                                  <option value="">Manual…</option>
-                                  {(board.staff.workers || [])
-                                    .filter((w) => w.active !== false)
-                                    .map((w) => (
-                                      <option key={w._id} value={w._id}>
-                                        {w.name} ({w.status})
-                                      </option>
-                                    ))}
-                                </select>
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  disabled={!manual[item.itemId] || busy === item.itemId}
-                                  onClick={() => assignManual(item)}
-                                >
-                                  Assign
-                                </Button>
-                              </div>
-                            )}
-                            {(item.boardStatus === "assigned" ||
-                              item.boardStatus === "distributed" ||
-                              item.boardStatus === "received") &&
-                              item.recommended &&
-                              item.recommended.staff._id !== item.assignment?.staff?._id && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  disabled={busy === item.itemId}
-                                  onClick={() => assign(item, item.recommended!, false)}
-                                >
-                                  Reassign
-                                </Button>
-                              )}
-                          </div>
+                          <LaneActions
+                            item={item}
+                            busy={busy}
+                            manual={manual}
+                            workers={board.staff.workers || []}
+                            onManual={(id, value) => setManual((m) => ({ ...m, [id]: value }))}
+                            onAssign={assign}
+                            onAssignManual={assignManual}
+                            onDistribute={distribute}
+                            onReceive={receive}
+                            align="end"
+                          />
                         </td>
                       </tr>
                     ))}
@@ -336,9 +305,95 @@ export function DistributionPage() {
                 </table>
               </div>
             </div>
+            </>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function LaneActions({
+  item,
+  busy,
+  manual,
+  workers,
+  onManual,
+  onAssign,
+  onAssignManual,
+  onDistribute,
+  onReceive,
+  align = "start"
+}: {
+  item: QueueItem;
+  busy: string | null;
+  manual: Record<string, string>;
+  workers: Staff[];
+  onManual: (id: string, value: string) => void;
+  onAssign: (item: QueueItem, ranking: StaffRanking, followed: boolean) => void;
+  onAssignManual: (item: QueueItem) => void;
+  onDistribute: (item: QueueItem) => void;
+  onReceive: (item: QueueItem) => void;
+  align?: "start" | "end";
+}) {
+  return (
+    <div className={clsx("flex flex-col gap-1.5", align === "end" && "items-end")}>
+      {item.boardStatus === "waiting" && item.recommended && (
+        <Button size="sm" disabled={busy === item.itemId} onClick={() => onAssign(item, item.recommended!, true)}>
+          Assign {item.recommended.staff.name.split(" ")[0]}
+        </Button>
+      )}
+      {item.boardStatus === "assigned" && (
+        <Button size="sm" disabled={busy === item.itemId} onClick={() => onDistribute(item)}>
+          Mark handed over
+        </Button>
+      )}
+      {item.boardStatus === "distributed" && (
+        <Button size="sm" disabled={busy === item.itemId} onClick={() => onReceive(item)}>
+          Confirm received
+        </Button>
+      )}
+      {item.boardStatus === "waiting" && (
+        <div className="flex gap-1">
+          <select
+            className="rounded-control border border-line bg-surface px-2 py-1 text-xs"
+            value={manual[item.itemId] || ""}
+            onChange={(e) => onManual(item.itemId, e.target.value)}
+            aria-label="Manual worker"
+          >
+            <option value="">Manual…</option>
+            {workers
+              .filter((w) => w.active !== false)
+              .map((w) => (
+                <option key={w._id} value={w._id}>
+                  {w.name} ({w.status})
+                </option>
+              ))}
+          </select>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!manual[item.itemId] || busy === item.itemId}
+            onClick={() => onAssignManual(item)}
+          >
+            Assign
+          </Button>
+        </div>
+      )}
+      {(item.boardStatus === "assigned" ||
+        item.boardStatus === "distributed" ||
+        item.boardStatus === "received") &&
+        item.recommended &&
+        item.recommended.staff._id !== item.assignment?.staff?._id && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy === item.itemId}
+            onClick={() => onAssign(item, item.recommended!, false)}
+          >
+            Reassign
+          </Button>
+        )}
     </div>
   );
 }
