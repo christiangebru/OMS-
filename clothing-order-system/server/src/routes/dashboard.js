@@ -92,7 +92,13 @@ router.get("/notifications", async (_req, res) => {
 });
 
 router.get("/operations", requireCapability("dashboard"), async (_req, res) => {
-  const board = await buildProductionQueue();
+  let board;
+  try {
+    board = await buildProductionQueue({ includeRecommendations: false });
+  } catch (err) {
+    console.error("[dashboard/operations]", err);
+    return res.status(500).json({ message: err.message || "Operations query failed" });
+  }
   res.json({
     today: {
       orders: board.summary.todayCreated,

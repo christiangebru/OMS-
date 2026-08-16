@@ -5,8 +5,8 @@ import type { ProductionStage, ScanDetails, Staff } from "@/lib/types";
 import { ScanDetailCard } from "@/components/ScanDetailCard";
 import { SuggestedAssignments } from "@/components/SuggestedAssignments";
 import { useAuth } from "@/context/AuthContext";
-import { isManagerRole } from "@/lib/roles";
-import { stageLabel } from "@/lib/format";
+import { isManagerRole, isFloorRole, canSee } from "@/lib/roles";
+import { stageLabel, shortOrderId, daysLabel, formatMoney } from "@/lib/format";
 import { PageHeader, ErrorState } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import clsx from "clsx";
@@ -37,7 +37,11 @@ export function ScanPage() {
   const actionStage = (details?.production?.actionStage ||
     details?.timing.nextExpectedStage ||
     "RECEIVED") as ProductionStage;
-  const canOverride = isManagerRole(user?.role);
+  const manager = isManagerRole(user?.role);
+  const floor = isFloorRole(user?.role);
+  const canCheck = manager || floor;
+  const canLabels = canSee(user?.role, "labels");
+  const canOverride = manager;
 
   useEffect(() => {
     return () => {
@@ -151,7 +155,7 @@ export function ScanPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!barcode.trim() || !staffId) return;
+    if (!canCheck || !barcode.trim() || !staffId) return;
     setBusy(true);
     setFeedback(null);
     try {
@@ -216,6 +220,24 @@ export function ScanPage() {
     }
   }
 
+  async function handoverAssignment() {
+    const id = details?.production?.assignment?._id;
+    if (!id) return;
+    setBusy(true);
+    try {
+      await apiJson(`/api/production/assignments/${id}/distribute`, { method: "POST" });
+      await lookupBarcode(barcode);
+      setFeedback({ ok: true, message: "Marked handed over" });
+    } catch (e) {
+      setFeedback({
+        ok: false,
+        message: e instanceof ApiError ? e.message : "Could not mark handed over"
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const actionLabel =
     action === "check_out"
       ? `Check out of ${stageLabel(actionStage)}`
@@ -224,8 +246,8 @@ export function ScanPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader
-        title="Production floor"
-        description="Scan a garment barcode to check it in or out of the current stage."
+        title="Scanner"
+        description="Scan a garment barcode. The operating view and next action appear immediately."
       />
 
       {feedback && (
@@ -296,7 +318,7 @@ export function ScanPage() {
           </div>
 
           {details && (
-            <div className="ui-card p-4">
+            <div className="border border-line bg-surface p-4">
               <p className="text-lg font-semibold text-ink">
                 {details.item.clothingType}
                 <span className="ml-2 font-mono text-sm font-normal text-ink-muted">
@@ -304,27 +326,39 @@ export function ScanPage() {
                 </span>
               </p>
               <p className="text-sm text-ink-muted">
-                {details.customer?.name || "—"} · {stageLabel(details.timing.currentStage || actionStage)}
+                {details.customer?.name || "—"} · {shortOrderId(details.order.orderId)} ·{" "}
+                {stageLabel(details.timing.currentStage || actionStage)}
                 {details.production?.assignment?.staff?.name
                   ? ` · ${details.production.assignment.staff.name}`
                   : " · unassigned"}
               </p>
               <p className="mt-1 text-xs text-ink-muted">
-                Next: {action === "check_out" ? "Check out" : "Check in"} {stageLabel(actionStage)}
-                {details.timing.overdue ? " · overdue" : ""}
+                Due {daysLabel(details.timing.daysRemaining, details.timing.overdue)}
+                {details.pricing ? ` · ${formatMoney(details.pricing.balanceRemaining)} remaining` : ""}
               </p>
-              {details.item._id && (
-                <Link
-                  to={`/garments/${encodeURIComponent(details.item._id)}`}
-                  className="mt-2 inline-block text-sm font-semibold text-accent hover:underline"
-                >
-                  Open garment view
-                </Link>
-              )}
+              <div className="mt-2 flex flex-wrap gap-3">
+                {details.item._id && (
+                  <Link
+                    to={`/garments/${encodeURIComponent(details.item._id)}`}
+                    className="text-sm font-semibold text-accent hover:underline"
+                  >
+                    Open garment
+                  </Link>
+                )}
+                {canLabels && details.item.barcodeValue && (
+                  <Link
+                    to={`/labels`}
+                    className="text-sm font-semibold text-accent hover:underline"
+                  >
+                    Print labels
+                  </Link>
+                )}
+              </div>
             </div>
           )}
 
-          <div className="ui-card space-y-4 p-4">
+          {canCheck && (
+          <div className="border border-line bg-surface space-y-4 p-4">
             <div>
               <label className="ui-label" htmlFor="staff">
                 Worker
@@ -372,6 +406,20 @@ export function ScanPage() {
                 Override stage sequence (manager)
               </label>
             )}
+                {canOverride &&
+                  details?.production?.assignment &&
+                  !details.production.assignment.distributedAt && (
+                    <Button
+                      type="button"
+                      size="lg"
+                      variant="secondary"
+                      className="min-h-12 w-full"
+                      disabled={busy}
+                      onClick={handoverAssignment}
+                    >
+                      Mark handed over
+                    </Button>
+                  )}
                 {details?.production?.assignment?.distributedAt &&
               !details.production.assignment.receivedAt && (
                 <Button
@@ -394,6 +442,7 @@ export function ScanPage() {
               {busy ? "Working…" : details ? actionLabel : "Scan an item first"}
             </Button>
           </div>
+          )}
         </form>
 
         <aside className="space-y-4">
@@ -449,6 +498,7 @@ export function ScanPage() {
         </aside>
       </div>
 
+      {canCheck && (
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:hidden">
         {details?.production?.assignment?.distributedAt && !details.production.assignment.receivedAt ? (
           <Button
@@ -472,7 +522,8 @@ export function ScanPage() {
           {busy ? "Working…" : details ? actionLabel : "Scan an item first"}
         </Button>
       </div>
-      <div className="h-24 sm:hidden" aria-hidden />
+      )}
+      {canCheck && <div className="h-24 sm:hidden" aria-hidden />}
 
       {feedback && !feedback.ok && <ErrorState message={feedback.message} />}
 

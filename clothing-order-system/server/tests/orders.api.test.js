@@ -82,7 +82,7 @@ describe("Orders API (PostgreSQL/Prisma)", () => {
       });
 
     expect(res.status).toBe(201);
-    expect(res.body.orderId).toMatch(/^ORD-/);
+    expect(res.body.orderId).toMatch(/^ORD-\d+$/);
     expect(res.body.items).toHaveLength(1);
     expect(res.body.totalRevenue).toBe(90); // 45 * 2
     expect(res.body.totalAgreedPrice).toBe(90); // defaults to revenue

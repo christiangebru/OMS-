@@ -37,13 +37,36 @@ router.get("/", query("q").optional().isString(), async (req, res) => {
     : [];
   const stats = new Map(orderAgg.map((r) => [r.customerId, r]));
 
+  const openOrders = ids.length
+    ? await prisma.order.findMany({
+        where: { customerId: { in: ids }, productionStatus: { notIn: ["delivered"] } },
+        select: {
+          customerId: true,
+          totalAgreedPrice: true,
+          depositPaid: true,
+          productionStatus: true,
+          _count: { select: { items: true } }
+        }
+      })
+    : [];
+  const extra = new Map();
+  for (const o of openOrders) {
+    const cur = extra.get(o.customerId) || { outstanding: 0, active: 0 };
+    cur.outstanding += Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0));
+    if (!["completed", "delivered"].includes(o.productionStatus)) cur.active += o._count.items;
+    extra.set(o.customerId, cur);
+  }
+
   res.json(
     customers.map((c) => {
       const st = stats.get(c.id);
+      const ex = extra.get(c.id);
       return {
         ...s(c),
         orderCount: st?._count?._all || 0,
-        lastOrderDate: st?._max?.createdAt || null
+        lastOrderDate: st?._max?.createdAt || null,
+        outstandingBalance: ex?.outstanding || 0,
+        activeGarmentCount: ex?.active || 0
       };
     })
   );

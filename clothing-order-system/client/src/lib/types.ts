@@ -145,6 +145,8 @@ export interface Measurement {
 export interface Customer extends CustomerSummary {
   orderCount?: number;
   lastOrderDate?: string | null;
+  outstandingBalance?: number;
+  activeGarmentCount?: number;
   createdAt?: string;
   updatedAt?: string;
   measurements?: Measurement[];
@@ -417,6 +419,7 @@ export interface QueueItem {
   nextStage: ProductionStage;
   openStage?: string | null;
   boardStatus: "waiting" | "assigned" | "distributed" | "received" | "in_progress";
+  inProgress?: boolean;
   assignment?: {
     _id: string;
     stage: string;

@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useState, type ReactNode } from "react";
 import { imageUrlFromPath } from "@/lib/api";
 import type { ScanDetails } from "@/lib/types";
-import { daysLabel, formatDate, formatMoney, stageLabel } from "@/lib/format";
+import { daysLabel, formatDate, formatMoney, stageLabel, shortOrderId } from "@/lib/format";
 import { ProductionTimeline } from "@/components/ProductionTimeline";
 import { Badge } from "@/components/ui/PageHeader";
 import { garmentPath } from "@/components/GarmentCard";
@@ -38,7 +38,7 @@ export function ScanDetailCard({ details }: { details: ScanDetails }) {
               className="mt-1 block font-mono text-sm font-semibold text-ink hover:text-accent"
               to={`/orders/${encodeURIComponent(details.order.orderId)}`}
             >
-              {details.order.orderId}
+              {shortOrderId(details.order.orderId)}
             </Link>
             <Link
               className="mt-1 inline-block text-xs font-semibold text-accent hover:underline"

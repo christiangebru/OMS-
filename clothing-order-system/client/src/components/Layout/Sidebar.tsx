@@ -7,7 +7,9 @@ export function Sidebar() {
   const { user } = useAuth();
   const items = navForRole(user?.role);
   const overview = items.filter((i) => i.group === "overview");
+  const commercial = items.filter((i) => i.group === "commercial");
   const production = items.filter((i) => i.group === "production");
+  const people = items.filter((i) => i.group === "people");
 
   return (
     <aside className="hidden w-[232px] shrink-0 border-r border-line bg-surface lg:flex lg:flex-col">
@@ -22,7 +24,9 @@ export function Sidebar() {
       </div>
       <nav className="flex-1 space-y-6 overflow-y-auto p-3" aria-label="Main">
         <NavGroup label="Overview" items={overview} />
+        <NavGroup label="" items={commercial} />
         <NavGroup label="Production" items={production} />
+        <NavGroup label="People" items={people} />
       </nav>
     </aside>
   );
@@ -38,9 +42,11 @@ function NavGroup({
   if (!items.length) return null;
   return (
     <div>
-      <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
-        {label}
-      </p>
+      {label ? (
+        <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
+          {label}
+        </p>
+      ) : null}
       <div className="space-y-0.5">
         {items.map((l) => (
           <NavLink

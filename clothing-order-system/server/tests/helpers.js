@@ -6,6 +6,7 @@ import { signToken } from "../src/utils/jwt.js";
 import productionRoutes from "../src/routes/production.js";
 import orderItemRoutes from "../src/routes/orderItems.js";
 import staffRoutes from "../src/routes/staff.js";
+import dashboardRoutes from "../src/routes/dashboard.js";
 
 export { prisma };
 
@@ -35,6 +36,7 @@ export function createTestApp() {
   app.use("/api/production", productionRoutes);
   app.use("/api/order-items", orderItemRoutes);
   app.use("/api/staff", staffRoutes);
+  app.use("/api/dashboard", dashboardRoutes);
   app.use((err, _req, res, _next) => {
     console.error("[test-error]", err);
     res.status(err.status || 500).json({ message: err.message || "Internal Server Error" });

@@ -4,7 +4,7 @@ import { prisma } from "../db/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireCapability } from "../middleware/permissions.js";
 import { newId } from "../utils/ids.js";
-import { generateOrderId, computeEstimatedCompletion } from "../utils/orderId.js";
+import { generateOrderId, generateOrderIdFallback, computeEstimatedCompletion } from "../utils/orderId.js";
 import { refreshStatisticSnapshot } from "../utils/stats.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { normalizePhone } from "../utils/migrateHelpers.js";
@@ -200,10 +200,13 @@ router.get(
   query("q").optional().isString(),
   query("status").optional().isIn(ProductionStatus),
   query("clothingType").optional().isString(),
+  query("due").optional().isIn(["overdue", "today", "week"]),
+  query("priority").optional().isIn(OrderPriority),
   async (req, res) => {
-    const { q, status, clothingType } = req.query;
+    const { q, status, clothingType, due, priority } = req.query;
     const where = { tenantId: DEFAULT_TENANT_ID };
     if (status) where.productionStatus = status;
+    if (priority) where.priority = priority;
 
     if (clothingType) {
       const itemOrders = await prisma.orderItem.findMany({
@@ -241,6 +244,31 @@ router.get(
         { customerId: { in: customerIds } },
         { id: { in: [...new Set(itemOrders.map((o) => o.order))] } }
       ];
+    }
+
+    if (due) {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const endToday = new Date(start);
+      endToday.setDate(endToday.getDate() + 1);
+      const endWeek = new Date(start);
+      endWeek.setDate(endWeek.getDate() + 7);
+      const open = { productionStatus: { notIn: ["delivered"] } };
+      if (due === "overdue") {
+        where.AND = [...(where.AND || []), { requiredCompletionDate: { lt: start } }, open];
+      } else if (due === "today") {
+        where.AND = [
+          ...(where.AND || []),
+          { requiredCompletionDate: { gte: start, lt: endToday } },
+          open
+        ];
+      } else if (due === "week") {
+        where.AND = [
+          ...(where.AND || []),
+          { requiredCompletionDate: { gte: start, lt: endWeek } },
+          open
+        ];
+      }
     }
 
     const orders = await prisma.order.findMany({
@@ -319,7 +347,7 @@ router.post(
       const created = await prisma.$transaction(async (tx) => {
         const customerId = await resolveCustomerId(req.body, tx);
         const itemPayloads = req.body.items.map(normalizeItemPayload);
-        const orderId = generateOrderId();
+        let orderId = await generateOrderId(tx);
         const createdAt = new Date();
         const estimatedProductionCompletion = computeEstimatedCompletion(createdAt, itemPayloads);
         const totalRevenue = itemPayloads.reduce((sum, i) => sum + i.lineTotal, 0);
@@ -328,25 +356,50 @@ router.post(
             ? Number(req.body.totalAgreedPrice)
             : totalRevenue;
 
-        const doc = await tx.order.create({
-          data: {
-            tenantId: DEFAULT_TENANT_ID,
-            orderId,
-            customerId,
-            groupCode: req.body.groupCode || "",
-            requiredCompletionDate: new Date(req.body.requiredCompletionDate),
-            estimatedProductionCompletion,
-            productionStatus: req.body.productionStatus || "pending",
-            priority: req.body.priority || "NORMAL",
-            totalAgreedPrice,
-            depositPaid: Number(req.body.depositPaid) || 0,
-            totalRevenue,
-            barcodeValue: generateOrderBarcodeValue(orderId),
-            barcodeGeneratedAt: createdAt,
-            createdBy: req.user.id,
-            lastUpdatedBy: req.user.id
-          }
-        });
+        let doc;
+        try {
+          doc = await tx.order.create({
+            data: {
+              tenantId: DEFAULT_TENANT_ID,
+              orderId,
+              customerId,
+              groupCode: req.body.groupCode || "",
+              requiredCompletionDate: new Date(req.body.requiredCompletionDate),
+              estimatedProductionCompletion,
+              productionStatus: req.body.productionStatus || "pending",
+              priority: req.body.priority || "NORMAL",
+              totalAgreedPrice,
+              depositPaid: Number(req.body.depositPaid) || 0,
+              totalRevenue,
+              barcodeValue: generateOrderBarcodeValue(orderId),
+              barcodeGeneratedAt: createdAt,
+              createdBy: req.user.id,
+              lastUpdatedBy: req.user.id
+            }
+          });
+        } catch (dup) {
+          if (dup.code !== "P2002") throw dup;
+          orderId = generateOrderIdFallback();
+          doc = await tx.order.create({
+            data: {
+              tenantId: DEFAULT_TENANT_ID,
+              orderId,
+              customerId,
+              groupCode: req.body.groupCode || "",
+              requiredCompletionDate: new Date(req.body.requiredCompletionDate),
+              estimatedProductionCompletion,
+              productionStatus: req.body.productionStatus || "pending",
+              priority: req.body.priority || "NORMAL",
+              totalAgreedPrice,
+              depositPaid: Number(req.body.depositPaid) || 0,
+              totalRevenue,
+              barcodeValue: generateOrderBarcodeValue(orderId),
+              barcodeGeneratedAt: createdAt,
+              createdBy: req.user.id,
+              lastUpdatedBy: req.user.id
+            }
+          });
+        }
 
         await createItemsForOrder(doc, itemPayloads, tx);
         await logProduction(req.user.id, doc, "order_created", null, doc.productionStatus, "", tx);

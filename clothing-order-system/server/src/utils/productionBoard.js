@@ -20,7 +20,7 @@ function assignmentState(assignment) {
 /**
  * Operational board: active garments grouped by next expected stage.
  */
-export async function buildProductionQueue() {
+export async function buildProductionQueue({ includeRecommendations = true } = {}) {
   const orders = await prisma.order.findMany({
     where: { productionStatus: { notIn: ["delivered"] } },
     include: { customer: true, items: true }
@@ -122,26 +122,28 @@ export async function buildProductionQueue() {
     });
   }
 
-  const waitingForRecommend = rows.filter((r) => r.boardStatus === "waiting" && !r.inProgress);
-  await Promise.all(
-    waitingForRecommend.map(async (row) => {
-      try {
-        const result = await rankStaffForAssignment(row.itemId, row.nextStage);
-        const top = result.rankings[0] || null;
-        row.recommended = top
-          ? {
-              staff: top.staff,
-              scores: top.scores,
-              reason: top.reason,
-              reasons: top.reasons || [],
-              summary: top.summary || top.reason
-            }
-          : null;
-      } catch {
-        row.recommended = null;
-      }
-    })
-  );
+  if (includeRecommendations) {
+    const waitingForRecommend = rows.filter((r) => r.boardStatus === "waiting" && !r.inProgress);
+    await Promise.all(
+      waitingForRecommend.map(async (row) => {
+        try {
+          const result = await rankStaffForAssignment(row.itemId, row.nextStage);
+          const top = result.rankings[0] || null;
+          row.recommended = top
+            ? {
+                staff: top.staff,
+                scores: top.scores,
+                reason: top.reason,
+                reasons: top.reasons || [],
+                summary: top.summary || top.reason
+              }
+            : null;
+        } catch {
+          row.recommended = null;
+        }
+      })
+    );
+  }
 
   const byStage = {};
   for (const stage of ProductionStage) {

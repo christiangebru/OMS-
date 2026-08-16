@@ -25,7 +25,7 @@
       placeholder:text-ink-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20;
   }
   .ui-card {
-    @apply rounded-xl border border-line bg-surface shadow-card;
+    @apply rounded-lg border border-line bg-surface;
   }
   .ui-table th {
     @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted;
@@ -58,5 +58,16 @@
   .print-hidden,
   .print\:hidden {
     display: none !important;
+  }
+  @page {
+    margin: 8mm;
+  }
+  body {
+    background: white !important;
+    color: #111 !important;
+  }
+  .label-print {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }

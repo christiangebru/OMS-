@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiJson, ApiError, imageUrlFromPath } from "@/lib/api";
 import type { Order, OrderPriority, ProductionStatus } from "@/lib/types";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatMoney, shortOrderId } from "@/lib/format";
 import { PageHeader, EmptyState, ErrorState, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/context/ToastContext";
@@ -30,6 +30,7 @@ export function OrdersPage() {
   const [q, setQ] = useState(searchParams.get("q") || "");
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
+  const [due, setDue] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [barcodeHit, setBarcodeHit] = useState<{ id: string; type: string } | null>(null);
@@ -38,9 +39,11 @@ export function OrdersPage() {
     const p = new URLSearchParams();
     if (q.trim()) p.set("q", q.trim());
     if (status) p.set("status", status);
+    if (due) p.set("due", due);
+    if (priority) p.set("priority", priority);
     const s = p.toString();
     return s ? `?${s}` : "";
-  }, [q, status]);
+  }, [q, status, due, priority]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,7 +87,7 @@ export function OrdersPage() {
     };
   }, [q]);
 
-  const visible = orders.filter((o) => (priority ? o.priority === priority : true));
+  const visible = orders;
 
   function copyTailorDetails(order: Order) {
     const customerLabel = order.customerName || order.customer?.name || "—";
@@ -121,7 +124,7 @@ export function OrdersPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <label className="ui-label" htmlFor="search-q">
             Search
@@ -130,7 +133,7 @@ export function OrdersPage() {
             id="search-q"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Name, order ID, ITM barcode, type…"
+            placeholder="Customer, ORD-1042, ITM barcode…"
             className="ui-input"
           />
         </div>
@@ -145,6 +148,17 @@ export function OrdersPage() {
                 {s}
               </option>
             ))}
+          </select>
+        </div>
+        <div>
+          <label className="ui-label" htmlFor="search-due">
+            Due
+          </label>
+          <select id="search-due" value={due} onChange={(e) => setDue(e.target.value)} className="ui-input">
+            <option value="">Any</option>
+            <option value="overdue">Overdue</option>
+            <option value="today">Today</option>
+            <option value="week">This week</option>
           </select>
         </div>
         <div>
@@ -205,7 +219,7 @@ export function OrdersPage() {
           return (
             <li key={o.orderId} className="ui-card p-4">
               <Link to={`/orders/${encodeURIComponent(o.orderId)}`} className="block">
-                <p className="font-mono text-xs font-semibold text-ink">{o.orderId}</p>
+                <p className="font-mono text-xs font-semibold text-ink">{shortOrderId(o.orderId)}</p>
                 <p className="mt-1 font-medium text-ink">{o.customerName || o.customer?.name || "—"}</p>
                 <p className="mt-1 text-xs text-ink-muted">
                   {o.items.map((it) => it.clothingType).join(" · ")}
@@ -213,6 +227,7 @@ export function OrdersPage() {
                 <p className={clsx("mt-2 text-xs", overdue && "font-semibold text-red-700")}>
                   {formatDate(o.requiredCompletionDate)} · {o.productionStatus}
                   {o.priority && o.priority !== "NORMAL" ? ` · ${o.priority}` : ""}
+                  {` · ${Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0)) > 0 ? `${formatMoney(Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0)))} due` : "Paid"}`}
                 </p>
               </Link>
             </li>
@@ -227,21 +242,26 @@ export function OrdersPage() {
               <tr>
                 <th>Order</th>
                 <th>Customer</th>
-                <th>Items</th>
-                <th>Due</th>
+                <th>Garments</th>
                 <th>Status</th>
+                <th>Due</th>
+                <th>Payment</th>
+                <th>Created</th>
                 <th>Priority</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {visible.map((o) => {
-                const due = new Date(o.requiredCompletionDate);
+                const dueDate = new Date(o.requiredCompletionDate);
                 const overdue =
-                  due.getTime() < Date.now() && !["completed", "delivered"].includes(o.productionStatus);
+                  dueDate.getTime() < Date.now() && !["completed", "delivered"].includes(o.productionStatus);
+                const balance = Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0));
                 return (
                   <tr key={o.orderId} className="border-t border-line">
-                    <td className="font-mono text-xs font-semibold">{o.orderId}</td>
+                    <td className="font-mono text-xs font-semibold" title={o.orderId}>
+                      {shortOrderId(o.orderId)}
+                    </td>
                     <td>
                       <div className="font-medium text-ink">{o.customerName || o.customer?.name || "—"}</div>
                       <div className="text-xs text-ink-muted">{o.customerPhone || o.customer?.phone || ""}</div>
@@ -267,9 +287,6 @@ export function OrdersPage() {
                         )}
                       </div>
                     </td>
-                    <td className={clsx("text-xs", overdue && "font-semibold text-red-700")}>
-                      {formatDate(o.requiredCompletionDate)}
-                    </td>
                     <td>
                       <Badge
                         tone={
@@ -283,6 +300,13 @@ export function OrdersPage() {
                         {o.productionStatus}
                       </Badge>
                     </td>
+                    <td className={clsx("text-xs", overdue && "font-semibold text-red-700")}>
+                      {formatDate(o.requiredCompletionDate)}
+                    </td>
+                    <td className="text-xs tabular text-ink-muted">
+                      {balance > 0 ? `${formatMoney(balance)} due` : "Paid"}
+                    </td>
+                    <td className="text-xs text-ink-muted">{formatDate(o.createdAt)}</td>
                     <td>
                       {o.priority && o.priority !== "NORMAL" ? (
                         <Badge tone={o.priority === "VIP" ? "accent" : "warn"}>{o.priority}</Badge>
@@ -307,7 +331,7 @@ export function OrdersPage() {
               })}
               {!loading && !visible.length && (
                 <tr>
-                  <td colSpan={7} className="p-0" />
+                  <td colSpan={9} className="p-0" />
                 </tr>
               )}
             </tbody>

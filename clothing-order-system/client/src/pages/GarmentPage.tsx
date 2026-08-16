@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiJson, ApiError, apiBaseUrl, authToken, imageUrlFromPath } from "@/lib/api";
 import type { ScanDetails } from "@/lib/types";
-import { daysLabel, formatDate, formatMoney, stageLabel, boardStatusLabel, handoverLabel } from "@/lib/format";
+import { daysLabel, formatDate, formatMoney, stageLabel, boardStatusLabel, handoverLabel, shortOrderId } from "@/lib/format";
 import { PageHeader, ErrorState, Skeleton, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { BarcodeImage } from "@/components/BarcodeImage";
@@ -116,7 +116,7 @@ export function GarmentPage() {
     <div className="space-y-6 pb-24 sm:pb-8">
       <PageHeader
         title={details.item.clothingType}
-        description={`${details.customer?.name || "—"} · ${details.order.orderId}`}
+        description={`${details.customer?.name || "—"} · ${shortOrderId(details.order.orderId)}`}
         actions={
           <div className="flex flex-wrap gap-2">
             {canLabels && (

@@ -1,3 +1,10 @@
+export function shortOrderId(id?: string | null) {
+  if (!id) return "—";
+  if (/^ORD-\d+$/i.test(id)) return id.toUpperCase();
+  const tail = id.replace(/^ORD-/i, "").replace(/-/g, "");
+  return `ORD-${tail.slice(-4).toUpperCase()}`;
+}
+
 export function formatDuration(ms?: number | null) {
   if (ms == null || Number.isNaN(ms)) return "—";
   const mins = Math.max(0, Math.round(ms / 60000));

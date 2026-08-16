@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionQueue, ProductionStage, QueueItem, Staff, StaffRanking } from "@/lib/types";
 import { PRODUCTION_STAGES } from "@/lib/types";
-import { daysLabel, formatDate, stageLabel, boardStatusLabel } from "@/lib/format";
+import { daysLabel, formatDate, stageLabel, boardStatusLabel, shortOrderId } from "@/lib/format";
 import { PageHeader, EmptyState, ErrorState, Badge, Skeleton } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { useLiveRefresh } from "@/hooks/useLiveRefresh";
@@ -193,7 +193,7 @@ export function DistributionPage() {
                         </Link>
                       </p>
                       <p className="text-xs text-ink-muted">
-                        {item.customer?.name || "—"} · {item.orderId}
+                        {item.customer?.name || "—"} · {shortOrderId(item.orderId)}
                       </p>
                       <p className="mt-1 text-xs capitalize text-ink-muted">
                         {stageLabel(item.nextStage)} · {boardStatusLabel(item.boardStatus)}
@@ -245,7 +245,7 @@ export function DistributionPage() {
                           <p className="text-xs text-ink-muted">
                             {item.customer?.name || "—"} ·{" "}
                             <Link className="hover:text-accent" to={`/orders/${encodeURIComponent(item.orderId)}`}>
-                              {item.orderId}
+                              {shortOrderId(item.orderId)}
                             </Link>
                           </p>
                           <p className="font-mono text-[11px] text-ink-faint">
@@ -272,9 +272,18 @@ export function DistributionPage() {
                           {item.recommended ? (
                             <div>
                               <p className="font-medium text-ink">{item.recommended.staff.name}</p>
-                              <p className="mt-0.5 text-[11px] text-ink-muted">
-                                {item.recommended.summary ||
-                                  `Skill ${item.recommended.staff.skillLevel}/5 · ${item.recommended.staff.activeAssignmentCount} active`}
+                              <p className="mt-0.5 flex flex-wrap gap-1 text-[11px] text-ink-muted">
+                                {(item.recommended.reasons || []).slice(0, 4).map((r) => (
+                                  <span
+                                    key={r.code + r.label}
+                                    className={r.ok ? "text-ink-muted" : "text-red-700"}
+                                  >
+                                    {r.label}
+                                  </span>
+                                ))}
+                                {!item.recommended.reasons?.length &&
+                                  (item.recommended.summary ||
+                                    `Skill ${item.recommended.staff.skillLevel}/5 · ${item.recommended.staff.activeAssignmentCount} active`)}
                               </p>
                             </div>
                           ) : (

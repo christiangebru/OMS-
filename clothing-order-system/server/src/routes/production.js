@@ -238,14 +238,15 @@ router.get("/lookup", query("barcodeValue").trim().notEmpty(), async (req, res) 
   }
 });
 
-router.get("/queue", requireCapability("distribution"), async (_req, res) => {
-  const board = await buildProductionQueue();
+router.get("/queue", requireCapability("distribution"), async (req, res) => {
+  const includeRecommendations = String(req.query.lite || "") !== "1";
+  const board = await buildProductionQueue({ includeRecommendations });
   res.json(board);
 });
 
 router.get("/floor", requireCapability("scan"), async (req, res) => {
   const stages = stagesForUserRole(req.user.role);
-  const board = await buildProductionQueue();
+  const board = await buildProductionQueue({ includeRecommendations: false });
   if (!stages) {
     return res.json({
       stages: [],

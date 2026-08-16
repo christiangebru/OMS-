@@ -85,10 +85,14 @@ export function SuggestedAssignments({ orderItemId, stage, onAssigned }: Props) 
                 {idx === 0 ? "Recommended · " : ""}
                 {r.staff.name}
               </p>
-              <p className="mt-1 text-xs text-ink-muted">
-                {idx === 0 ? "Recommended because: " : ""}
-                {r.summary ||
-                  `Skill ${r.staff.skillLevel}/5 · ${r.staff.activeAssignmentCount} active`}
+              <p className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-ink-muted">
+                {(r.reasons || []).slice(0, 4).map((reason) => (
+                  <span key={reason.code + reason.label} className={reason.ok ? "" : "text-red-700"}>
+                    {reason.label}
+                  </span>
+                ))}
+                {!r.reasons?.length &&
+                  (r.summary || `Skill ${r.staff.skillLevel}/5 · ${r.staff.activeAssignmentCount} active`)}
               </p>
             </div>
             <Button

@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { apiJson, ApiError, imageUrlFromPath } from "@/lib/api";
 import type { Customer, Measurement } from "@/lib/types";
 import { MEASUREMENT_SCHEMAS, type MeasurementCategory as Cat } from "@/lib/measurementSchema";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate, formatMoney, shortOrderId } from "@/lib/format";
 import { PageHeader, ErrorState, EmptyState, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/context/ToastContext";
@@ -14,7 +14,7 @@ export function CustomerDetailPage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"profile" | "orders" | "garments" | "payments" | "measures">("profile");
+  const [tab, setTab] = useState<"profile" | "orders" | "garments" | "measures">("profile");
   const [identity, setIdentity] = useState({
     name: "",
     phone: "",
@@ -94,6 +94,28 @@ export function CustomerDetailPage() {
     }
   }
 
+  function reuseMeasurement(m: Measurement) {
+    const cat = (["male", "female", "child", "baby"].includes(m.category || "")
+      ? m.category
+      : "male") as Cat;
+    setCategory(cat);
+    const next: Record<string, string> = {};
+    for (const group of MEASUREMENT_SCHEMAS[cat]) {
+      for (const f of group.fields) {
+        if (f.store === "column" && f.column) {
+          const val = m[f.column];
+          if (val != null && val !== "") next[f.key] = String(val);
+        } else if (m.fields?.[f.key] != null && m.fields[f.key] !== "") {
+          next[f.key] = String(m.fields[f.key]);
+        }
+      }
+    }
+    setValues(next);
+    setMeasureNotes(m.notes || "");
+    setTab("measures");
+    push("Copied into the form. Save to keep a new profile.", "ok");
+  }
+
   async function onAddMeasurement(e: FormEvent) {
     e.preventDefault();
     if (!id) return;
@@ -150,11 +172,10 @@ export function CustomerDetailPage() {
       <div className="flex flex-wrap gap-2">
         {(
           [
-            ["profile", "Profile"],
+            ["profile", "Overview"],
             ["orders", "Orders"],
             ["garments", "Garments"],
-            ["measures", "Measurements"],
-            ["payments", "Payments"]
+            ["measures", "Measurements"]
           ] as const
         ).map(([key, label]) => (
           <button
@@ -173,53 +194,123 @@ export function CustomerDetailPage() {
       </div>
 
       {tab === "profile" && (
-        <form onSubmit={saveIdentity} className="ui-card grid gap-3 p-5 sm:grid-cols-2">
-          <Labeled label="Name">
-            <input className="ui-input" value={identity.name} onChange={(e) => setIdentity((s) => ({ ...s, name: e.target.value }))} />
-          </Labeled>
-          <Labeled label="Phone">
-            <input className="ui-input" value={identity.phone} onChange={(e) => setIdentity((s) => ({ ...s, phone: e.target.value }))} />
-          </Labeled>
-          <Labeled label="Secondary phone">
-            <input className="ui-input" value={identity.secondaryPhone} onChange={(e) => setIdentity((s) => ({ ...s, secondaryPhone: e.target.value }))} />
-          </Labeled>
-          <Labeled label="Email">
-            <input className="ui-input" type="email" value={identity.email} onChange={(e) => setIdentity((s) => ({ ...s, email: e.target.value }))} />
-          </Labeled>
-          <Labeled label="Address">
-            <input className="ui-input" value={identity.address} onChange={(e) => setIdentity((s) => ({ ...s, address: e.target.value }))} />
-          </Labeled>
-          <div className="sm:col-span-2">
-            <Labeled label="Notes">
-              <textarea className="ui-input min-h-[80px]" value={identity.notes} onChange={(e) => setIdentity((s) => ({ ...s, notes: e.target.value }))} />
+        <div className="space-y-6">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="border border-line bg-surface px-4 py-3">
+              <p className="ui-label">Outstanding</p>
+              <p className="mt-1 text-xl font-semibold tabular">{formatMoney(Math.max(0, agreed - paid))}</p>
+            </div>
+            <div className="border border-line bg-surface px-4 py-3">
+              <p className="ui-label">Orders</p>
+              <p className="mt-1 text-xl font-semibold tabular">{(customer.orders || []).length}</p>
+            </div>
+            <div className="border border-line bg-surface px-4 py-3">
+              <p className="ui-label">Garments</p>
+              <p className="mt-1 text-xl font-semibold tabular">{garments.length}</p>
+            </div>
+          </div>
+          <form onSubmit={saveIdentity} className="grid gap-3 border border-line bg-surface p-5 sm:grid-cols-2">
+            <Labeled label="Name">
+              <input className="ui-input" value={identity.name} onChange={(e) => setIdentity((s) => ({ ...s, name: e.target.value }))} />
             </Labeled>
-          </div>
-          <div>
-            <Button type="submit">Save profile</Button>
-          </div>
-        </form>
+            <Labeled label="Phone">
+              <input className="ui-input" value={identity.phone} onChange={(e) => setIdentity((s) => ({ ...s, phone: e.target.value }))} />
+            </Labeled>
+            <Labeled label="Secondary phone">
+              <input className="ui-input" value={identity.secondaryPhone} onChange={(e) => setIdentity((s) => ({ ...s, secondaryPhone: e.target.value }))} />
+            </Labeled>
+            <Labeled label="Email">
+              <input className="ui-input" type="email" value={identity.email} onChange={(e) => setIdentity((s) => ({ ...s, email: e.target.value }))} />
+            </Labeled>
+            <Labeled label="Address">
+              <input className="ui-input" value={identity.address} onChange={(e) => setIdentity((s) => ({ ...s, address: e.target.value }))} />
+            </Labeled>
+            <div className="sm:col-span-2">
+              <Labeled label="Notes">
+                <textarea className="ui-input min-h-[80px]" value={identity.notes} onChange={(e) => setIdentity((s) => ({ ...s, notes: e.target.value }))} />
+              </Labeled>
+            </div>
+            <div>
+              <Button type="submit">Save profile</Button>
+            </div>
+          </form>
+          {(customer.orders || []).length > 0 && (
+            <div className="overflow-hidden border border-line">
+              <div className="border-b border-line px-4 py-2.5">
+                <p className="text-sm font-semibold text-ink">Recent orders</p>
+              </div>
+              <table className="ui-table w-full text-sm">
+                <thead className="border-b border-line bg-canvas/70">
+                  <tr>
+                    <th>Order</th>
+                    <th>Status</th>
+                    <th>Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(customer.orders || []).slice(0, 5).map((o) => (
+                    <tr key={o._id} className="border-t border-line">
+                      <td>
+                        <Link to={`/orders/${encodeURIComponent(o.orderId)}`} className="font-mono text-xs font-semibold text-accent">
+                          {shortOrderId(o.orderId)}
+                        </Link>
+                      </td>
+                      <td className="capitalize text-xs text-ink-muted">{o.productionStatus}</td>
+                      <td className="tabular text-xs text-ink-muted">
+                        {formatMoney(Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0)))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       {tab === "orders" && (
-        <div className="space-y-2">
-          {!(customer.orders || []).length && (
-            <EmptyState title="No orders yet" body="Start a new order for this customer." />
+        <div className="overflow-hidden border border-line">
+          {!(customer.orders || []).length ? (
+            <div className="p-6">
+              <EmptyState title="No orders yet" body="Start a new order for this customer." />
+            </div>
+          ) : (
+            <table className="ui-table w-full text-sm">
+              <thead className="border-b border-line bg-canvas/70">
+                <tr>
+                  <th>Order</th>
+                  <th>Garments</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th>Payment</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(customer.orders || []).map((o) => (
+                  <tr key={o._id} className="border-t border-line">
+                    <td>
+                      <Link
+                        to={`/orders/${encodeURIComponent(o.orderId)}`}
+                        className="font-mono text-xs font-semibold text-accent hover:underline"
+                      >
+                        {shortOrderId(o.orderId)}
+                      </Link>
+                    </td>
+                    <td className="text-xs text-ink-muted">
+                      {(o.items || []).map((it) => it.clothingType).join(" · ") || "—"}
+                    </td>
+                    <td className="text-xs text-ink-muted">{formatDate(o.createdAt)}</td>
+                    <td>
+                      <Badge tone="neutral">{o.productionStatus}</Badge>
+                    </td>
+                    <td className="tabular text-xs text-ink-muted">
+                      {formatMoney(o.depositPaid)} / {formatMoney(o.totalAgreedPrice)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
-          {(customer.orders || []).map((o) => (
-            <Link
-              key={o._id}
-              to={`/orders/${encodeURIComponent(o.orderId)}`}
-              className="ui-card flex items-center justify-between gap-3 p-4"
-            >
-              <div>
-                <p className="font-mono text-xs font-semibold text-ink">{o.orderId}</p>
-                <p className="mt-1 text-sm text-ink-muted">
-                  {(o.items || []).map((it) => it.clothingType).join(" · ") || "No garments"}
-                </p>
-              </div>
-              <span className="text-xs capitalize text-ink-muted">{o.productionStatus}</span>
-            </Link>
-          ))}
         </div>
       )}
 
@@ -241,7 +332,7 @@ export function CustomerDetailPage() {
                 <div>
                   <p className="font-medium text-ink">{g.clothingType}</p>
                   <p className="text-xs text-ink-muted">
-                    {g.orderId} · {formatDate(g.createdAt)}
+                    {shortOrderId(g.orderId)} · {formatDate(g.createdAt)}
                     {g.fabric ? ` · ${g.fabric}` : ""}
                     {g.color ? ` · ${g.color}` : ""}
                   </p>
@@ -261,40 +352,6 @@ export function CustomerDetailPage() {
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {tab === "payments" && (
-        <div className="ui-card overflow-hidden">
-          <div className="grid grid-cols-3 gap-3 border-b border-line p-4 text-sm">
-            <div>
-              <p className="ui-label">Agreed</p>
-              <p className="tabular font-semibold">{formatMoney(agreed)}</p>
-            </div>
-            <div>
-              <p className="ui-label">Deposits</p>
-              <p className="tabular font-semibold">{formatMoney(paid)}</p>
-            </div>
-            <div>
-              <p className="ui-label">Balance</p>
-              <p className="tabular font-semibold">{formatMoney(Math.max(0, agreed - paid))}</p>
-            </div>
-          </div>
-          <ul className="divide-y divide-line">
-            {(customer.orders || []).map((o) => (
-              <li key={o._id} className="flex items-center justify-between px-4 py-3 text-sm">
-                <Link
-                  to={`/orders/${encodeURIComponent(o.orderId)}`}
-                  className="font-mono font-medium text-accent hover:underline"
-                >
-                  {o.orderId}
-                </Link>
-                <span className="tabular text-ink-muted">
-                  {formatMoney(o.depositPaid)} / {formatMoney(o.totalAgreedPrice)}
-                </span>
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 
@@ -337,9 +394,14 @@ export function CustomerDetailPage() {
           <div className="space-y-3">
             {(customer.measurements || []).map((m: Measurement) => (
               <div key={m._id} className="ui-card p-4 text-sm">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <Badge tone="neutral">{m.category || "unspecified"}</Badge>
-                  <span className="text-xs text-ink-muted">{formatDate(m.recordedAt)}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-ink-muted">{formatDate(m.recordedAt)}</span>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => reuseMeasurement(m)}>
+                      Reuse
+                    </Button>
+                  </div>
                 </div>
                 <p className="mt-2 text-ink-muted">
                   {[

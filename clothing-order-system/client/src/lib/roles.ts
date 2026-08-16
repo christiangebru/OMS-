@@ -4,6 +4,7 @@ export type NavKey =
   | "dashboard"
   | "orders"
   | "customers"
+  | "production"
   | "scan"
   | "distribution"
   | "staff"
@@ -13,28 +14,29 @@ export const NAV_ITEMS: Array<{
   to: string;
   key: NavKey;
   label: string;
-  group: "overview" | "production";
+  group: "overview" | "commercial" | "production" | "people";
   end?: boolean;
 }> = [
   { to: "/", key: "dashboard", label: "Overview", group: "overview", end: true },
-  { to: "/orders", key: "orders", label: "Orders", group: "overview" },
-  { to: "/customers", key: "customers", label: "Customers", group: "overview" },
-  { to: "/scan", key: "scan", label: "Production floor", group: "production" },
+  { to: "/orders", key: "orders", label: "Orders", group: "commercial" },
+  { to: "/customers", key: "customers", label: "Customers", group: "commercial" },
+  { to: "/production", key: "production", label: "Floor", group: "production" },
+  { to: "/scan", key: "scan", label: "Scanner", group: "production" },
   { to: "/distribution", key: "distribution", label: "Distribution", group: "production" },
-  { to: "/staff", key: "staff", label: "Staff", group: "production" },
-  { to: "/labels", key: "labels", label: "Print labels", group: "production" }
+  { to: "/labels", key: "labels", label: "Labels", group: "production" },
+  { to: "/staff", key: "staff", label: "Staff", group: "people" }
 ];
 
 const ROLE_NAV: Record<UserRole, NavKey[]> = {
-  admin: ["dashboard", "orders", "customers", "scan", "distribution", "staff", "labels"],
-  manager: ["dashboard", "orders", "customers", "scan", "distribution", "staff", "labels"],
-  reception: ["dashboard", "orders", "customers", "labels"],
-  cutter: ["dashboard", "scan", "orders"],
-  tailor: ["dashboard", "scan", "orders"],
-  embroiderer: ["dashboard", "scan", "orders"],
-  finisher: ["dashboard", "scan", "orders"],
-  packer: ["dashboard", "scan", "orders", "labels"],
-  delivery: ["dashboard", "scan", "orders"]
+  admin: ["dashboard", "orders", "customers", "production", "scan", "distribution", "staff", "labels"],
+  manager: ["dashboard", "orders", "customers", "production", "scan", "distribution", "staff", "labels"],
+  reception: ["dashboard", "orders", "customers", "scan", "labels"],
+  cutter: ["dashboard", "production", "scan", "orders"],
+  tailor: ["dashboard", "production", "scan", "orders"],
+  embroiderer: ["dashboard", "production", "scan", "orders"],
+  finisher: ["dashboard", "production", "scan", "orders"],
+  packer: ["dashboard", "production", "scan", "orders", "labels"],
+  delivery: ["dashboard", "production", "scan", "orders"]
 };
 
 export const ROLE_STAGES: Partial<Record<UserRole, string[]>> = {

@@ -136,4 +136,34 @@ describe("production queue and distribution", () => {
     expect(res.headers["content-type"]).toMatch(/image\/png/);
     expect(res.body.length).toBeGreaterThan(40);
   });
+
+  it("returns operations summary without requiring distribution capability", async () => {
+    await seedOrderWithItem({ clothingType: "thobe" });
+    const res = await request(app).get("/api/dashboard/operations").set(auth(token));
+    expect(res.status).toBe(200);
+    expect(res.body.today).toEqual(
+      expect.objectContaining({
+        overdue: expect.any(Number),
+        inProduction: expect.any(Number),
+        ready: expect.any(Number)
+      })
+    );
+    expect(Array.isArray(res.body.floor)).toBe(true);
+    expect(res.body.distribution).toEqual(
+      expect.objectContaining({
+        unassigned: expect.any(Number),
+        inProgress: expect.any(Number)
+      })
+    );
+  });
+
+  it("rejects tailor from dashboard operations", async () => {
+    const tailor = await createUser({
+      email: "tailor-ops@queue.test",
+      name: "Tailor",
+      role: "tailor"
+    });
+    const res = await request(app).get("/api/dashboard/operations").set(auth(tailor.token));
+    expect(res.status).toBe(403);
+  });
 });

@@ -23,10 +23,25 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   if (!(init.body instanceof FormData)) {
     (headers as Record<string, string>)["Content-Type"] = "application/json";
   }
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  } catch (e) {
+    throw new ApiError(e instanceof Error ? e.message : "Network error", 0);
+  }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: { message?: string; errors?: Array<{ msg?: string }> } | null = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new ApiError(
+        res.ok ? "Invalid server response" : `Request failed (${res.status})`,
+        res.status || 502
+      );
+    }
+  }
   if (!res.ok) {
     if (
       res.status === 401 &&

@@ -3,10 +3,10 @@ import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { DashboardOperations, QueueItem } from "@/lib/types";
 import { PRODUCTION_STAGES } from "@/lib/types";
-import { daysLabel, stageLabel, boardStatusLabel } from "@/lib/format";
-import { PageHeader, ErrorState, Skeleton, EmptyState, Badge } from "@/components/ui/PageHeader";
+import { daysLabel, stageLabel, boardStatusLabel, shortOrderId } from "@/lib/format";
+import { PageHeader, ErrorState, Skeleton, EmptyState } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
-import { isFloorRole, isManagerRole, canWriteOrders } from "@/lib/roles";
+import { isFloorRole, isManagerRole, canWriteOrders, canSee } from "@/lib/roles";
 import { useAuth } from "@/context/AuthContext";
 import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import clsx from "clsx";
@@ -31,7 +31,9 @@ function OfficeDashboard() {
       setOps(data);
       setErr(null);
     } catch (e) {
-      if (!hydrated.current) setErr(e instanceof ApiError ? e.message : "Failed to load operations");
+      if (!hydrated.current) {
+        setErr(e instanceof ApiError ? e.message : "Failed to load operations");
+      }
     }
   }, []);
 
@@ -40,7 +42,16 @@ function OfficeDashboard() {
   }, [load]);
   useLiveRefresh(load, 20000);
 
-  if (err) return <ErrorState message={err} />;
+  if (err && !ops) {
+    return (
+      <div className="space-y-4">
+        <ErrorState message={err} />
+        <Button type="button" variant="secondary" onClick={() => load()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
   if (!ops) {
     return (
       <div className="space-y-4">
@@ -57,11 +68,11 @@ function OfficeDashboard() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title={reception ? "Reception" : "Today"}
+        title={reception ? "Reception" : "Overview"}
         description={
           reception
-            ? "Orders, due dates, and customers waiting on delivery."
-            : "What needs attention on the floor right now."
+            ? "Orders, due dates, and garments waiting on delivery."
+            : "What is on the floor right now — waiting, in progress, overdue, ready."
         }
         actions={
           canWriteOrders(user?.role) ? (
@@ -69,8 +80,8 @@ function OfficeDashboard() {
               <Button>New order</Button>
             </Link>
           ) : isManagerRole(user?.role) ? (
-            <Link to="/distribution">
-              <Button>Open distribution</Button>
+            <Link to="/production">
+              <Button>Open floor</Button>
             </Link>
           ) : (
             <Link to="/scan">
@@ -81,31 +92,47 @@ function OfficeDashboard() {
       />
 
       <section>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <Metric label="Orders in today" value={ops.today.orders} />
-          <Metric label="Due today" value={ops.today.dueToday} />
-          <Metric label="Overdue" value={ops.today.overdue} tone={ops.today.overdue ? "urgent" : undefined} />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <Metric label="In production" value={ops.today.inProduction} />
+          <Metric label="Waiting assignment" value={ops.distribution.unassigned} />
+          <Metric label="Being worked on" value={ops.distribution.inProgress} />
+          <Metric label="Overdue" value={ops.today.overdue} tone={ops.today.overdue ? "urgent" : undefined} />
           <Metric label="Ready" value={ops.today.ready} />
+          <Metric label="Orders in today" value={ops.today.orders} />
         </div>
       </section>
 
       {!reception && (
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="ui-card p-5">
-            <h2 className="text-sm font-semibold text-ink">Production</h2>
-            {(() => {
-              const bottleneck = PRODUCTION_STAGES.map((s) => ({
-                stage: s,
-                waiting: ops.production[s]?.waiting || 0
-              })).sort((a, b) => b.waiting - a.waiting)[0];
-              return bottleneck && bottleneck.waiting > 0 ? (
-                <p className="mt-2 text-xs text-ink-muted">
-                  Bottleneck: <span className="font-semibold capitalize text-ink">{stageLabel(bottleneck.stage)}</span>{" "}
-                  ({bottleneck.waiting} waiting)
-                </p>
-              ) : null;
-            })()}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-ink">Bottleneck</h2>
+                {(() => {
+                  const bottleneck = PRODUCTION_STAGES.map((s) => ({
+                    stage: s,
+                    waiting: ops.production[s]?.waiting || 0,
+                    inProgress: ops.production[s]?.inProgress || 0
+                  })).sort((a, b) => b.waiting + b.inProgress - (a.waiting + a.inProgress))[0];
+                  return bottleneck && bottleneck.waiting + bottleneck.inProgress > 0 ? (
+                    <p className="mt-2 text-sm text-ink">
+                      <span className="font-semibold capitalize">{stageLabel(bottleneck.stage)}</span>
+                      <span className="text-ink-muted">
+                        {" "}
+                        · {bottleneck.inProgress} in progress · {bottleneck.waiting} waiting
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-sm text-ink-muted">No stage is backed up.</p>
+                  );
+                })()}
+              </div>
+              {canSee(user?.role, "production") && (
+                <Link to="/production" className="text-xs font-semibold text-accent hover:underline">
+                  Open floor
+                </Link>
+              )}
+            </div>
             <ul className="mt-4 divide-y divide-line">
               {PRODUCTION_STAGES.filter(
                 (s) => !["RECEIVED", "DELIVERED"].includes(s) || (ops.production[s]?.total || 0) > 0
@@ -138,72 +165,17 @@ function OfficeDashboard() {
         </section>
       )}
 
-      {!reception && ops.floor && ops.floor.length > 0 && (
-        <section>
-          <div className="mb-3 flex items-end justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold text-ink">Floor presence</h2>
-              <p className="text-xs text-ink-muted">
-                Assigned is not the same as handed over, received, or checked in.
-              </p>
-            </div>
-            <Link to="/distribution" className="text-xs font-semibold text-accent hover:underline">
-              Open distribution
-            </Link>
+      {canSee(user?.role, "production") && (
+        <section className="flex flex-wrap items-center justify-between gap-3 border border-line bg-surface px-5 py-4">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Production floor</h2>
+            <p className="mt-0.5 text-xs text-ink-muted">
+              Garments sit in the stage they are waiting for or currently checked into.
+            </p>
           </div>
-          <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-            <div className="flex min-w-max gap-3 pb-2 lg:grid lg:min-w-0 lg:grid-cols-4 xl:grid-cols-7">
-              {PRODUCTION_STAGES.map((stage) => {
-                const cards = (ops.floor || []).filter((g) => g.stage === stage);
-                if (!cards.length && ["RECEIVED", "DELIVERED"].includes(stage)) return null;
-                return (
-                  <div key={stage} className="w-[220px] shrink-0 lg:w-auto">
-                    <p className="ui-label">{stageLabel(stage)}</p>
-                    <p className="mt-0.5 text-xs tabular text-ink-muted">{cards.length}</p>
-                    <ul className="mt-2 space-y-2">
-                      {cards.slice(0, 6).map((g) => (
-                        <li key={g.itemId} className="ui-card p-2.5">
-                          <p className="truncate text-xs font-medium text-ink">
-                            {g.customerName} · {g.clothingType}
-                          </p>
-                          <div className="mt-1 flex flex-wrap items-center gap-1">
-                            <Badge
-                              tone={
-                                g.overdue
-                                  ? "urgent"
-                                  : g.boardStatus === "in_progress"
-                                    ? "progress"
-                                    : g.boardStatus === "waiting"
-                                      ? "warn"
-                                      : "ok"
-                              }
-                            >
-                              {boardStatusLabel(g.boardStatus)}
-                            </Badge>
-                          </div>
-                          <p className="mt-1 truncate text-[11px] text-ink-muted">
-                            {g.workerName || "Unassigned"}
-                            {g.overdue ? " · overdue" : ""}
-                          </p>
-                          {g.barcodeValue && (
-                            <Link
-                              to={`/garments/${encodeURIComponent(g.itemId)}`}
-                              className="mt-1 inline-block text-[11px] font-semibold text-accent"
-                            >
-                              Open garment
-                            </Link>
-                          )}
-                        </li>
-                      ))}
-                      {cards.length > 6 && (
-                        <li className="text-[11px] text-ink-faint">+{cards.length - 6} more</li>
-                      )}
-                    </ul>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <Link to="/production">
+            <Button variant="secondary">Open floor</Button>
+          </Link>
         </section>
       )}
 
@@ -223,7 +195,7 @@ function OfficeDashboard() {
                     {u.customerName} · {u.clothingType}
                   </p>
                   <p className="text-xs capitalize text-ink-muted">
-                    {u.orderId} · {stageLabel(u.nextStage)}
+                    {shortOrderId(u.orderId)} · {stageLabel(u.nextStage)}
                     {u.priority !== "NORMAL" ? ` · ${u.priority}` : ""}
                   </p>
                 </div>
@@ -280,9 +252,14 @@ function FloorDashboard() {
             : "Assigned production for your role."
         }
         actions={
-          <Link to="/scan">
-            <Button size="lg">Open scanner</Button>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/production">
+              <Button variant="secondary">Open floor</Button>
+            </Link>
+            <Link to="/scan">
+              <Button size="lg">Open scanner</Button>
+            </Link>
+          </div>
         }
       />
       <div className="grid gap-3 sm:grid-cols-3">

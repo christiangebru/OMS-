@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { Customer } from "@/lib/types";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatMoney } from "@/lib/format";
 import { PageHeader, ErrorState, EmptyState, Skeleton } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/context/AuthContext";
@@ -69,10 +69,12 @@ export function CustomersPage() {
               <li key={c._id}>
                 <Link to={`/customers/${c._id}`} className="ui-card block p-4">
                   <p className="font-medium text-ink">{c.name}</p>
-                  <p className="text-sm text-ink-muted">{c.phone}</p>
+                  <p className="text-sm text-ink-muted">{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
                   <p className="mt-1 text-xs text-ink-faint">
                     {c.orderCount ?? 0} order{(c.orderCount || 0) === 1 ? "" : "s"}
+                    {c.activeGarmentCount ? ` · ${c.activeGarmentCount} in production` : ""}
                     {c.lastOrderDate ? ` · last ${formatDate(c.lastOrderDate)}` : ""}
+                    {(c.outstandingBalance || 0) > 0 ? ` · ${formatMoney(c.outstandingBalance)} due` : ""}
                   </p>
                 </Link>
               </li>
@@ -84,21 +86,24 @@ export function CustomersPage() {
               <tr>
                 <th>Name</th>
                 <th>Phone</th>
+                <th>Email</th>
                 <th>Orders</th>
+                <th>Active</th>
                 <th>Last order</th>
+                <th>Balance</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {customers.map((c) => (
                 <tr key={c._id} className="border-t border-line">
-                  <td className="font-medium text-ink">
-                    {c.name}
-                    {c.email ? <span className="block text-xs text-ink-muted">{c.email}</span> : null}
-                  </td>
+                  <td className="font-medium text-ink">{c.name}</td>
                   <td className="text-ink-muted">{c.phone}</td>
+                  <td className="text-xs text-ink-muted">{c.email || "—"}</td>
                   <td className="tabular">{c.orderCount ?? 0}</td>
+                  <td className="tabular">{c.activeGarmentCount ?? 0}</td>
                   <td className="text-xs text-ink-muted">{formatDate(c.lastOrderDate)}</td>
+                  <td className="tabular text-xs">{formatMoney(c.outstandingBalance)}</td>
                   <td className="text-right">
                     <Link to={`/customers/${c._id}`} className="text-xs font-semibold text-accent hover:underline">
                       Open

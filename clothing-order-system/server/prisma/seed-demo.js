@@ -121,7 +121,7 @@ async function main() {
   ];
 
   for (const spec of orderSpecs) {
-    const orderId = generateOrderId();
+    const orderId = await generateOrderId();
     const createdAt = new Date();
     const items = spec.items.map((it) => ({
       ...it,

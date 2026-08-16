@@ -26,6 +26,9 @@ const LabelsWorkspacePage = lazy(() =>
   import("@/pages/PrintLabelsPage").then((m) => ({ default: m.LabelsWorkspacePage }))
 );
 const ScanPage = lazy(() => import("@/pages/ScanPage").then((m) => ({ default: m.ScanPage })));
+const ProductionFloorPage = lazy(() =>
+  import("@/pages/ProductionFloorPage").then((m) => ({ default: m.ProductionFloorPage }))
+);
 const DistributionPage = lazy(() =>
   import("@/pages/DistributionPage").then((m) => ({ default: m.DistributionPage }))
 );
@@ -129,6 +132,7 @@ export default function App() {
             }
           />
           <Route path="scan" element={<ScanPage />} />
+          <Route path="production" element={<ProductionFloorPage />} />
           <Route
             path="distribution"
             element={
