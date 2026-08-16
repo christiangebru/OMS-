@@ -301,7 +301,7 @@ export function NewOrderPage() {
                   if (s.id === "review" && drafts.length && due) setPhase("review");
                 }}
                 className={clsx(
-                  "rounded-control px-2.5 py-1 text-[11px] font-medium",
+                  "min-h-11 rounded-control px-3 py-2 text-[11px] font-medium",
                   active ? "bg-accent text-white" : done ? "bg-accent-soft text-accent" : "bg-canvas text-ink-faint"
                 )}
               >

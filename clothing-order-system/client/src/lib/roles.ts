@@ -14,12 +14,12 @@ export const NAV_ITEMS: Array<{
   to: string;
   key: NavKey;
   label: string;
-  group: "overview" | "commercial" | "production" | "people";
+  group: "main" | "production" | "people";
   end?: boolean;
 }> = [
-  { to: "/", key: "dashboard", label: "Overview", group: "overview", end: true },
-  { to: "/orders", key: "orders", label: "Orders", group: "commercial" },
-  { to: "/customers", key: "customers", label: "Customers", group: "commercial" },
+  { to: "/", key: "dashboard", label: "Overview", group: "main", end: true },
+  { to: "/orders", key: "orders", label: "Orders", group: "main" },
+  { to: "/customers", key: "customers", label: "Customers", group: "main" },
   { to: "/production", key: "production", label: "Floor", group: "production" },
   { to: "/scan", key: "scan", label: "Scanner", group: "production" },
   { to: "/distribution", key: "distribution", label: "Distribution", group: "production" },

@@ -21,7 +21,7 @@
     @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted;
   }
   .ui-input {
-    @apply mt-1 w-full rounded-control border border-line bg-surface px-3 py-2 text-sm text-ink
+    @apply mt-1 w-full min-h-11 rounded-control border border-line bg-surface px-3 py-2 text-sm text-ink
       placeholder:text-ink-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20;
   }
   .ui-card {

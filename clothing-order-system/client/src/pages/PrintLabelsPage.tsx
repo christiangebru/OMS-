@@ -123,11 +123,40 @@ export function LabelsWorkspacePage() {
     <div className="space-y-6">
       <PageHeader
         title="Print labels"
-        description="Search an order or scan an item barcode. Preview, then print thermal-style labels."
+        description="Search → select garments → preview → print. Use the existing barcode PNG so labels scan on the floor."
         actions={
-          <Button type="button" onClick={() => window.print()} disabled={!labels.length}>
-            Print {labels.length || ""}
-          </Button>
+          <div className="flex flex-wrap gap-2 print:hidden">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                const next = { ...selected };
+                for (const o of orders) {
+                  for (const it of o.items) {
+                    const key = it._id || it.barcodeValue || `${o.orderId}-${it.clothingCode}`;
+                    next[key] = {
+                      key,
+                      barcode: it.barcodeValue || "",
+                      orderId: o.orderId,
+                      customer: o.customerName || o.customer?.name || "—",
+                      garment: it.clothingType,
+                      due: o.requiredCompletionDate,
+                      priority: o.priority || "NORMAL"
+                    };
+                  }
+                }
+                setSelected(next);
+              }}
+            >
+              Select all
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setSelected({})} disabled={!labels.length}>
+              Clear
+            </Button>
+            <Button type="button" onClick={() => window.print()} disabled={!labels.length}>
+              Print {labels.length || ""}
+            </Button>
+          </div>
         }
       />
 
@@ -267,21 +296,22 @@ export function LabelsWorkspacePage() {
           {labels.map((l) => (
             <article
               key={l.key}
-              className="label-print flex h-[170px] flex-col justify-between border border-ink bg-white p-3 text-black"
+              className="label-print flex h-[188px] flex-col justify-between border border-ink bg-white p-3 text-black"
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-neutral-500">{shortOrderId(l.orderId)}</p>
-                  <p className="text-sm font-semibold">{l.customer}</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Atelier OMS</p>
+                  <p className="mt-0.5 font-mono text-sm font-semibold">{shortOrderId(l.orderId)}</p>
+                  <p className="text-sm">{l.customer}</p>
                 </div>
                 {l.priority !== "NORMAL" && (
-                  <span className="rounded border border-black px-1 text-[10px] font-bold">{l.priority}</span>
+                  <span className="border border-black px-1 text-[10px] font-bold">{l.priority}</span>
                 )}
               </div>
-              <p className="text-base font-semibold">{l.garment}</p>
+              <p className="text-base font-semibold leading-tight">{l.garment}</p>
               <div>
                 {l.barcode ? <BarcodeImage value={l.barcode} className="h-12 w-full object-contain print:h-14" /> : null}
-                <p className="font-mono text-sm tracking-[0.2em]">{l.barcode}</p>
+                <p className="font-mono text-sm tracking-[0.18em]">{l.barcode}</p>
                 <p className="text-[11px] text-neutral-600">Due {formatDate(l.due)}</p>
               </div>
             </article>

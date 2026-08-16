@@ -32,7 +32,8 @@ function OfficeDashboard() {
       setErr(null);
     } catch (e) {
       if (!hydrated.current) {
-        setErr(e instanceof ApiError ? e.message : "Failed to load operations");
+        const detail = e instanceof ApiError ? e.message : "Network error talking to the operations API";
+        setErr(detail);
       }
     }
   }, []);
@@ -45,10 +46,12 @@ function OfficeDashboard() {
   if (err && !ops) {
     return (
       <div className="space-y-4">
-        <ErrorState message={err} />
-        <Button type="button" variant="secondary" onClick={() => load()}>
-          Retry
-        </Button>
+        <PageHeader title="Overview" description="Live production attention for today." />
+        <ErrorState
+          title="Operations API failed"
+          message={`${err}. This is the backend /api/dashboard/operations response, not a missing screen.`}
+          onRetry={() => load()}
+        />
       </div>
     );
   }
@@ -56,157 +59,111 @@ function OfficeDashboard() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
-        <div className="grid gap-3 sm:grid-cols-5">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-20" />
+        <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
+          {Array.from({ length: 9 }).map((_, i) => (
+            <Skeleton key={i} className="h-16" />
           ))}
         </div>
       </div>
     );
   }
 
+  const bottleneck = PRODUCTION_STAGES.map((s) => ({
+    stage: s,
+    waiting: ops.production[s]?.waiting || 0,
+    inProgress: ops.production[s]?.inProgress || 0
+  })).sort((a, b) => b.waiting + b.inProgress - (a.waiting + a.inProgress))[0];
+
   return (
     <div className="space-y-8">
       <PageHeader
         title={reception ? "Reception" : "Overview"}
-        description={
-          reception
-            ? "Orders, due dates, and garments waiting on delivery."
-            : "What is on the floor right now — waiting, in progress, overdue, ready."
-        }
+        description="What requires attention on the floor right now."
         actions={
-          canWriteOrders(user?.role) ? (
-            <Link to="/orders/new">
-              <Button>New order</Button>
-            </Link>
-          ) : isManagerRole(user?.role) ? (
-            <Link to="/production">
-              <Button>Open floor</Button>
-            </Link>
-          ) : (
+          <div className="flex flex-wrap gap-2">
+            {canSee(user?.role, "production") && (
+              <Link to="/production">
+                <Button variant="secondary">Floor</Button>
+              </Link>
+            )}
+            {isManagerRole(user?.role) && (
+              <Link to="/distribution">
+                <Button variant="secondary">Distribution</Button>
+              </Link>
+            )}
             <Link to="/scan">
-              <Button>Open scanner</Button>
+              <Button variant="secondary">Scanner</Button>
             </Link>
-          )
+            {canWriteOrders(user?.role) && (
+              <Link to="/orders/new">
+                <Button>New order</Button>
+              </Link>
+            )}
+          </div>
         }
       />
 
-      <section>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <Metric label="In production" value={ops.today.inProduction} />
-          <Metric label="Waiting assignment" value={ops.distribution.unassigned} />
-          <Metric label="Being worked on" value={ops.distribution.inProgress} />
-          <Metric label="Overdue" value={ops.today.overdue} tone={ops.today.overdue ? "urgent" : undefined} />
-          <Metric label="Ready" value={ops.today.ready} />
-          <Metric label="Orders in today" value={ops.today.orders} />
-        </div>
+      <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+        <Metric label="In production" value={ops.today.inProduction} />
+        <Metric label="Waiting assignment" value={ops.distribution.unassigned} />
+        <Metric label="Assigned" value={ops.distribution.awaitingDistribution} />
+        <Metric label="Handed over" value={ops.distribution.handedOver || 0} />
+        <Metric label="Received" value={ops.distribution.received || 0} />
+        <Metric label="In progress" value={ops.distribution.inProgress} />
+        <Metric label="Overdue" value={ops.today.overdue} tone={ops.today.overdue ? "urgent" : undefined} />
+        <Metric label="Ready" value={ops.today.ready} />
+        <Metric label="Today's intake" value={ops.today.orders} />
       </section>
 
-      {!reception && (
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div className="ui-card p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-ink">Bottleneck</h2>
-                {(() => {
-                  const bottleneck = PRODUCTION_STAGES.map((s) => ({
-                    stage: s,
-                    waiting: ops.production[s]?.waiting || 0,
-                    inProgress: ops.production[s]?.inProgress || 0
-                  })).sort((a, b) => b.waiting + b.inProgress - (a.waiting + a.inProgress))[0];
-                  return bottleneck && bottleneck.waiting + bottleneck.inProgress > 0 ? (
-                    <p className="mt-2 text-sm text-ink">
-                      <span className="font-semibold capitalize">{stageLabel(bottleneck.stage)}</span>
-                      <span className="text-ink-muted">
-                        {" "}
-                        · {bottleneck.inProgress} in progress · {bottleneck.waiting} waiting
-                      </span>
-                    </p>
-                  ) : (
-                    <p className="mt-2 text-sm text-ink-muted">No stage is backed up.</p>
-                  );
-                })()}
-              </div>
-              {canSee(user?.role, "production") && (
-                <Link to="/production" className="text-xs font-semibold text-accent hover:underline">
-                  Open floor
-                </Link>
-              )}
-            </div>
-            <ul className="mt-4 divide-y divide-line">
-              {PRODUCTION_STAGES.filter(
-                (s) => !["RECEIVED", "DELIVERED"].includes(s) || (ops.production[s]?.total || 0) > 0
-              ).map((stage) => {
-                const row = ops.production[stage];
-                if (!row) return null;
-                return (
-                  <li key={stage} className="flex items-center justify-between py-2.5 text-sm">
-                    <span className="capitalize text-ink">{stageLabel(stage)}</span>
-                    <span className="tabular text-ink-muted">
-                      {row.inProgress} in progress · {row.waiting} waiting
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-
-          <div className="ui-card p-5">
-            <h2 className="text-sm font-semibold text-ink">Distribution & staff</h2>
-            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-              <Pair label="Unassigned" value={ops.distribution.unassigned} />
-              <Pair label="Awaiting handover" value={ops.distribution.awaitingDistribution} />
-              <Pair label="Handed over" value={ops.distribution.handedOver || 0} />
-              <Pair label="Received" value={ops.distribution.received || 0} />
-              <Pair label="Checked in" value={ops.distribution.inProgress} />
-              <Pair label="Available staff" value={ops.staff.available} />
-            </dl>
-          </div>
-        </section>
+      {!reception && bottleneck && bottleneck.waiting + bottleneck.inProgress > 0 && (
+        <p className="text-sm text-ink">
+          Bottleneck: <span className="font-semibold capitalize">{stageLabel(bottleneck.stage)}</span>
+          <span className="text-ink-muted">
+            {" "}
+            · {bottleneck.inProgress} in progress · {bottleneck.waiting} waiting
+          </span>
+        </p>
       )}
 
-      {canSee(user?.role, "production") && (
-        <section className="flex flex-wrap items-center justify-between gap-3 border border-line bg-surface px-5 py-4">
-          <div>
-            <h2 className="text-sm font-semibold text-ink">Production floor</h2>
-            <p className="mt-0.5 text-xs text-ink-muted">
-              Garments sit in the stage they are waiting for or currently checked into.
-            </p>
-          </div>
-          <Link to="/production">
-            <Button variant="secondary">Open floor</Button>
-          </Link>
-        </section>
-      )}
-
-      <section className="ui-card overflow-hidden">
-        <div className="border-b border-line px-5 py-3">
-          <h2 className="text-sm font-semibold text-ink">{reception ? "Upcoming / overdue" : "Urgent"}</h2>
-          <p className="text-xs text-ink-muted">Overdue or due within two days.</p>
-        </div>
-        {ops.urgent.length === 0 ? (
-          <p className="px-5 py-8 text-sm text-ink-muted">Nothing urgent.</p>
-        ) : (
-          <ul className="divide-y divide-line">
-            {ops.urgent.map((u) => (
-              <li key={u.itemId} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm">
-                <div>
-                  <p className="font-medium text-ink">
-                    {u.customerName} · {u.clothingType}
-                  </p>
-                  <p className="text-xs capitalize text-ink-muted">
-                    {shortOrderId(u.orderId)} · {stageLabel(u.nextStage)}
-                    {u.priority !== "NORMAL" ? ` · ${u.priority}` : ""}
-                  </p>
-                </div>
-                <Link to={`/garments/${encodeURIComponent(u.itemId)}`} className="text-xs font-semibold text-accent">
-                  {daysLabel(u.daysRemaining, u.overdue)}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+      <section className="grid gap-6 lg:grid-cols-2">
+        <AttentionList
+          title="Urgent"
+          empty="Nothing overdue or due within two days."
+          rows={ops.urgent.map((u) => ({
+            key: u.itemId,
+            title: `${u.customerName} · ${u.clothingType}`,
+            meta: `${shortOrderId(u.orderId)} · ${stageLabel(u.nextStage)}`,
+            href: `/garments/${encodeURIComponent(u.itemId)}`,
+            aside: daysLabel(u.daysRemaining, u.overdue),
+            warn: u.overdue
+          }))}
+        />
+        <AttentionList
+          title="Needs assignment"
+          empty="No garments waiting for a worker."
+          rows={(ops.needsAssignment || []).map((u) => ({
+            key: u.itemId,
+            title: `${u.customerName} · ${u.clothingType}`,
+            meta: `${shortOrderId(u.orderId)} · ${stageLabel(u.nextStage)}`,
+            href: `/garments/${encodeURIComponent(u.itemId)}`,
+            aside: u.overdue ? "Overdue" : daysLabel(u.daysRemaining, u.overdue)
+          }))}
+        />
       </section>
+
+      {(ops.recentlyReceived || []).length > 0 && (
+        <AttentionList
+          title="Recently received"
+          empty=""
+          rows={(ops.recentlyReceived || []).map((u) => ({
+            key: u.itemId,
+            title: `${u.customerName} · ${u.clothingType}`,
+            meta: `${shortOrderId(u.orderId)} · ${u.workerName || "—"}`,
+            href: `/scan?barcode=${encodeURIComponent(u.barcodeValue || "")}`,
+            aside: "Check in"
+          }))}
+        />
+      )}
     </div>
   );
 }
@@ -226,7 +183,9 @@ function FloorDashboard() {
       setStages(data.stages || []);
       setErr(null);
     } catch (e) {
-      if (!hydrated.current) setErr(e instanceof ApiError ? e.message : "Failed to load work");
+      if (!hydrated.current) {
+        setErr(e instanceof ApiError ? e.message : "Network error loading /api/production/floor");
+      }
     }
   }, []);
 
@@ -235,7 +194,9 @@ function FloorDashboard() {
   }, [load]);
   useLiveRefresh(load, 15000);
 
-  if (err) return <ErrorState message={err} />;
+  if (err && !items) {
+    return <ErrorState title="Could not load your stage" message={err} onRetry={() => load()} />;
+  }
   if (!items) return <Skeleton className="h-40" />;
 
   const dueToday = items.filter((i) => i.daysRemaining != null && i.daysRemaining < 1 && !i.overdue);
@@ -248,21 +209,23 @@ function FloorDashboard() {
         title="My stage"
         description={
           stages.length
-            ? `Work waiting in ${stages.map(stageLabel).join(" · ")}.`
+            ? `Work in ${stages.map(stageLabel).join(" · ")}. Scan to check in or check out.`
             : "Assigned production for your role."
         }
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link to="/production">
-              <Button variant="secondary">Open floor</Button>
-            </Link>
+            {canSee(user?.role, "production") && (
+              <Link to="/production">
+                <Button variant="secondary">Open floor</Button>
+              </Link>
+            )}
             <Link to="/scan">
               <Button size="lg">Open scanner</Button>
             </Link>
           </div>
         }
       />
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2">
         <Metric label="In progress" value={inProgress.length} />
         <Metric label="Due today" value={dueToday.length} />
         <Metric label="Overdue" value={overdue.length} tone={overdue.length ? "urgent" : undefined} />
@@ -270,7 +233,7 @@ function FloorDashboard() {
       {items.length === 0 ? (
         <EmptyState title="No garments in your stage" body="When work is assigned here, it will show up on this list." />
       ) : (
-        <ul className="ui-card divide-y divide-line overflow-hidden">
+        <ul className="divide-y divide-line overflow-hidden border border-line bg-surface">
           {items.map((row) => (
             <li key={row.itemId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
               <div>
@@ -287,18 +250,56 @@ function FloorDashboard() {
                   {daysLabel(row.daysRemaining, row.overdue)}
                 </p>
                 <Link
-                  to={`/garments/${encodeURIComponent(row.itemId)}`}
+                  to={`/scan?barcode=${encodeURIComponent(row.barcodeValue)}`}
                   className="text-xs font-semibold text-accent hover:underline"
                 >
-                  Open garment
+                  Scan
                 </Link>
               </div>
             </li>
           ))}
         </ul>
       )}
-      <p className="text-xs text-ink-muted">Signed in as {user?.name} · {user?.role}</p>
     </div>
+  );
+}
+
+function AttentionList({
+  title,
+  empty,
+  rows
+}: {
+  title: string;
+  empty: string;
+  rows: Array<{ key: string; title: string; meta: string; href: string; aside?: string; warn?: boolean }>;
+}) {
+  return (
+    <section className="overflow-hidden border border-line bg-surface">
+      <div className="border-b border-line px-4 py-3">
+        <h2 className="text-sm font-semibold text-ink">{title}</h2>
+      </div>
+      {rows.length === 0 ? (
+        empty ? <p className="px-4 py-8 text-sm text-ink-muted">{empty}</p> : null
+      ) : (
+        <ul className="divide-y divide-line">
+          {rows.map((r) => (
+            <li key={r.key}>
+              <Link to={r.href} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-canvas">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-ink">{r.title}</p>
+                  <p className="truncate text-xs text-ink-muted">{r.meta}</p>
+                </div>
+                {r.aside && (
+                  <span className={clsx("shrink-0 text-xs font-semibold", r.warn ? "text-red-700" : "text-accent")}>
+                    {r.aside}
+                  </span>
+                )}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -312,20 +313,11 @@ function Metric({
   tone?: "urgent";
 }) {
   return (
-    <div className="ui-card px-4 py-3">
+    <div className="border border-line bg-surface px-3 py-2.5">
       <p className="ui-label">{label}</p>
-      <p className={clsx("mt-1 text-2xl font-semibold tabular", tone === "urgent" ? "text-red-700" : "text-ink")}>
+      <p className={clsx("mt-1 text-xl font-semibold tabular", tone === "urgent" ? "text-red-700" : "text-ink")}>
         {value}
       </p>
-    </div>
-  );
-}
-
-function Pair({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
-  return (
-    <div className="rounded-lg bg-canvas px-3 py-2">
-      <p className="text-[11px] text-ink-muted">{label}</p>
-      <p className={clsx("text-lg font-semibold tabular", warn && "text-red-700")}>{value}</p>
     </div>
   );
 }

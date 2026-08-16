@@ -400,6 +400,25 @@ export interface DashboardOperations {
     priority: OrderPriority;
     daysRemaining: number | null;
   }>;
+  needsAssignment?: Array<{
+    itemId: string;
+    orderId: string;
+    clothingType: string;
+    customerName: string;
+    nextStage: string;
+    barcodeValue?: string;
+    daysRemaining: number | null;
+    overdue: boolean;
+  }>;
+  recentlyReceived?: Array<{
+    itemId: string;
+    orderId: string;
+    clothingType: string;
+    customerName: string;
+    nextStage: string;
+    workerName: string | null;
+    barcodeValue?: string;
+  }>;
 }
 
 export interface QueueItem {

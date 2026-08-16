@@ -3,10 +3,10 @@ import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, Staff, StaffRole, StaffStatus } from "@/lib/types";
 import { PRODUCTION_STAGES } from "@/lib/types";
-import { PageHeader, EmptyState, ErrorState, Badge, Skeleton } from "@/components/ui/PageHeader";
+import { PageHeader, EmptyState, ErrorState, Skeleton } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/StatusBadge";
-import { boardStatusLabel, stageLabel } from "@/lib/format";
+import { stageLabel } from "@/lib/format";
 import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import clsx from "clsx";
 
@@ -196,58 +196,65 @@ export function StaffPage() {
       )}
 
       {staff && visible.length > 0 && (
-        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {visible.map((s) => (
-            <li key={s._id}>
-              <Link
-                to={`/staff/${s._id}`}
-                className="ui-card block h-full p-4 transition hover:border-accent/40"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-ink">{s.name}</p>
-                    <p className="text-xs capitalize text-ink-muted">
-                      {s.role.toLowerCase()} · {s.phone}
-                    </p>
-                  </div>
-                  <StatusBadge status={s.status} />
-                </div>
-                {!s.active && (
-                  <p className="mt-2 text-xs font-medium text-red-700">Inactive</p>
-                )}
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  <Badge tone={s.presence === "idle" ? "ok" : s.presence === "in_progress" ? "progress" : "warn"}>
-                    {boardStatusLabel(s.presence)}
-                  </Badge>
-                  {s.strongestStage && (
-                    <Badge tone="neutral">
-                      {stageLabel(s.strongestStage)} {s.strongestLevel}/5
-                    </Badge>
-                  )}
-                </div>
-                <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
-                  <Mini label="Active" value={s.activeAssignmentCount ?? 0} />
-                  <Mini label="Overdue" value={s.overdueAssignmentCount ?? 0} warn={(s.overdueAssignmentCount || 0) > 0} />
-                  <Mini label="Done" value={s.completedAssignmentCount ?? 0} />
-                </dl>
-                {s.currentGarment ? (
-                  <p className="mt-3 truncate text-xs text-ink-muted">
-                    Holding {s.currentGarment.clothingType}
-                    {s.currentGarment.customerName ? ` · ${s.currentGarment.customerName}` : ""} ·{" "}
-                    {stageLabel(s.currentGarment.stage)}
+        <>
+          <ul className="space-y-3 md:hidden">
+            {visible.map((s) => (
+              <li key={s._id}>
+                <Link to={`/staff/${s._id}`} className="block border border-line bg-surface p-4">
+                  <p className="font-semibold text-ink">{s.name}</p>
+                  <p className="text-xs capitalize text-ink-muted">
+                    {s.role.toLowerCase()}
+                    {s.strongestStage ? ` · ${stageLabel(s.strongestStage)}` : ""}
+                    {` · ${s.status.replace("_", " ").toLowerCase()}`}
                   </p>
-                ) : (
-                  <p className="mt-3 text-xs text-ink-faint">No garment in hand</p>
-                )}
-                {s.skills && s.skills.length > 0 && (
-                  <p className="mt-2 truncate text-[11px] capitalize text-ink-faint">
-                    {s.skills.map(stageLabel).join(" · ")}
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {s.activeAssignmentCount ?? 0} active · {s.overdueAssignmentCount ?? 0} overdue · skill{" "}
+                    {s.strongestLevel ?? s.skillLevel}/5
                   </p>
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-hidden border border-line md:block">
+            <table className="ui-table w-full text-sm">
+              <thead className="border-b border-line bg-canvas/70">
+                <tr>
+                  <th>Worker</th>
+                  <th>Role</th>
+                  <th>Stage</th>
+                  <th>Availability</th>
+                  <th>Active</th>
+                  <th>Overdue</th>
+                  <th>Skill</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((s) => (
+                  <tr key={s._id} className="border-t border-line">
+                    <td>
+                      <Link to={`/staff/${s._id}`} className="font-medium text-ink hover:text-accent">
+                        {s.name}
+                      </Link>
+                      {!s.active && <span className="ml-2 text-xs text-red-700">Inactive</span>}
+                    </td>
+                    <td className="capitalize text-xs text-ink-muted">{s.role.toLowerCase()}</td>
+                    <td className="capitalize text-xs text-ink-muted">
+                      {s.strongestStage ? stageLabel(s.strongestStage) : "—"}
+                    </td>
+                    <td>
+                      <StatusBadge status={s.status} />
+                    </td>
+                    <td className="tabular">{s.activeAssignmentCount ?? 0}</td>
+                    <td className={clsx("tabular", (s.overdueAssignmentCount || 0) > 0 && "font-semibold text-red-700")}>
+                      {s.overdueAssignmentCount ?? 0}
+                    </td>
+                    <td className="tabular text-xs text-ink-muted">{s.strongestLevel ?? s.skillLevel}/5</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
@@ -260,15 +267,6 @@ function Stat({ label, value, warn }: { label: string; value: number | string; w
       <p className={clsx("mt-1 text-2xl font-semibold tabular", warn && value !== 0 && value !== "—" && "text-red-700")}>
         {value}
       </p>
-    </div>
-  );
-}
-
-function Mini({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
-  return (
-    <div className="rounded-lg bg-canvas px-2 py-1.5">
-      <p className="text-[10px] uppercase tracking-wide text-ink-faint">{label}</p>
-      <p className={clsx("text-sm font-semibold tabular", warn && "text-red-700")}>{value}</p>
     </div>
   );
 }

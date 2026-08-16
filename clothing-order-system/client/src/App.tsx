@@ -32,6 +32,7 @@ const ProductionFloorPage = lazy(() =>
 const DistributionPage = lazy(() =>
   import("@/pages/DistributionPage").then((m) => ({ default: m.DistributionPage }))
 );
+const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
 
 function Boot() {
   return (
@@ -69,6 +70,12 @@ function WriterOnly({ children }: { children: ReactElement }) {
 function LabelsOnly({ children }: { children: ReactElement }) {
   const { user } = useAuth();
   if (!canSee(user?.role, "labels")) return <Navigate to="/scan" replace />;
+  return children;
+}
+
+function ProductionOnly({ children }: { children: ReactElement }) {
+  const { user } = useAuth();
+  if (!canSee(user?.role, "production")) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -132,7 +139,16 @@ export default function App() {
             }
           />
           <Route path="scan" element={<ScanPage />} />
-          <Route path="production" element={<ProductionFloorPage />} />
+          <Route path="scanner" element={<Navigate to="/scan" replace />} />
+          <Route
+            path="production"
+            element={
+              <ProductionOnly>
+                <ProductionFloorPage />
+              </ProductionOnly>
+            }
+          />
+          <Route path="floor" element={<Navigate to="/production" replace />} />
           <Route
             path="distribution"
             element={
@@ -149,8 +165,8 @@ export default function App() {
               </LabelsOnly>
             }
           />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   );

@@ -6,8 +6,7 @@ import { navForRole } from "@/lib/roles";
 export function Sidebar() {
   const { user } = useAuth();
   const items = navForRole(user?.role);
-  const overview = items.filter((i) => i.group === "overview");
-  const commercial = items.filter((i) => i.group === "commercial");
+  const main = items.filter((i) => i.group === "main");
   const production = items.filter((i) => i.group === "production");
   const people = items.filter((i) => i.group === "people");
 
@@ -23,8 +22,7 @@ export function Sidebar() {
         </div>
       </div>
       <nav className="flex-1 space-y-6 overflow-y-auto p-3" aria-label="Main">
-        <NavGroup label="Overview" items={overview} />
-        <NavGroup label="" items={commercial} />
+        <NavGroup label="" items={main} />
         <NavGroup label="Production" items={production} />
         <NavGroup label="People" items={people} />
       </nav>

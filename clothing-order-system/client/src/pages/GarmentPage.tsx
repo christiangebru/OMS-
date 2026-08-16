@@ -7,7 +7,7 @@ import { PageHeader, ErrorState, Skeleton, Badge } from "@/components/ui/PageHea
 import { Button } from "@/components/ui/Button";
 import { BarcodeImage } from "@/components/BarcodeImage";
 import { ProductionTimeline } from "@/components/ProductionTimeline";
-import { SuggestedAssignments } from "@/components/SuggestedAssignments";
+import { StageStrip } from "@/components/StageStrip";
 import { SpecSheet } from "@/components/SpecSheet";
 import { ReferenceGallery } from "@/components/ReferenceGallery";
 import { garmentPath } from "@/components/GarmentCard";
@@ -214,6 +214,15 @@ export function GarmentPage() {
             </p>
           </div>
         </div>
+
+        {details.production?.stageStates?.length ? (
+          <div className="mt-5 border-t border-line pt-4">
+            <StageStrip
+              stages={details.production.stageStates.map((s) => s.stage)}
+              current={details.timing.currentStage || details.timing.nextExpectedStage}
+            />
+          </div>
+        ) : null}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <Badge

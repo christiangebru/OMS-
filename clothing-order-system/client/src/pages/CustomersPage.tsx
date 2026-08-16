@@ -72,7 +72,7 @@ export function CustomersPage() {
                   <p className="text-sm text-ink-muted">{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
                   <p className="mt-1 text-xs text-ink-faint">
                     {c.orderCount ?? 0} order{(c.orderCount || 0) === 1 ? "" : "s"}
-                    {c.activeGarmentCount ? ` · ${c.activeGarmentCount} in production` : ""}
+                    {c.activeGarmentCount ? ` · ${c.activeGarmentCount} in production` : " · idle"}
                     {c.lastOrderDate ? ` · last ${formatDate(c.lastOrderDate)}` : ""}
                     {(c.outstandingBalance || 0) > 0 ? ` · ${formatMoney(c.outstandingBalance)} due` : ""}
                   </p>
@@ -90,6 +90,7 @@ export function CustomersPage() {
                 <th>Orders</th>
                 <th>Active</th>
                 <th>Last order</th>
+                <th>Status</th>
                 <th>Balance</th>
                 <th />
               </tr>
@@ -103,6 +104,9 @@ export function CustomersPage() {
                   <td className="tabular">{c.orderCount ?? 0}</td>
                   <td className="tabular">{c.activeGarmentCount ?? 0}</td>
                   <td className="text-xs text-ink-muted">{formatDate(c.lastOrderDate)}</td>
+                  <td className="text-xs text-ink-muted">
+                    {(c.activeGarmentCount || 0) > 0 ? "In production" : "Idle"}
+                  </td>
                   <td className="tabular text-xs">{formatMoney(c.outstandingBalance)}</td>
                   <td className="text-right">
                     <Link to={`/customers/${c._id}`} className="text-xs font-semibold text-accent hover:underline">

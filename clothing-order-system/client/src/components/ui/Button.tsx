@@ -14,9 +14,9 @@ export function Button({
     <button
       className={clsx(
         "inline-flex items-center justify-center gap-1.5 rounded-control font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
-        size === "sm" && "px-2.5 py-1.5 text-xs",
-        size === "md" && "px-3.5 py-2 text-sm",
-        size === "lg" && "px-4 py-3 text-base",
+        size === "sm" && "min-h-9 px-2.5 py-1.5 text-xs",
+        size === "md" && "min-h-11 px-3.5 py-2 text-sm",
+        size === "lg" && "min-h-12 px-4 py-3 text-base",
         variant === "primary" && "bg-accent text-white hover:bg-accent-hover",
         variant === "secondary" && "border border-line bg-surface text-ink hover:bg-canvas",
         variant === "ghost" && "text-ink-muted hover:bg-canvas hover:text-ink",

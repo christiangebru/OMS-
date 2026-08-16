@@ -164,7 +164,32 @@ router.get("/operations", requireCapability("dashboard"), async (_req, res) => {
       overdue: i.overdue,
       priority: i.priority,
       daysRemaining: i.daysRemaining
-    }))
+    })),
+    needsAssignment: board.items
+      .filter((i) => i.boardStatus === "waiting")
+      .slice(0, 8)
+      .map((i) => ({
+        itemId: i.itemId,
+        orderId: i.orderId,
+        clothingType: i.clothingType,
+        customerName: i.customer?.name || "—",
+        nextStage: i.nextStage,
+        barcodeValue: i.barcodeValue,
+        daysRemaining: i.daysRemaining,
+        overdue: i.overdue
+      })),
+    recentlyReceived: board.items
+      .filter((i) => i.boardStatus === "received")
+      .slice(0, 8)
+      .map((i) => ({
+        itemId: i.itemId,
+        orderId: i.orderId,
+        clothingType: i.clothingType,
+        customerName: i.customer?.name || "—",
+        nextStage: i.nextStage,
+        workerName: i.assignment?.staff?.name || null,
+        barcodeValue: i.barcodeValue
+      }))
   });
 });
 

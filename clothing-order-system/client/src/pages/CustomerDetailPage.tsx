@@ -2,9 +2,14 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiJson, ApiError, imageUrlFromPath } from "@/lib/api";
 import type { Customer, Measurement } from "@/lib/types";
-import { MEASUREMENT_SCHEMAS, type MeasurementCategory as Cat } from "@/lib/measurementSchema";
+import {
+  MEASUREMENT_SCHEMAS,
+  itemGenderToCategory,
+  type MeasurementCategory as Cat
+} from "@/lib/measurementSchema";
 import { formatDate, formatMoney, shortOrderId } from "@/lib/format";
 import { PageHeader, ErrorState, EmptyState, Badge } from "@/components/ui/PageHeader";
+import { Tabs } from "@/components/ui/FilterChips";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/context/ToastContext";
 
@@ -14,7 +19,7 @@ export function CustomerDetailPage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"profile" | "orders" | "garments" | "measures">("profile");
+  const [tab, setTab] = useState<"profile" | "orders" | "garments" | "measures" | "payments">("profile");
   const [identity, setIdentity] = useState({
     name: "",
     phone: "",
@@ -169,29 +174,17 @@ export function CustomerDetailPage() {
 
       {err && <ErrorState message={err} />}
 
-      <div className="flex flex-wrap gap-2">
-        {(
-          [
-            ["profile", "Overview"],
-            ["orders", "Orders"],
-            ["garments", "Garments"],
-            ["measures", "Measurements"]
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={
-              tab === key
-                ? "rounded-control bg-accent-soft px-3 py-1.5 text-sm font-medium text-accent"
-                : "rounded-control px-3 py-1.5 text-sm text-ink-muted hover:bg-canvas"
-            }
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        options={[
+          { id: "profile", label: "Overview" },
+          { id: "orders", label: "Orders" },
+          { id: "garments", label: "Garments" },
+          { id: "measures", label: "Measurements" },
+          { id: "payments", label: "Payments" }
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
 
       {tab === "profile" && (
         <div className="space-y-6">
@@ -339,19 +332,80 @@ export function CustomerDetailPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                {g.item._id && (
-                  <Link to={`/garments/${encodeURIComponent(g.item._id)}`}>
-                    <Button size="sm">Open garment</Button>
-                  </Link>
-                )}
                 <Link to={`/orders/new?customerId=${customer._id}&reuseItem=${g.item._id || ""}`}>
-                  <Button size="sm" variant="secondary">
-                    Use for new order
+                  <Button size="sm">Use garment</Button>
+                </Link>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    const cat = itemGenderToCategory(g.item.measurements?.gender, g.item.size);
+                    setCategory(cat);
+                    setValues({
+                      chest: g.item.measurements?.chest || "",
+                      bust: g.item.measurements?.breast || g.item.measurements?.chest || "",
+                      waist: g.item.measurements?.waist || "",
+                      hip: g.item.measurements?.vest || "",
+                      shoulder: g.item.measurements?.shoulder || "",
+                      sleeveLength: g.item.measurements?.arm || "",
+                      height: g.item.measurements?.height || ""
+                    });
+                    setTab("measures");
+                    push("Copied measurements into the form. Save to keep a profile.", "ok");
+                  }}
+                >
+                  Copy measurements
+                </Button>
+                <Link to={`/orders/new?customerId=${customer._id}&reuseItem=${g.item._id || ""}`}>
+                  <Button size="sm" variant="ghost">
+                    Create similar
                   </Button>
                 </Link>
+                {g.item._id && (
+                  <Link to={`/garments/${encodeURIComponent(g.item._id)}`}>
+                    <Button size="sm" variant="ghost">
+                      Open
+                    </Button>
+                  </Link>
+                )}
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {tab === "payments" && (
+        <div className="overflow-hidden border border-line bg-surface">
+          <div className="grid grid-cols-3 gap-3 border-b border-line p-4 text-sm">
+            <div>
+              <p className="ui-label">Agreed</p>
+              <p className="tabular font-semibold">{formatMoney(agreed)}</p>
+            </div>
+            <div>
+              <p className="ui-label">Deposits</p>
+              <p className="tabular font-semibold">{formatMoney(paid)}</p>
+            </div>
+            <div>
+              <p className="ui-label">Balance</p>
+              <p className="tabular font-semibold">{formatMoney(Math.max(0, agreed - paid))}</p>
+            </div>
+          </div>
+          <ul className="divide-y divide-line">
+            {(customer.orders || []).map((o) => (
+              <li key={o._id} className="flex items-center justify-between px-4 py-3 text-sm">
+                <Link
+                  to={`/orders/${encodeURIComponent(o.orderId)}`}
+                  className="font-mono font-medium text-accent hover:underline"
+                >
+                  {shortOrderId(o.orderId)}
+                </Link>
+                <span className="tabular text-ink-muted">
+                  {formatMoney(o.depositPaid)} / {formatMoney(o.totalAgreedPrice)}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

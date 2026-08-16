@@ -1,25 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiJson, ApiError, imageUrlFromPath } from "@/lib/api";
-import type { Order, OrderPriority, ProductionStatus } from "@/lib/types";
+import type { Order } from "@/lib/types";
 import { formatDate, formatMoney, shortOrderId } from "@/lib/format";
 import { PageHeader, EmptyState, ErrorState, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/context/ToastContext";
 import { useAuth } from "@/context/AuthContext";
 import { canWriteOrders } from "@/lib/roles";
+import { FilterChips } from "@/components/ui/FilterChips";
 import { garmentPath } from "@/components/GarmentCard";
 import clsx from "clsx";
 
-const STATUSES: ProductionStatus[] = [
-  "pending",
-  "cutting",
-  "stitching",
-  "finishing",
-  "completed",
-  "delivered"
-];
-const PRIORITIES: Array<OrderPriority | ""> = ["", "NORMAL", "RUSH", "VIP"];
+const LANES = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "waiting", label: "Waiting" },
+  { id: "in_production", label: "In production" },
+  { id: "ready", label: "Ready" },
+  { id: "delivered", label: "Delivered" },
+  { id: "overdue", label: "Overdue" },
+  { id: "priority", label: "Priority" }
+] as const;
+type Lane = (typeof LANES)[number]["id"];
 
 export function OrdersPage() {
   const { push } = useToast();
@@ -28,9 +31,7 @@ export function OrdersPage() {
   const [searchParams] = useSearchParams();
   const [orders, setOrders] = useState<Order[]>([]);
   const [q, setQ] = useState(searchParams.get("q") || "");
-  const [status, setStatus] = useState("");
-  const [priority, setPriority] = useState("");
-  const [due, setDue] = useState("");
+  const [lane, setLane] = useState<Lane>("active");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [barcodeHit, setBarcodeHit] = useState<{ id: string; type: string } | null>(null);
@@ -38,12 +39,13 @@ export function OrdersPage() {
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
     if (q.trim()) p.set("q", q.trim());
-    if (status) p.set("status", status);
-    if (due) p.set("due", due);
-    if (priority) p.set("priority", priority);
+    if (lane === "waiting") p.set("status", "pending");
+    if (lane === "ready") p.set("status", "completed");
+    if (lane === "delivered") p.set("status", "delivered");
+    if (lane === "overdue") p.set("due", "overdue");
     const s = p.toString();
     return s ? `?${s}` : "";
-  }, [q, status, due, priority]);
+  }, [q, lane]);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,7 +89,14 @@ export function OrdersPage() {
     };
   }, [q]);
 
-  const visible = orders;
+  const visible = useMemo(() => {
+    return orders.filter((o) => {
+      if (lane === "active") return o.productionStatus !== "delivered";
+      if (lane === "in_production") return ["cutting", "stitching", "finishing"].includes(o.productionStatus);
+      if (lane === "priority") return o.priority === "RUSH" || o.priority === "VIP";
+      return true;
+    });
+  }, [orders, lane]);
 
   function copyTailorDetails(order: Order) {
     const customerLabel = order.customerName || order.customer?.name || "—";
@@ -124,61 +133,15 @@ export function OrdersPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div>
-          <label className="ui-label" htmlFor="search-q">
-            Search
-          </label>
-          <input
-            id="search-q"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Customer, ORD-1042, ITM barcode…"
-            className="ui-input"
-          />
-        </div>
-        <div>
-          <label className="ui-label" htmlFor="search-status">
-            Status
-          </label>
-          <select id="search-status" value={status} onChange={(e) => setStatus(e.target.value)} className="ui-input">
-            <option value="">All</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="ui-label" htmlFor="search-due">
-            Due
-          </label>
-          <select id="search-due" value={due} onChange={(e) => setDue(e.target.value)} className="ui-input">
-            <option value="">Any</option>
-            <option value="overdue">Overdue</option>
-            <option value="today">Today</option>
-            <option value="week">This week</option>
-          </select>
-        </div>
-        <div>
-          <label className="ui-label" htmlFor="search-priority">
-            Priority
-          </label>
-          <select
-            id="search-priority"
-            value={priority}
-            onChange={(e) => setPriority(e.target.value)}
-            className="ui-input"
-          >
-            {PRIORITIES.map((p) => (
-              <option key={p || "all"} value={p}>
-                {p || "All"}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <input
+        id="search-q"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Customer, ORD-1042, ITM barcode…"
+        className="ui-input max-w-md"
+        aria-label="Search orders"
+      />
+      <FilterChips options={[...LANES]} value={lane} onChange={setLane} ariaLabel="Order filters" />
 
       {barcodeHit && (
         <Link
@@ -195,7 +158,7 @@ export function OrdersPage() {
         </Link>
       )}
 
-      {err && <ErrorState message={err} />}
+      {err && <ErrorState title="Could not load orders" message={err} />}
 
       {!loading && !visible.length && (
         <EmptyState

@@ -13,7 +13,7 @@ export function PageHeader({
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">{title}</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-ink sm:text-[1.375rem]">{title}</h1>
         {description && <p className="mt-1 max-w-2xl text-sm text-ink-muted">{description}</p>}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
@@ -39,10 +39,24 @@ export function EmptyState({
   );
 }
 
-export function ErrorState({ message }: { message: string }) {
+export function ErrorState({
+  title = "Could not load this view",
+  message,
+  onRetry
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
   return (
     <div className="rounded-control border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
-      {message}
+      <p className="font-semibold">{title}</p>
+      <p className="mt-1">{message}</p>
+      {onRetry && (
+        <button type="button" className="mt-2 font-semibold underline" onClick={onRetry}>
+          Retry
+        </button>
+      )}
     </div>
   );
 }

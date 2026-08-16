@@ -7,7 +7,7 @@ import { SuggestedAssignments } from "@/components/SuggestedAssignments";
 import { useAuth } from "@/context/AuthContext";
 import { isManagerRole, isFloorRole, canSee } from "@/lib/roles";
 import { stageLabel, shortOrderId, daysLabel, formatMoney } from "@/lib/format";
-import { PageHeader, ErrorState } from "@/components/ui/PageHeader";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import clsx from "clsx";
 
@@ -247,7 +247,7 @@ export function ScanPage() {
     <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader
         title="Scanner"
-        description="Scan a garment barcode. The operating view and next action appear immediately."
+        description="Scan a garment. The operating panel and next action appear immediately. Camera library loads only when you start it."
       />
 
       {feedback && (
@@ -524,8 +524,6 @@ export function ScanPage() {
       </div>
       )}
       {canCheck && <div className="h-24 sm:hidden" aria-hidden />}
-
-      {feedback && !feedback.ok && <ErrorState message={feedback.message} />}
 
       {details && (
         <>
