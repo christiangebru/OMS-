@@ -1,4 +1,6 @@
-const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+import { apiUrl, resolveApiBase } from "./apiBase.js";
+
+const API_BASE = resolveApiBase(import.meta.env.VITE_API_URL);
 
 function authHeader(): HeadersInit {
   const token = localStorage.getItem("token");
@@ -25,7 +27,7 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   }
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+    res = await fetch(apiUrl(path, API_BASE), { ...init, headers });
   } catch (e) {
     throw new ApiError(e instanceof Error ? e.message : "Network error", 0);
   }
