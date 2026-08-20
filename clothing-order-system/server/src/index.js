@@ -4,7 +4,8 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import { connectDb, checkDb } from "./config/db.js";
+import { connectDb } from "./config/db.js";
+import { healthLivenessHandler, readinessHandler } from "./routes/health.js";
 import authRoutes from "./routes/auth.js";
 import orderRoutes from "./routes/orders.js";
 import dashboardRoutes from "./routes/dashboard.js";
@@ -37,14 +38,8 @@ app.use(express.json({ limit: "2mb" }));
 /** Uploaded clothing images */
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
-app.get("/health", async (_req, res) => {
-  try {
-    await checkDb();
-    res.json({ ok: true, db: "postgresql", dbConnected: true });
-  } catch {
-    res.status(503).json({ ok: false, db: "postgresql", dbConnected: false });
-  }
-});
+app.get("/health", healthLivenessHandler());
+app.get("/ready", readinessHandler());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/upload", uploadRoutes);
@@ -77,7 +72,8 @@ function listen() {
 
 async function main() {
   // Bind first so Render health checks can succeed even if a later DB
-  // snapshot is slow. /health still reports dbConnected from a live query.
+  // snapshot is slow. GET /health is liveness (always 200); GET /ready
+  // reports database connectivity.
   await listen();
   try {
     await connectDb();

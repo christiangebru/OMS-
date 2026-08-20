@@ -16,8 +16,11 @@
 # IMPORTANT: Render's pre-deploy command is available only for PAID web services
 # (https://render.com/docs/deploys#pre-deploy-command). This service uses plan: free,
 # so `preDeployCommand` is ignored and the dashboard Pre-Deploy field is locked.
-# Migrations run at start with a timeout so a hung advisory lock cannot keep
-# the service from listening (see server/src/start.js).
+# Migrations run *after* the process is listening, in the background, with a
+# timeout so a hung advisory lock cannot keep the service from listening
+# (see server/src/start.js). GET /health is liveness (always 200 once the
+# port is bound). GET /ready reports database connectivity and is not the
+# Render healthCheckPath.
 #
 # Node is pinned to 20 (LTS) via both NODE_VERSION below and server/.node-version.
 

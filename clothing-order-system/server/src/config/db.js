@@ -13,7 +13,7 @@ export async function connectDb() {
   console.log("[db] Connected to PostgreSQL");
 }
 
-/** Lightweight health probe used by GET /health. */
+/** Lightweight probe used by GET /health (liveness body) and GET /ready. */
 export async function checkDb() {
   await prisma.$queryRaw`SELECT 1`;
   return true;

@@ -1,6 +1,7 @@
 import { apiUrl, resolveApiBase } from "./apiBase.js";
 import {
   DEFAULT_API_TIMEOUT_MS,
+  apiNetworkErrorMessage,
   fetchWithTimeout,
   isAbortError
 } from "./fetchTimeout.js";
@@ -51,7 +52,7 @@ export async function apiJson<T>(path: string, init: ApiRequestInit = {}): Promi
     if (isAbortError(e)) {
       throw new ApiError("Request timed out", 0, "timeout");
     }
-    throw new ApiError(e instanceof Error ? e.message : "Network error", 0);
+    throw new ApiError(apiNetworkErrorMessage(e), 0);
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();

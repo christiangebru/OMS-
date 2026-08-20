@@ -43,7 +43,7 @@ Open `http://localhost:5173`.
 
 1. New **Web Service**, root directory `server` (or use the included `render.yaml` blueprint).
 2. Build: `npm install && npm run build` (generates the Prisma client).
-3. Start: `npm start` (attempts `prisma migrate deploy` with a timeout, then starts Express). Render's Pre-Deploy Command is **not available on the free instance type**, so migrations cannot be a separate pre-deploy step on this plan. Prefer a Neon **unpooled** `DIRECT_URL` for migrations; the pooled `DATABASE_URL` is for app queries.
+3. Start: `npm start` (starts Express immediately, then runs `prisma migrate deploy` in the background with a timeout). Render's Pre-Deploy Command is **not available on the free instance type**, so migrations cannot be a separate pre-deploy step on this plan. Prefer a Neon **unpooled** `DIRECT_URL` for migrations; the pooled `DATABASE_URL` is for app queries. `GET /health` is liveness (always 200 once listening); `GET /ready` reports the database.
 4. Set env: `DATABASE_URL` (Neon pooled connection string, `?sslmode=require`), optional `DIRECT_URL` (Neon unpooled), `JWT_SECRET`, `API_PUBLIC_URL` (your `https://…onrender.com`), `CORS_ORIGIN` (your Vercel URL, comma-separated if multiple).
 
 **Note:** Uploaded images live on the service filesystem. For durable storage in production, swap Multer disk storage for S3 / Cloudinary.

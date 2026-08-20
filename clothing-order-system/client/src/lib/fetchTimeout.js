@@ -11,6 +11,23 @@ export function isAbortError(error) {
   return error.name === "AbortError";
 }
 
+/** Safari "Load failed", Chrome "Failed to fetch", Firefox NetworkError. */
+const UNREACHABLE_FETCH_MESSAGE =
+  /^(load failed|failed to fetch|networkerror when attempting to fetch resource\.?)$/i;
+
+/**
+ * Map a raw `fetch` rejection to a stable UI message.
+ * Timeouts stay "Request timed out"; do not rewrite API JSON errors.
+ */
+export function apiNetworkErrorMessage(error) {
+  if (isAbortError(error)) return "Request timed out";
+  const raw = error instanceof Error ? error.message.trim() : "";
+  if (UNREACHABLE_FETCH_MESSAGE.test(raw)) {
+    return "Cannot reach the server";
+  }
+  return raw || "Network error";
+}
+
 export function abortError(message = "The operation was aborted") {
   const err = new Error(message);
   err.name = "AbortError";

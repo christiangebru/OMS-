@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import {
   AUTH_RESTORE_TIMEOUT_MS,
   DEFAULT_API_TIMEOUT_MS,
+  apiNetworkErrorMessage,
   fetchWithTimeout,
   mergeTimeoutSignal
 } from "../../client/src/lib/fetchTimeout.js";
@@ -61,5 +62,23 @@ describe("fetchWithTimeout", () => {
     await new Promise((r) => setTimeout(r, 70));
     expect(signal.aborted).toBe(true);
     cleanup();
+  });
+});
+
+describe("apiNetworkErrorMessage", () => {
+  it("maps Safari Load failed and Chrome Failed to fetch", () => {
+    expect(apiNetworkErrorMessage(new TypeError("Load failed"))).toBe("Cannot reach the server");
+    expect(apiNetworkErrorMessage(new TypeError("Failed to fetch"))).toBe("Cannot reach the server");
+    expect(apiNetworkErrorMessage(new TypeError("NetworkError when attempting to fetch resource."))).toBe(
+      "Cannot reach the server"
+    );
+  });
+
+  it("keeps timeout and unknown messages", () => {
+    const abort = new Error("The operation was aborted");
+    abort.name = "AbortError";
+    expect(apiNetworkErrorMessage(abort)).toBe("Request timed out");
+    expect(apiNetworkErrorMessage(new Error("socket hang up"))).toBe("socket hang up");
+    expect(apiNetworkErrorMessage("not-an-error")).toBe("Network error");
   });
 });
