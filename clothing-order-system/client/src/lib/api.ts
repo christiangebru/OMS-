@@ -1,6 +1,13 @@
 import { apiUrl, resolveApiBase } from "./apiBase.js";
+import {
+  DEFAULT_API_TIMEOUT_MS,
+  fetchWithTimeout,
+  isAbortError
+} from "./fetchTimeout.js";
 
 const API_BASE = resolveApiBase(import.meta.env.VITE_API_URL);
+
+export { DEFAULT_API_TIMEOUT_MS, AUTH_RESTORE_TIMEOUT_MS } from "./fetchTimeout.js";
 
 function authHeader(): HeadersInit {
   const token = localStorage.getItem("token");
@@ -11,24 +18,39 @@ function authHeader(): HeadersInit {
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
-export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+export type ApiRequestInit = RequestInit & {
+  timeoutMs?: number;
+  skipAuthRedirect?: boolean;
+};
+
+export async function apiJson<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
+  const { timeoutMs, skipAuthRedirect, headers: initHeaders, ...rest } = init;
   const headers: HeadersInit = {
     ...authHeader(),
-    ...(init.headers || {})
+    ...(initHeaders || {})
   };
-  if (!(init.body instanceof FormData)) {
+  if (!(rest.body instanceof FormData)) {
     (headers as Record<string, string>)["Content-Type"] = "application/json";
   }
   let res: Response;
   try {
-    res = await fetch(apiUrl(path, API_BASE), { ...init, headers });
+    res = await fetchWithTimeout(
+      apiUrl(path, API_BASE),
+      { ...rest, headers },
+      timeoutMs ?? DEFAULT_API_TIMEOUT_MS
+    );
   } catch (e) {
+    if (isAbortError(e)) {
+      throw new ApiError("Request timed out", 0, "timeout");
+    }
     throw new ApiError(e instanceof Error ? e.message : "Network error", 0);
   }
   if (res.status === 204) return undefined as T;
@@ -47,6 +69,7 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   if (!res.ok) {
     if (
       res.status === 401 &&
+      !skipAuthRedirect &&
       typeof window !== "undefined" &&
       !path.startsWith("/api/auth/login") &&
       !path.startsWith("/api/auth/bootstrap")

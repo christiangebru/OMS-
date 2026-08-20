@@ -5,7 +5,7 @@ import { apiJson, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 
 export function LoginPage() {
-  const { user, login, loading } = useAuth();
+  const { user, login, loading, sessionError } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -89,9 +89,9 @@ export function LoginPage() {
                 className="ui-input"
               />
             </div>
-            {error && (
+            {(sessionError || error) && (
               <p className="text-sm text-red-700" role="alert">
-                {error}
+                {error || sessionError}
               </p>
             )}
             <Button type="submit" className="w-full" disabled={busy}>

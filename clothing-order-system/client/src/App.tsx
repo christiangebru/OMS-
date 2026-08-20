@@ -1,7 +1,9 @@
-import { lazy, Suspense, type ReactElement } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactElement } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { AppLayout } from "@/components/Layout/AppLayout";
+import { Button } from "@/components/ui/Button";
+import { AUTH_RESTORE_TIMEOUT_MS } from "@/lib/fetchTimeout.js";
 import { canSee, canWriteOrders, isManagerRole } from "@/lib/roles";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
@@ -43,11 +45,37 @@ function Boot() {
 }
 
 function Protected({ children }: { children: ReactElement }) {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
+  const [stalled, setStalled] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      setStalled(false);
+      return;
+    }
+    const id = window.setTimeout(() => setStalled(true), AUTH_RESTORE_TIMEOUT_MS + 1500);
+    return () => window.clearTimeout(id);
+  }, [loading]);
+
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-canvas">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-canvas px-6">
         <div className="h-8 w-8 animate-pulse rounded-full bg-line" />
+        <p className="mt-4 text-center text-sm text-ink-muted">
+          {stalled ? "Having trouble connecting to the server." : "Restoring your session…"}
+        </p>
+        {stalled && (
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-6"
+            onClick={() =>
+              logout("Having trouble connecting to the server. Please sign in again.")
+            }
+          >
+            Return to sign in
+          </Button>
+        )}
       </div>
     );
   }
