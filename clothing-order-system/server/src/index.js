@@ -65,13 +65,30 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-async function main() {
-  await connectDb();
-  await refreshStatisticSnapshot();
-  app.listen(PORT, () => {
-    console.log(`[server] Listening on port ${PORT}`);
-    console.log(`[server] CORS origins: ${corsOrigins.join(", ")}`);
+function listen() {
+  return new Promise((resolve) => {
+    app.listen(PORT, () => {
+      console.log(`[server] Listening on port ${PORT}`);
+      console.log(`[server] CORS origins: ${corsOrigins.join(", ")}`);
+      resolve();
+    });
   });
+}
+
+async function main() {
+  // Bind first so Render health checks can succeed even if a later DB
+  // snapshot is slow. /health still reports dbConnected from a live query.
+  await listen();
+  try {
+    await connectDb();
+  } catch (e) {
+    console.error("[server] initial database connect failed (non-fatal)", e);
+  }
+  try {
+    await refreshStatisticSnapshot();
+  } catch (e) {
+    console.error("[server] statistic snapshot failed (non-fatal)", e);
+  }
 }
 
 main().catch((e) => {
