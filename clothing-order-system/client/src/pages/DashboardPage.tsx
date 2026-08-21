@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-import { apiJson, ApiError } from "@/lib/api";
+import { apiJson, ApiError, describeApiError } from "@/lib/api";
 import type { DashboardBusiness, DashboardOperations, QueueItem } from "@/lib/types";
 import { PRODUCTION_STAGES } from "@/lib/types";
 import { daysLabel, formatDate, formatDuration, formatMoney, shortOrderId, stageLabel } from "@/lib/format";
@@ -63,7 +63,7 @@ function OfficeDashboard() {
       setOpsErr(null);
     } catch (e) {
       if (!opsHydrated.current) {
-        setOpsErr(e instanceof ApiError ? e.message : "Operations API failed (/api/dashboard/operations)");
+        setOpsErr(describeApiError(e, "Operations API failed (/api/dashboard/operations)"));
       }
     }
   }, []);
@@ -76,7 +76,7 @@ function OfficeDashboard() {
       setBizErr(null);
     } catch (e) {
       if (!bizHydrated.current) {
-        setBizErr(e instanceof ApiError ? e.message : "Business API failed (/api/dashboard/business)");
+        setBizErr(describeApiError(e, "Business API failed (/api/dashboard/business)"));
       }
     }
   }, [range]);
@@ -122,7 +122,7 @@ function OfficeDashboard() {
               type="button"
               onClick={() => setRange(r.id)}
               className={clsx(
-                "min-h-10 rounded-control px-3 text-sm",
+                "min-h-12 rounded-control px-3 text-sm sm:min-h-10",
                 range === r.id ? "bg-accent text-white" : "bg-surface text-ink-muted ring-1 ring-line hover:text-ink"
               )}
             >
@@ -166,6 +166,10 @@ function OfficeDashboard() {
             <Metric label="Avg order value" value={formatMoney(biz.kpis.averageOrderValue)} />
             <Metric label="Outstanding" value={formatMoney(biz.kpis.outstanding)} tone={biz.kpis.outstanding ? "urgent" : undefined} />
             <Metric label="Ready orders" value={biz.kpis.ready} />
+            <Metric
+              label="Delivered (period)"
+              value={biz.statusDistribution.find((s) => String(s.status).toLowerCase() === "delivered")?.count ?? "—"}
+            />
           </div>
         )}
       </section>

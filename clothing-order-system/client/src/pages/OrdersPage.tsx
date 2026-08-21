@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { apiJson, ApiError } from "@/lib/api";
+import { apiJson, describeApiError } from "@/lib/api";
 import type { Order, OrderGroup } from "@/lib/types";
 import { formatDate, formatMoney, shortOrderId } from "@/lib/format";
 import { PageHeader, EmptyState, ErrorState, Badge } from "@/components/ui/PageHeader";
@@ -46,7 +46,7 @@ export function OrdersPage() {
           setErr(null);
         }
       } catch (e) {
-        if (!cancelled) setErr(e instanceof ApiError ? e.message : "Failed to load orders");
+        if (!cancelled) setErr(describeApiError(e, "Failed to load orders"));
       }
       try {
         const groupData = await apiJson<OrderGroup[]>(`/api/order-groups${qs}`);
@@ -199,6 +199,10 @@ export function OrdersPage() {
                   <p className="font-mono text-xs font-semibold text-ink">{shortOrderId(o.orderId)}</p>
                   <p className="mt-1 font-medium text-ink">{o.customerName || o.customer?.name || "—"}</p>
                   <p className="mt-1 text-xs text-ink-muted">{o.items.map((it) => it.clothingType).join(" · ")}</p>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    Ordered {formatDate(o.createdAt)}
+                    {o.priority && o.priority !== "NORMAL" ? ` · ${o.priority}` : ""}
+                  </p>
                 </div>
                 <div className="text-right text-xs">
                   <Badge tone={o.productionStatus === "completed" || o.productionStatus === "delivered" ? "ok" : "progress"}>

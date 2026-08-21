@@ -550,6 +550,8 @@ export interface QueueItem {
     staff?: { _id: string; name: string; role: string; status: string; skillLevel: number } | null;
   } | null;
   recommended?: StaffRanking | null;
+  labelBarcode?: string;
+  path?: Array<{ stage: ProductionStage; status: string; staffName?: string | null }>;
 }
 
 export interface ProductionQueue {

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
-import { apiJson, ApiError } from "@/lib/api";
+import { apiJson, describeApiError } from "@/lib/api";
 import type { ProductionQueue, ProductionStage, QueueItem, Staff, StaffRanking } from "@/lib/types";
 import { PRODUCTION_STAGES } from "@/lib/types";
 import { daysLabel, formatDate, stageLabel, boardStatusLabel, shortOrderId } from "@/lib/format";
@@ -27,7 +27,7 @@ export function DistributionPage() {
       setBoard(data);
       setErr(null);
     } catch (e) {
-      if (!hydrated.current) setErr(e instanceof ApiError ? e.message : "Failed to load distribution board");
+      if (!hydrated.current) setErr(describeApiError(e, "Failed to load distribution board"));
     }
   }, []);
 
@@ -57,7 +57,7 @@ export function DistributionPage() {
       });
       await load();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Assign failed");
+      setErr(describeApiError(e, "Assign failed"));
     } finally {
       setBusy(null);
     }
@@ -89,7 +89,7 @@ export function DistributionPage() {
       });
       await load();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Distribute failed");
+      setErr(describeApiError(e, "Distribute failed"));
     } finally {
       setBusy(null);
     }
@@ -104,7 +104,7 @@ export function DistributionPage() {
       });
       await load();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Receive failed");
+      setErr(describeApiError(e, "Receive failed"));
     } finally {
       setBusy(null);
     }
@@ -205,6 +205,7 @@ export function DistributionPage() {
                           {item.recommended.summary ? ` — ${item.recommended.summary}` : ""}
                         </p>
                       )}
+                      <PathStrip path={item.path} />
                     </div>
                     <LaneActions
                       item={item}
@@ -249,10 +250,11 @@ export function DistributionPage() {
                             </Link>
                           </p>
                           <p className="font-mono text-[11px] text-ink-faint">
-                            <Link className="hover:text-accent" to={`/scan?barcode=${encodeURIComponent(item.barcodeValue)}`}>
-                              {item.barcodeValue}
+                            <Link className="hover:text-accent" to={`/scan?barcode=${encodeURIComponent(item.labelBarcode || item.barcodeValue)}`}>
+                              {item.labelBarcode || item.barcodeValue}
                             </Link>
                           </p>
+                          <PathStrip path={item.path} />
                         </td>
                         <td className="capitalize">{stageLabel(item.nextStage)}</td>
                         <td>
@@ -425,6 +427,23 @@ function Stat({ label, value }: { label: string; value: number }) {
       <p className="ui-label">{label}</p>
       <p className="mt-1 text-2xl font-semibold tabular text-ink">{value}</p>
     </div>
+  );
+}
+
+function PathStrip({ path }: { path?: QueueItem["path"] }) {
+  if (!path?.length) return null;
+  return (
+    <ol className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] text-ink-muted">
+      {path.map((p, i) => (
+        <li key={p.stage} className="flex items-center gap-1">
+          <span className="font-semibold uppercase tracking-wide text-ink-faint">
+            {i === 0 ? "Give to" : "then"}
+          </span>
+          <span className="capitalize">{stageLabel(p.stage)}</span>
+          <span className="text-ink">{p.staffName ? `→ ${p.staffName}` : "→ —"}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
 

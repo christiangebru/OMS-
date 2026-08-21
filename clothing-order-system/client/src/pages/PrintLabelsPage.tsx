@@ -44,6 +44,7 @@ export function LabelsWorkspacePage() {
   const [printAll, setPrintAll] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [barcode, setBarcode] = useState("");
+  const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -80,6 +81,16 @@ export function LabelsWorkspacePage() {
     return rows.filter((l) => l.barcode);
   }, [orders]);
 
+  const visibleLabels = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return allLabels;
+    return allLabels.filter((l) =>
+      [l.barcode, l.orderId, l.customer, l.garment, shortOrderId(l.orderId)].some((v) =>
+        String(v || "").toLowerCase().includes(q)
+      )
+    );
+  }, [allLabels, filter]);
+
   const selectedCount = allLabels.filter((l) => selected[l.key]).length;
 
   function toggle(key: string) {
@@ -88,7 +99,7 @@ export function LabelsWorkspacePage() {
 
   function selectAll() {
     const next: Record<string, boolean> = {};
-    for (const l of allLabels) next[l.key] = true;
+    for (const l of visibleLabels) next[l.key] = true;
     setSelected(next);
     setSelecting(true);
   }
@@ -175,7 +186,19 @@ export function LabelsWorkspacePage() {
       )}
 
       <div className="flex flex-wrap items-end gap-3 print:hidden">
-        <div className="min-w-[240px] flex-1">
+        <div className="min-w-[200px] flex-1">
+          <label className="ui-label" htmlFor="label-filter">
+            Search / filter
+          </label>
+          <input
+            id="label-filter"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="ui-input"
+            placeholder="Customer, ORD-293, garment…"
+          />
+        </div>
+        <div className="min-w-[200px] flex-1">
           <label className="ui-label" htmlFor="label-bc">
             Add barcode
           </label>
@@ -212,7 +235,7 @@ export function LabelsWorkspacePage() {
         {selecting && (
           <>
             <p className="text-sm text-ink-muted">Selected: {selectedCount}</p>
-            <Button type="button" variant="secondary" onClick={selectAll} disabled={!allLabels.length}>
+            <Button type="button" variant="secondary" onClick={selectAll} disabled={!visibleLabels.length}>
               Select all
             </Button>
             <Button type="button" variant="ghost" onClick={() => setSelected({})} disabled={!selectedCount}>
@@ -236,6 +259,7 @@ export function LabelsWorkspacePage() {
           {allLabels.map((l) => {
             const on = Boolean(selected[l.key]);
             const hideForPrint = !printAll && !on;
+            const matchesFilter = visibleLabels.some((v) => v.key === l.key);
             return (
               <article
                 key={l.key}
@@ -244,6 +268,7 @@ export function LabelsWorkspacePage() {
                   "border border-neutral-800",
                   selecting && on && "ring-2 ring-accent",
                   hideForPrint && "print:hidden",
+                  !matchesFilter && "screen-hidden",
                   selecting && !on && "opacity-70"
                 )}
               >

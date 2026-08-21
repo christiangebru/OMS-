@@ -81,9 +81,23 @@ export async function apiJson<T>(path: string, init: ApiRequestInit = {}): Promi
       }
     }
     const msg = data?.message || data?.errors?.[0]?.msg || res.statusText;
-    throw new ApiError(msg || "Request failed", res.status);
+    throw new ApiError(msg || `Request failed (${res.status})`, res.status);
   }
   return data as T;
+}
+
+/** Human-readable API failure. Distinguishes auth, missing deploy, and server errors. */
+export function describeApiError(e: unknown, fallback = "Request failed") {
+  if (!(e instanceof ApiError)) return fallback;
+  if (e.status === 401) return "Sign-in required (401).";
+  if (e.status === 403) return e.message || "You do not have permission (403).";
+  if (e.status === 404) {
+    return `${e.message || "Not found"} (404). This route may be missing on the deployed API.`;
+  }
+  if (e.status === 0 && e.code === "timeout") return "Request timed out.";
+  if (e.status === 0) return e.message || "Network failure.";
+  if (e.status >= 500) return e.message || `Server error (${e.status}).`;
+  return e.message || fallback;
 }
 
 export async function uploadImage(file: File): Promise<{ path: string; url: string }> {

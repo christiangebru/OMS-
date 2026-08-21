@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { apiJson, ApiError } from "@/lib/api";
+import { apiJson, ApiError, describeApiError, imageUrlFromPath } from "@/lib/api";
 import type { ProductionStage, ScanDetails, Staff } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 import { isManagerRole, isFloorRole, canSee } from "@/lib/roles";
-import { stageLabel, shortOrderId, daysLabel, formatDate, formatMoney } from "@/lib/format";
+import { stageLabel, shortOrderId, daysLabel, formatDate, formatMoney, labelBarcode } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { ProductionTimeline } from "@/components/ProductionTimeline";
 import { SuggestedAssignments } from "@/components/SuggestedAssignments";
 import { AssignmentChain } from "@/components/AssignmentChain";
+import { SpecSheet } from "@/components/SpecSheet";
 import clsx from "clsx";
 
 export function ScanPage() {
@@ -88,7 +89,7 @@ export function ScanPage() {
       setDetails(null);
       setFeedback({
         ok: false,
-        message: e instanceof ApiError ? e.message : "Barcode not found"
+        message: describeApiError(e, "Barcode not found")
       });
     }
   }
@@ -316,33 +317,50 @@ export function ScanPage() {
           ) : (
             <div className="space-y-3">
               <div className="border border-line bg-surface p-4">
-                <p className="font-mono text-xs font-semibold text-ink">{shortOrderId(details.order.orderId)}</p>
+                <p className="ui-label">What</p>
+                <p className="mt-1 font-mono text-xs font-semibold text-ink">
+                  {details.item.labelBarcode ||
+                    labelBarcode(details.order.orderId, 1, details.item.barcodeValue)}
+                </p>
                 <p className="mt-1 text-lg font-semibold text-ink">{details.customer?.name || "—"}</p>
                 <p className="text-sm text-ink-muted">
                   {details.item.clothingType}
                   {details.group?.name ? ` · ${details.group.name}` : ""}
+                  {` · ${shortOrderId(details.order.orderId)}`}
                 </p>
+                {details.item.images?.[0]?.imageUrl ? (
+                  <img
+                    src={imageUrlFromPath(details.item.images[0].imageUrl)}
+                    alt=""
+                    className="mt-3 h-20 w-20 rounded-control object-cover"
+                  />
+                ) : null}
                 <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
                   <Fact k="Due" v={formatDate(details.timing.requiredCompletionDate)} warn={details.timing.overdue} />
                   <Fact k="Priority" v={details.order.priority || "NORMAL"} />
                   <Fact k="Status" v={details.production?.boardStatus?.replace(/_/g, " ") || details.order.productionStatus} />
                   <Fact k="Balance" v={formatMoney(details.pricing.balanceRemaining)} />
                 </dl>
+                <div className="mt-4">
+                  <SpecSheet item={details.item} />
+                </div>
               </div>
 
               <div className="border border-line bg-surface p-4 text-sm">
-                <p className="ui-label">Current location</p>
+                <p className="ui-label">Where</p>
                 <p className="mt-1 font-semibold capitalize text-ink">
                   {details.production?.location || stageLabel(details.timing.currentStage || "unstarted")}
                 </p>
-                <p className="mt-3 ui-label">Current worker</p>
+                <p className="mt-3 ui-label">Who</p>
                 <p className="mt-1 font-medium text-ink">
-                  {details.production?.currentWorker?.name || details.production?.assignment?.staff?.name || "Unassigned"}
+                  Current: {details.production?.currentWorker?.name || details.production?.assignment?.staff?.name || "Unassigned"}
                 </p>
-                <p className="mt-3 ui-label">Next stage / worker</p>
+                <p className="mt-1 text-ink-muted">
+                  Next: {details.production?.nextWorker?.name || "—"}
+                </p>
+                <p className="mt-3 ui-label">What next</p>
                 <p className="mt-1 capitalize text-ink">
                   {stageLabel(details.production?.nextStage || details.timing.nextExpectedStage)}
-                  {details.production?.nextWorker?.name ? ` — ${details.production.nextWorker.name}` : ""}
                 </p>
                 {details.production?.managerCommand && (
                   <p className="mt-3 bg-accent-soft px-3 py-2 text-sm text-accent">

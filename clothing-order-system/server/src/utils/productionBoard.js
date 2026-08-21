@@ -4,6 +4,7 @@ import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./stageSequence.js";
 import { rankStaffForAssignment } from "./assignmentScore.js";
 import { s } from "./serialize.js";
+import { operationalItemBarcode } from "./barcode.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -29,7 +30,7 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
   const items = orders.flatMap((o) => o.items.map((item) => ({ item, order: o })));
   const itemIds = items.map(({ item }) => item.id);
 
-  const [checkpoints, assignments] = await Promise.all([
+  const [checkpoints, openAssignments, allAssignments] = await Promise.all([
     itemIds.length
       ? prisma.stageCheckpoint.findMany({ where: { orderItemId: { in: itemIds } } })
       : [],
@@ -37,6 +38,13 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
       ? prisma.staffAssignment.findMany({
           where: { orderItemId: { in: itemIds }, completedAt: null },
           include: { staff: true }
+        })
+      : [],
+    itemIds.length
+      ? prisma.staffAssignment.findMany({
+          where: { orderItemId: { in: itemIds } },
+          include: { staff: true },
+          orderBy: { assignedAt: "asc" }
         })
       : []
   ]);
@@ -47,8 +55,13 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
     cpByItem.get(cp.orderItemId).push(cp);
   }
   const asgByItemStage = new Map();
-  for (const a of assignments) {
+  for (const a of openAssignments) {
     asgByItemStage.set(`${a.orderItemId}:${a.stage}`, a);
+  }
+  const chainByItem = new Map();
+  for (const a of allAssignments) {
+    if (!chainByItem.has(a.orderItemId)) chainByItem.set(a.orderItemId, []);
+    chainByItem.get(a.orderItemId).push(a);
   }
 
   const seqCache = new Map();
@@ -75,9 +88,31 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
     if (inProgress) boardStatus = "in_progress";
     else if (assignment) boardStatus = assignmentState(assignment);
 
+    const siblings = [...(order.items || [])].sort(
+      (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+    );
+    const itemIndex = Math.max(1, siblings.findIndex((it) => it.id === item.id) + 1);
+    const chainAsg = chainByItem.get(item.id) || [];
+    const path = seqInfo.stageSequence
+      .filter((s) => s !== "DELIVERED")
+      .map((stage) => {
+        const a = chainAsg.filter((x) => x.stage === stage).at(-1) || null;
+        const cp = cps.find((c) => c.stage === stage);
+        let status = "waiting";
+        if (cp?.checkedOutAt) status = "completed";
+        else if (cp && !cp.checkedOutAt) status = "in_progress";
+        else if (a && !a.completedAt) status = "assigned";
+        return {
+          stage,
+          status,
+          staffName: a?.staff?.name || null
+        };
+      });
+
     rows.push({
       itemId: item.id,
       barcodeValue: item.barcodeValue,
+      labelBarcode: operationalItemBarcode(order.orderId, itemIndex, item.barcodeValue),
       clothingType: item.clothingType,
       clothingCode: item.clothingCode,
       fabricType: item.fabricType,
@@ -118,7 +153,8 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
                 }
               : null
           }
-        : null
+        : null,
+      path
     });
   }
 
@@ -217,8 +253,7 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
       dueToday,
       overdueOrders,
       inProduction,
-      ready,
-      deliveredToday: 0
+      ready
     },
     staff: staffSummary,
     byStage,
