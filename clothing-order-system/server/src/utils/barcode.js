@@ -5,51 +5,73 @@ export function generateOrderBarcodeValue(orderId) {
   return `ORD-${String(orderId).replace(/^ORD-/i, "")}`.toUpperCase();
 }
 
+export function isSimpleItemBarcode(value) {
+  return /^ORD-\d+-\d+$/i.test(String(value || "").trim());
+}
+
+export function sequentialOrderNumber(orderId) {
+  const m = String(orderId || "").trim().match(/^ORD-(\d+)$/i);
+  return m ? Number(m[1]) : null;
+}
+
 /**
- * Short, stable garment barcode.
- * Sequential orders: ORD-1001-1
- * Legacy / non-numeric order ids: G{tail}-01
- * One-arg legacy call with a 24-char item id: G{last6}
+ * Human-facing garment code for labels and verbal handoff.
+ * Never uses UUIDs, CUIDs, or ITM-* as the printed identity.
+ * Stored barcodeValue remains the lookup key for legacy rows.
+ */
+export function operationalItemBarcode(orderId, index = 1, storedBarcode) {
+  const n = Math.max(1, Number(index) || 1);
+  if (isSimpleItemBarcode(storedBarcode)) return String(storedBarcode).trim().toUpperCase();
+  const seq = sequentialOrderNumber(orderId);
+  if (seq) return `ORD-${seq}-${n}`;
+  const digits = String(orderId || "").replace(/\D/g, "").slice(-4);
+  if (digits) return `ORD-${Number(digits)}-${n}`;
+  const tail = String(orderId || "")
+    .replace(/^ORD-/i, "")
+    .replace(/-/g, "")
+    .slice(-4)
+    .toUpperCase();
+  return `ORD-${tail || "X"}-${n}`;
+}
+
+/**
+ * Short, stable garment barcode for NEW items: ORD-1001-1
  */
 export function generateItemBarcodeValue(orderIdOrItemId, index = 1) {
-  const raw = String(orderIdOrItemId || "").trim();
-  const n = Math.max(1, Number(index) || 1);
-  if (/^ORD-\d+$/i.test(raw)) {
-    return `${raw.toUpperCase()}-${n}`;
-  }
-  if (arguments.length === 1 && /^[a-f0-9]{24}$/i.test(raw)) {
-    return `G${raw.slice(-6).toUpperCase()}`;
-  }
-  const tail = raw.replace(/^ORD-/i, "").replace(/-/g, "").slice(-4).toUpperCase() || "X";
-  return `G${tail}-${String(n).padStart(2, "0")}`;
+  return operationalItemBarcode(orderIdOrItemId, index);
 }
 
 export function generateUniqueBarcode(prefix = "BC") {
   return `${prefix}-${Date.now().toString(36).toUpperCase()}-${uuidv4().slice(0, 8).toUpperCase()}`;
 }
 
-export async function ensureUniqueItemBarcode(client, orderId, index, itemId) {
-  let value = generateItemBarcodeValue(orderId, index);
-  const clash = await client.orderItem.findFirst({
-    where: { barcodeValue: { equals: value, mode: "insensitive" } }
-  });
-  if (clash) {
-    const extra = String(itemId || uuidv4()).replace(/-/g, "").slice(-3).toUpperCase();
-    value = `${value}-${extra}`;
+export async function ensureUniqueItemBarcode(client, orderId, index, _itemId) {
+  let n = Math.max(1, Number(index) || 1);
+  for (let i = 0; i < 40; i += 1) {
+    const value = operationalItemBarcode(orderId, n);
+    const clash = await client.orderItem.findFirst({
+      where: { barcodeValue: { equals: value, mode: "insensitive" } }
+    });
+    if (!clash) return value;
+    n += 1;
   }
-  return value;
+  return operationalItemBarcode(orderId, n);
 }
 
 /**
- * Render Code128 barcode as PNG Buffer.
+ * Compact Code128 for physical garment labels.
  */
 export async function renderBarcodePng(text, opts = {}) {
+  const value = String(text);
   return bwipjs.toBuffer({
     bcid: "code128",
-    text: String(text),
-    scale: opts.scale || 3,
-    height: opts.height || 12,
+    text: value,
+    scale: opts.scale || 2,
+    height: opts.height || 8,
     includetext: opts.includetext !== false,
-    textxalign: "center"
+    textxalign: "center",
+    textsize: opts.textsize || 8,
+    paddingwidth: 4,
+    paddingheight: 2
   });
 }

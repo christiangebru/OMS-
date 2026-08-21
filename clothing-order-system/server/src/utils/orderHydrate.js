@@ -1,5 +1,6 @@
 import { prisma } from "../db/prisma.js";
 import { s } from "./serialize.js";
+import { operationalItemBarcode } from "./barcode.js";
 import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./stageSequence.js";
 import { boardStatusFrom } from "./stageTimeline.js";
 
@@ -148,7 +149,7 @@ function assembleOrder(order, customer, items, images, checkpoints, presence = n
   const imagesByItem = groupBy(images, (img) => img.orderItemId);
   const checkpointsByItem = groupBy(checkpoints, (cp) => cp.orderItemId);
 
-  const hydratedItems = items.map((it) => {
+  const hydratedItems = items.map((it, idx) => {
     const imgs = (imagesByItem.get(it.id) || []).map(s);
     const ops = presence.get(it.id) || {};
     return {
@@ -159,7 +160,8 @@ function assembleOrder(order, customer, items, images, checkpoints, presence = n
       currentStage: ops.currentStage ?? null,
       nextStage: ops.nextStage ?? null,
       boardStatus: ops.boardStatus ?? null,
-      workerName: ops.workerName ?? null
+      workerName: ops.workerName ?? null,
+      labelBarcode: operationalItemBarcode(order.orderId, idx + 1, it.barcodeValue)
     };
   });
 

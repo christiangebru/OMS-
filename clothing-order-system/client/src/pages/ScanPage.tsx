@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, ScanDetails, Staff } from "@/lib/types";
@@ -28,6 +28,7 @@ export function ScanPage() {
     null
   );
   const lastScanRef = useRef("");
+  const startLockRef = useRef(false);
 
   const action = details?.production?.action;
   const actionStage = (details?.production?.actionStage ||
@@ -38,12 +39,6 @@ export function ScanPage() {
   const canCheck = manager || floor;
   const canLabels = canSee(user?.role, "labels");
   const canOverride = manager;
-
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, []);
 
   useEffect(() => {
     const fromUrl = searchParams.get("barcode");
@@ -98,7 +93,7 @@ export function ScanPage() {
     }
   }
 
-  async function stopCamera() {
+  const stopCamera = useCallback(async () => {
     try {
       if (scannerRef.current?.isScanning) await scannerRef.current.stop();
       scannerRef.current?.clear();
@@ -106,11 +101,14 @@ export function ScanPage() {
       /* ignore */
     }
     scannerRef.current = null;
+    startLockRef.current = false;
     setCameraOn(false);
     setCameraStatus("Camera idle");
-  }
+  }, []);
 
-  async function startCamera() {
+  const startCamera = useCallback(async () => {
+    if (startLockRef.current || scannerRef.current) return;
+    startLockRef.current = true;
     setFeedback(null);
     setCameraStatus("Starting camera…");
     try {
@@ -119,7 +117,7 @@ export function ScanPage() {
       scannerRef.current = scanner;
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 280, height: 160 } },
+        { fps: 10, qrbox: { width: 260, height: 140 } },
         (decoded) => {
           if (decoded && decoded !== lastScanRef.current) {
             lastScanRef.current = decoded;
@@ -132,14 +130,29 @@ export function ScanPage() {
       setCameraOn(true);
       setCameraStatus("Live — hold the label in the frame");
     } catch (e) {
-      setFeedback({
-        ok: false,
-        message: e instanceof Error ? e.message : "Could not start camera"
-      });
+      startLockRef.current = false;
+      scannerRef.current = null;
       setCameraOn(false);
       setCameraStatus("Camera unavailable");
+      setFeedback({
+        ok: false,
+        message:
+          e instanceof Error
+            ? `${e.message}. Type the barcode on the right if the camera is blocked.`
+            : "Could not start camera. Type the barcode on the right."
+      });
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      void startCamera();
+    }, 50);
+    return () => {
+      window.clearTimeout(t);
+      void stopCamera();
+    };
+  }, [startCamera, stopCamera]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -222,15 +235,15 @@ export function ScanPage() {
               <p className="text-sm font-semibold">Scanner</p>
               <p className="text-[11px] text-white/60">{cameraStatus}</p>
             </div>
-            {!cameraOn ? (
-              <Button type="button" size="sm" onClick={startCamera}>
-                Start camera
-              </Button>
-            ) : (
-              <Button type="button" size="sm" variant="secondary" onClick={stopCamera}>
+            {cameraOn ? (
+              <Button type="button" size="sm" variant="secondary" onClick={() => void stopCamera()}>
                 Stop
               </Button>
-            )}
+            ) : cameraStatus === "Camera unavailable" ? (
+              <Button type="button" size="sm" onClick={() => void startCamera()}>
+                Retry camera
+              </Button>
+            ) : null}
           </div>
           <div
             id="scan-reader"
@@ -239,10 +252,14 @@ export function ScanPage() {
               !cameraOn && "flex items-center justify-center"
             )}
           >
-            {!cameraOn && (
+            {!cameraOn && cameraStatus !== "Starting camera…" && (
               <div className="px-8 text-center">
                 <div className="mx-auto mb-6 h-40 w-64 rounded-sm border-2 border-dashed border-white/30" />
-                <p className="text-sm text-white/70">Hold the garment label in the frame, or type the barcode on the right.</p>
+                <p className="text-sm text-white/70">
+                  {cameraStatus === "Camera unavailable"
+                    ? "Camera could not start. Type the barcode on the right."
+                    : "Opening camera…"}
+                </p>
               </div>
             )}
             {cameraOn && (

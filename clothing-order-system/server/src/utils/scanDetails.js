@@ -8,6 +8,7 @@ import {
 } from "./stageSequence.js";
 import { buildStageStates, inferScanAction, inferNextAction, boardStatusFrom } from "./stageTimeline.js";
 import { WORKSTATION_STAGES } from "../constants/production.js";
+import { operationalItemBarcode } from "./barcode.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -192,7 +193,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   }
 
   const siblingDetails = await Promise.all(
-    siblings.map(async (sib) => {
+    siblings.map(async (sib, idx) => {
       const cps = cpByItem.get(sib.id) || [];
       const { stageSequence } = await resolveStageSequence(sib.clothingType);
       return {
@@ -200,6 +201,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
         clothingType: sib.clothingType,
         clothingCode: sib.clothingCode,
         barcodeValue: sib.barcodeValue,
+        labelBarcode: operationalItemBarcode(order.orderId, idx + 1, sib.barcodeValue),
         currentStage: deriveCurrentStage(cps, stageSequence),
         isCurrent: sib.id === item.id
       };
@@ -324,6 +326,11 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       difficultyLevel: item.difficultyLevel,
       unitPrice: item.unitPrice || 0,
       barcodeValue: item.barcodeValue,
+      labelBarcode: operationalItemBarcode(
+        order.orderId,
+        siblings.findIndex((s) => s.id === item.id) + 1 || 1,
+        item.barcodeValue
+      ),
       images: images.map(s)
     },
     group: {
@@ -408,8 +415,10 @@ export async function buildScanDetails(orderItemIdOrDoc) {
 }
 
 /**
- * Resolve barcode to OrderItem. Accepts item barcodes, order barcodes, and
- * legacy ITM- codes. Case-insensitive.
+ * Resolve barcode to OrderItem. Accepts:
+ * - stored barcodeValue (including legacy ITM-* / CUID-era codes)
+ * - simple operational codes ORD-293-1
+ * - order barcodes / orderIds
  */
 export async function resolveItemByBarcode(barcodeValue) {
   const value = String(barcodeValue || "").trim();
@@ -421,6 +430,44 @@ export async function resolveItemByBarcode(barcodeValue) {
     where: { barcodeValue: { equals: value, mode: "insensitive" } }
   });
   if (item) return item;
+
+  const simple = value.match(/^ORD-(\d+)-(\d+)$/i);
+  if (simple) {
+    const order = await prisma.order.findFirst({
+      where: { orderId: { equals: `ORD-${simple[1]}`, mode: "insensitive" } }
+    });
+    if (order) {
+      const items = await prisma.orderItem.findMany({
+        where: { order: order.id },
+        orderBy: { createdAt: "asc" }
+      });
+      const idx = Math.max(1, Number(simple[2])) - 1;
+      if (items[idx]) return items[idx];
+      if (items.length === 1) return items[0];
+    }
+  }
+
+  const tailForm = value.match(/^ORD-([A-Z0-9]+)-(\d+)$/i);
+  if (tailForm && !simple) {
+    const tail = tailForm[1].toUpperCase();
+    const orders = await prisma.order.findMany({
+      where: { orderId: { contains: tail, mode: "insensitive" } },
+      take: 20
+    });
+    const matchOrder = orders.find((o) => {
+      const compact = String(o.orderId).replace(/^ORD-/i, "").replace(/-/g, "").toUpperCase();
+      return compact.endsWith(tail) || compact === tail;
+    });
+    if (matchOrder) {
+      const items = await prisma.orderItem.findMany({
+        where: { order: matchOrder.id },
+        orderBy: { createdAt: "asc" }
+      });
+      const idx = Math.max(1, Number(tailForm[2])) - 1;
+      if (items[idx]) return items[idx];
+      if (items.length === 1) return items[0];
+    }
+  }
 
   const order = await prisma.order.findFirst({
     where: {

@@ -16,7 +16,7 @@ import {
   HandType,
   SizeCategory
 } from "../constants/production.js";
-import { generateOrderBarcodeValue, ensureUniqueItemBarcode } from "../utils/barcode.js";
+import { generateOrderBarcodeValue, ensureUniqueItemBarcode, operationalItemBarcode } from "../utils/barcode.js";
 import { buildSingleLabelPdf, buildBatchLabelPdf } from "../utils/labelPdf.js";
 import { hydrateOrder, hydrateOrders } from "../utils/orderHydrate.js";
 
@@ -63,6 +63,34 @@ function validateItems(items) {
         ok: false,
         message: `${label}.measurements.gender must be one of: ${GENDERS.join(", ")}`
       };
+    }
+  }
+  return { ok: true };
+}
+
+function garmentKind(type) {
+  const t = String(type || "").toLowerCase();
+  if (/shirt|top/.test(t)) return "shirt";
+  if (/pant|trouser/.test(t)) return "trouser";
+  return "other";
+}
+
+function validateMensGarmentSet(set, items) {
+  if (!set) return { ok: true };
+  const kinds = items.map((it) => garmentKind(it.clothingType));
+  const shirts = kinds.filter((k) => k === "shirt").length;
+  const trousers = kinds.filter((k) => k === "trouser").length;
+  if (set === "shirt") {
+    if (shirts < 1 || trousers > 0) {
+      return { ok: false, message: "Men's shirt-only orders must include a shirt and no trouser item" };
+    }
+  } else if (set === "trouser") {
+    if (trousers < 1 || shirts > 0) {
+      return { ok: false, message: "Men's trouser-only orders must include a trouser and no shirt item" };
+    }
+  } else if (set === "both") {
+    if (shirts < 1 || trousers < 1) {
+      return { ok: false, message: "Men's shirt + trouser orders must include both garments" };
     }
   }
   return { ok: true };
@@ -328,8 +356,8 @@ router.get("/:orderId/barcode-labels/batch", param("orderId").notEmpty(), async 
     where: { order: order.id },
     orderBy: { createdAt: "asc" }
   });
-  const labels = items.map((it) => ({
-    barcodeValue: it.barcodeValue,
+  const labels = items.map((it, idx) => ({
+    barcodeValue: operationalItemBarcode(order.orderId, idx + 1, it.barcodeValue),
     title: it.clothingType,
     subtitle: `${order.orderId} · ${it.clothingCode}`
   }));
@@ -364,12 +392,15 @@ router.post(
   body("customerId").optional({ checkFalsy: true }).custom(isRecordId),
   body("customerName").optional().trim().notEmpty(),
   body("customerPhone").optional().trim().notEmpty(),
+  body("mensGarmentSet").optional().isIn(["shirt", "trouser", "both"]),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const itemCheck = validateItems(req.body.items);
     if (!itemCheck.ok) return res.status(400).json({ message: itemCheck.message });
+    const setCheck = validateMensGarmentSet(req.body.mensGarmentSet, req.body.items);
+    if (!setCheck.ok) return res.status(400).json({ message: setCheck.message });
 
     try {
       const created = await prisma.$transaction(async (tx) => {
@@ -419,7 +450,7 @@ router.post(
           });
         } catch (dup) {
           if (dup.code !== "P2002") throw dup;
-          orderId = generateOrderIdFallback();
+          orderId = await generateOrderIdFallback(tx);
           doc = await tx.order.create({
             data: {
               tenantId: DEFAULT_TENANT_ID,
@@ -472,6 +503,7 @@ router.put(
   body("customerId").optional({ checkFalsy: true }).custom(isRecordId),
   body("customerName").optional().trim().notEmpty(),
   body("customerPhone").optional().trim().notEmpty(),
+  body("mensGarmentSet").optional().isIn(["shirt", "trouser", "both"]),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -482,6 +514,8 @@ router.put(
     if (req.body.items) {
       const itemCheck = validateItems(req.body.items);
       if (!itemCheck.ok) return res.status(400).json({ message: itemCheck.message });
+      const setCheck = validateMensGarmentSet(req.body.mensGarmentSet, req.body.items);
+      if (!setCheck.ok) return res.status(400).json({ message: setCheck.message });
     }
 
     try {

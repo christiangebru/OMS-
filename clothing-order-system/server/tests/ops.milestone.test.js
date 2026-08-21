@@ -10,7 +10,7 @@ import {
 } from "./helpers.js";
 import { seedClothingTypes, seedOrderWithItem, createStaff } from "./fixtures.js";
 import { prisma } from "../src/db/prisma.js";
-import { generateItemBarcodeValue } from "../src/utils/barcode.js";
+import { generateItemBarcodeValue, operationalItemBarcode } from "../src/utils/barcode.js";
 
 describe("multi-assignment queues, scan flow, groups, barcodes", () => {
   let app;
@@ -319,5 +319,58 @@ describe("multi-assignment queues, scan flow, groups, barcodes", () => {
     expect(res.body.name).toBe("Yusuf");
     const wl = await request(app).get(`/api/staff/${staff.id}/workload`).set(auth(token));
     expect(wl.status).toBe(200);
+  });
+
+  it("prints a simple operational barcode while legacy ITM codes still look up", async () => {
+    const created = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Label Client",
+        customerPhone: "0911999888",
+        requiredCompletionDate: "2027-11-01",
+        items: [
+          {
+            clothingCode: "SH",
+            clothingType: "Shirt",
+            fabricType: "Cotton",
+            color: "White",
+            quantity: 1,
+            neckType: "oval",
+            handType: "normal",
+            size: "adult",
+            measurements: { gender: "male" }
+          }
+        ]
+      });
+    expect(created.status).toBe(201);
+    const stored = created.body.items[0].barcodeValue;
+    expect(stored).toMatch(/^ORD-\d+-1$/);
+    expect(created.body.items[0].labelBarcode).toBe(stored);
+    expect(operationalItemBarcode("ORD-293", 1, "ITM-0006ITDIZMP5SPLV")).toBe("ORD-293-1");
+
+    await prisma.orderItem.update({
+      where: { id: created.body.items[0]._id },
+      data: { barcodeValue: "ITM-0006ITDIZMP5SPLV" }
+    });
+
+    const hydrated = await request(app)
+      .get(`/api/orders/${created.body.orderId}`)
+      .set(auth(token));
+    expect(hydrated.body.items[0].barcodeValue).toBe("ITM-0006ITDIZMP5SPLV");
+    expect(hydrated.body.items[0].labelBarcode).toBe(stored);
+
+    const byLegacy = await request(app)
+      .get("/api/production/lookup")
+      .query({ barcodeValue: "ITM-0006ITDIZMP5SPLV" })
+      .set(auth(token));
+    expect(byLegacy.status).toBe(200);
+
+    const bySimple = await request(app)
+      .get("/api/production/lookup")
+      .query({ barcodeValue: stored })
+      .set(auth(token));
+    expect(bySimple.status).toBe(200);
+    expect(bySimple.body.scanDetails.item._id).toBe(created.body.items[0]._id);
   });
 });

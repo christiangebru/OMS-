@@ -75,6 +75,8 @@ export interface OrderItem {
   lineTotal?: number;
   difficultyLevel?: number;
   barcodeValue?: string;
+  /** Short printable code (ORD-293-1). Stored barcodeValue may still be legacy. */
+  labelBarcode?: string;
   barcodeGeneratedAt?: string;
   stageCheckpoints?: StageCheckpoint[];
   measurements?: {
@@ -243,6 +245,7 @@ export interface ScanDetails {
     measurements?: OrderItem["measurements"];
     difficultyLevel?: number;
     barcodeValue?: string;
+    labelBarcode?: string;
     unitPrice?: number;
     images: OrderItemImage[];
   };

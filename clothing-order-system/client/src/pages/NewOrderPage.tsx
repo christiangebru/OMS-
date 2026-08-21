@@ -16,6 +16,7 @@ import type {
 import { CustomerPicker } from "@/components/CustomerPicker";
 import { ClothingTypePicker } from "@/components/ClothingTypePicker";
 import { ImageGalleryUploader } from "@/components/ImageGalleryUploader";
+import { SpecSheet } from "@/components/SpecSheet";
 import { PageHeader, ErrorState, EmptyState } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import {
@@ -49,6 +50,7 @@ type Draft = {
   category: MeasurementCategory;
   measureValues: Record<string, string>;
   copiedFromPrevious?: boolean;
+  fromMensSet?: boolean;
 };
 
 const EDIT_LABELS = ["Type", "Reuse", "Fit", "Specs", "Images", "Price"];
@@ -74,6 +76,18 @@ function emptyDraft(): Draft {
     difficultyLevel: 3,
     category: "male",
     measureValues: {}
+  };
+}
+
+function draftFromType(types: ClothingTypeConfig[], key: "shirt" | "pants"): Draft {
+  const t = types.find((c) => c.key === key);
+  const label = t?.label || (key === "shirt" ? "Shirt" : "Pants");
+  return {
+    ...emptyDraft(),
+    clothingType: label,
+    clothingCode: (t?.key || key).toUpperCase(),
+    category: "male",
+    fromMensSet: true
   };
 }
 
@@ -161,6 +175,7 @@ export function NewOrderPage() {
   const [newGroupNotes, setNewGroupNotes] = useState("");
   const [useGroupDue, setUseGroupDue] = useState(false);
   const [useGroupPriority, setUseGroupPriority] = useState(false);
+  const [mensSet, setMensSet] = useState<"" | "shirt" | "trouser" | "both">("");
 
   useEffect(() => {
     apiJson<ClothingTypeConfig[]>("/api/clothing-types").then(setTypes).catch(() => {});
@@ -208,6 +223,16 @@ export function NewOrderPage() {
 
   const agreed = drafts.reduce((s, d) => s + (Number(d.unitPrice) || 0), 0);
   const balance = balanceRemaining(agreed, deposit);
+
+  function applyMensSet(choice: "shirt" | "trouser" | "both") {
+    setMensSet(choice);
+    const wanted: Array<"shirt" | "pants"> =
+      choice === "both" ? ["shirt", "pants"] : choice === "shirt" ? ["shirt"] : ["pants"];
+    setDrafts((prev) => {
+      const keep = prev.filter((d) => !d.fromMensSet);
+      return [...keep, ...wanted.map((k) => draftFromType(types, k))];
+    });
+  }
 
   function beginAdd() {
     setEditing(emptyDraft());
@@ -290,6 +315,7 @@ export function NewOrderPage() {
           totalAgreedPrice: Number(agreed),
           depositPaid: Number(deposit),
           items: drafts.map(toPayloadItem),
+          mensGarmentSet: mensSet || undefined,
           groupId: orderKind === "group" ? resolvedGroupId : undefined,
           useGroupDueDate: orderKind === "group" && useGroupDue,
           useGroupPriority: orderKind === "group" && useGroupPriority
@@ -478,6 +504,43 @@ export function NewOrderPage() {
 
         {phase === "garments" && (
           <div className="space-y-4">
+            <fieldset>
+              <legend className="ui-label">Men&apos;s order</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {(
+                  [
+                    ["shirt", "Top shirt only"],
+                    ["trouser", "Trouser only"],
+                    ["both", "Both shirt + trouser"]
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={clsx(
+                      "min-h-11 rounded-control px-3 text-left text-sm",
+                      mensSet === id ? "bg-accent text-white" : "bg-canvas text-ink-muted"
+                    )}
+                    onClick={() => applyMensSet(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {mensSet ? (
+                <p className="mt-2 text-xs text-ink-muted">
+                  {mensSet === "shirt"
+                    ? "This order will create a shirt item only."
+                    : mensSet === "trouser"
+                      ? "This order will create a trouser item only."
+                      : "This order will create a shirt item and a trouser item."}
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-ink-muted">
+                  Choose a men&apos;s set, or add any other garment below.
+                </p>
+              )}
+            </fieldset>
             {drafts.length === 0 ? (
               <EmptyState
                 title="No garments yet"
@@ -784,16 +847,26 @@ export function NewOrderPage() {
             <Row k="Customer" v={customerName || customer?.name || "—"} />
             <Row k="Due" v={`${due || "—"} · ${priority}`} />
             <Row k="Deposit / balance" v={`${formatMoney(deposit)} / ${formatMoney(balance)}`} />
-            <ul className="divide-y divide-line rounded-lg border border-line">
+            {mensSet ? (
+              <Row
+                k="Men's set"
+                v={
+                  mensSet === "shirt"
+                    ? "Top shirt only"
+                    : mensSet === "trouser"
+                      ? "Trouser only"
+                      : "Both shirt + trouser"
+                }
+              />
+            ) : null}
+            <ul className="space-y-3">
               {drafts.map((d) => (
-                <li key={d.key} className="flex justify-between gap-3 px-3 py-2">
-                  <span>
-                    {d.clothingType}
-                    <span className="block text-xs text-ink-muted">
-                      {d.fabricType || "—"} · {d.images.length} image{d.images.length === 1 ? "" : "s"}
-                    </span>
-                  </span>
-                  <span className="tabular font-medium">{formatMoney(d.unitPrice)}</span>
+                <li key={d.key} className="rounded-lg border border-line p-4">
+                  <div className="flex justify-between gap-3">
+                    <p className="font-semibold text-ink">{d.clothingType}</p>
+                    <span className="tabular font-medium">{formatMoney(d.unitPrice)}</span>
+                  </div>
+                  <SpecSheet item={toPayloadItem(d) as OrderItem} />
                 </li>
               ))}
             </ul>

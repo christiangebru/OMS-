@@ -55,19 +55,36 @@
 }
 
 @media print {
+  html,
+  body,
+  #root {
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+  body {
+    min-height: 0 !important;
+  }
+  .bg-canvas,
+  .bg-surface,
+  .bg-ink {
+    background: #ffffff !important;
+  }
   .print-hidden,
-  .print\:hidden {
+  .print\:hidden,
+  header,
+  aside,
+  nav {
     display: none !important;
   }
   @page {
     margin: 8mm;
-  }
-  body {
-    background: white !important;
-    color: #111 !important;
+    size: auto;
   }
   .label-print {
+    background: #ffffff !important;
+    color: #111111 !important;
     break-inside: avoid;
     page-break-inside: avoid;
+    box-shadow: none !important;
   }
 }

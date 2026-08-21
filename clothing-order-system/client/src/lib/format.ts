@@ -5,6 +5,17 @@ export function shortOrderId(id?: string | null) {
   return `ORD-${tail.slice(-4).toUpperCase()}`;
 }
 
+/** Printed / spoken garment barcode. Never a UUID, CUID, or ITM-* blob. */
+export function labelBarcode(orderId?: string | null, index = 1, stored?: string | null) {
+  const n = Math.max(1, Number(index) || 1);
+  if (stored && /^ORD-\d+-\d+$/i.test(stored)) return stored.toUpperCase();
+  const seq = String(orderId || "").match(/^ORD-(\d+)$/i);
+  if (seq) return `ORD-${seq[1]}-${n}`;
+  const digits = String(orderId || "").replace(/\D/g, "").slice(-4);
+  if (digits) return `ORD-${Number(digits)}-${n}`;
+  return `${shortOrderId(orderId)}-${n}`;
+}
+
 export function formatDuration(ms?: number | null) {
   if (ms == null || Number.isNaN(ms)) return "—";
   const mins = Math.max(0, Math.round(ms / 60000));

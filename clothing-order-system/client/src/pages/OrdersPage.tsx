@@ -38,19 +38,21 @@ export function OrdersPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      const qs = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
       try {
-        const qs = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
-        const [data, groupData] = await Promise.all([
-          apiJson<Order[]>(`/api/orders${qs}`),
-          apiJson<OrderGroup[]>(`/api/order-groups${qs}`)
-        ]);
+        const data = await apiJson<Order[]>(`/api/orders${qs}`);
         if (!cancelled) {
           setOrders(data);
-          setGroups(groupData);
           setErr(null);
         }
       } catch (e) {
         if (!cancelled) setErr(e instanceof ApiError ? e.message : "Failed to load orders");
+      }
+      try {
+        const groupData = await apiJson<OrderGroup[]>(`/api/order-groups${qs}`);
+        if (!cancelled) setGroups(groupData);
+      } catch {
+        if (!cancelled) setGroups([]);
       } finally {
         if (!cancelled) setLoading(false);
       }

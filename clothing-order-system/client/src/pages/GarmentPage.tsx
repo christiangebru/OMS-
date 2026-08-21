@@ -106,7 +106,7 @@ export function GarmentPage() {
   const worker = assignment?.staff;
   const next = details.production?.nextAction;
   const board = details.production?.boardStatus || "waiting";
-  const barcode = details.item.barcodeValue || "";
+  const barcode = details.item.labelBarcode || details.item.barcodeValue || "";
   const scanTo = barcode ? `/scan?barcode=${encodeURIComponent(barcode)}` : "/scan";
   const manager = isManagerRole(user?.role);
   const canLabels = canSee(user?.role, "labels");

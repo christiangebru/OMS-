@@ -1,26 +1,29 @@
-import { v4 as uuidv4 } from "uuid";
 import { prisma } from "../db/prisma.js";
 
 /**
  * Short shop-floor order numbers: ORD-1001, ORD-1002, …
  * Legacy ORD-<time>-<uuid> values remain valid unique keys.
  */
-export async function generateOrderId(client = prisma) {
+export async function nextSequentialOrderNumber(client = prisma) {
   const rows = await client.$queryRaw`
     SELECT COALESCE(MAX(CAST(substring("orderId" FROM 5) AS INTEGER)), 1000) AS n
     FROM orders
     WHERE "orderId" ~ '^ORD-[0-9]+$'
   `;
   const n = Number(rows?.[0]?.n ?? 1000) + 1;
-  if (!Number.isFinite(n) || n < 1001) {
-    return `ORD-${1001 + Math.floor(Math.random() * 90)}`;
-  }
+  if (!Number.isFinite(n) || n < 1001) return 1001;
+  return n;
+}
+
+export async function generateOrderId(client = prisma) {
+  const n = await nextSequentialOrderNumber(client);
   return `ORD-${n}`;
 }
 
-/** Fallback unique id used only if sequential insert collides. */
-export function generateOrderIdFallback() {
-  return `ORD-${Date.now().toString(36).toUpperCase()}-${uuidv4().slice(0, 8).toUpperCase()}`;
+/** Numeric-only fallback if a sequential insert collides. Never UUID. */
+export async function generateOrderIdFallback(client = prisma) {
+  const n = await nextSequentialOrderNumber(client);
+  return `ORD-${n + Math.floor(Math.random() * 7) + 1}`;
 }
 
 /**

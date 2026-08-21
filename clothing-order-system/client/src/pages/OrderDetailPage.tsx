@@ -2,8 +2,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiJson, ApiError, imageUrlFromPath } from "@/lib/api";
 import type { ClothingTypeConfig, Order } from "@/lib/types";
-import { daysLabel, formatDate, formatMoney, shortOrderId, stageLabel, boardStatusLabel } from "@/lib/format";
-import { measureSummary, stageSequenceFor } from "@/lib/stages";
+import { SpecSheet } from "@/components/SpecSheet";
+import { daysLabel, formatDate, formatMoney, labelBarcode, shortOrderId, stageLabel, boardStatusLabel } from "@/lib/format";
+import { stageSequenceFor } from "@/lib/stages";
 import { PageHeader, ErrorState, Skeleton, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { StageStrip } from "@/components/StageStrip";
@@ -144,15 +145,14 @@ export function OrderDetailPage() {
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="font-semibold text-ink">{it.clothingType}</p>
-                        <p className="font-mono text-[11px] text-ink-muted">{it.barcodeValue}</p>
+                        <p className="font-mono text-[11px] text-ink-muted">
+                          {it.labelBarcode || labelBarcode(order.orderId, order.items.indexOf(it) + 1, it.barcodeValue)}
+                        </p>
                         <p className="mt-1 text-xs capitalize text-ink-muted">
                           {it.size}
                           {it.fabricType ? ` · ${it.fabricType}` : ""}
                           {it.color ? ` · ${it.color}` : ""}
                         </p>
-                        {measureSummary(it.measurements) && (
-                          <p className="mt-1 text-xs text-ink-faint">{measureSummary(it.measurements)}</p>
-                        )}
                       </div>
                       <div className="text-right">
                         {it.boardStatus && (
@@ -166,6 +166,9 @@ export function OrderDetailPage() {
                     </div>
                     <div className="mt-3">
                       <StageStrip stages={stages} current={current} compact />
+                    </div>
+                    <div className="mt-4">
+                      <SpecSheet item={it} />
                     </div>
                     {it._id && (
                       <div className="mt-3 flex flex-wrap gap-3">

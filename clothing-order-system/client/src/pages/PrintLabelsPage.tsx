@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { Order, ScanDetails } from "@/lib/types";
-import { formatDate, shortOrderId } from "@/lib/format";
+import { formatDate, labelBarcode, shortOrderId } from "@/lib/format";
 import { EmptyState, ErrorState } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { BarcodeImage } from "@/components/BarcodeImage";
@@ -21,11 +21,11 @@ type LabelItem = {
   location?: string;
 };
 
-function toLabel(order: Order, it: Order["items"][number]): LabelItem {
+function toLabel(order: Order, it: Order["items"][number], index: number): LabelItem {
   const key = it._id || it.barcodeValue || `${order.orderId}-${it.clothingCode}`;
   return {
     key,
-    barcode: it.barcodeValue || "",
+    barcode: it.labelBarcode || labelBarcode(order.orderId, index, it.barcodeValue),
     orderId: order.orderId,
     customer: order.customerName || order.customer?.name || "—",
     garment: it.clothingType,
@@ -40,6 +40,8 @@ export function LabelsWorkspacePage() {
   const { push } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [selecting, setSelecting] = useState(false);
+  const [printAll, setPrintAll] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [barcode, setBarcode] = useState("");
   const [loading, setLoading] = useState(true);
@@ -52,14 +54,7 @@ export function LabelsWorkspacePage() {
         if (cancelled) return;
         const open = data.filter((o) => o.productionStatus !== "delivered");
         setOrders(open);
-        const next: Record<string, boolean> = {};
-        for (const o of open) {
-          for (const it of o.items) {
-            const l = toLabel(o, it);
-            if (l.barcode) next[l.key] = true;
-          }
-        }
-        setSelected(next);
+        setSelected({});
       } catch (e) {
         if (!cancelled) setErr(e instanceof ApiError ? e.message : "Could not load labels");
       } finally {
@@ -71,16 +66,21 @@ export function LabelsWorkspacePage() {
     };
   }, []);
 
+  useEffect(() => {
+    const done = () => setPrintAll(false);
+    window.addEventListener("afterprint", done);
+    return () => window.removeEventListener("afterprint", done);
+  }, []);
+
   const allLabels = useMemo(() => {
     const rows: LabelItem[] = [];
     for (const o of orders) {
-      for (const it of o.items) rows.push(toLabel(o, it));
+      o.items.forEach((it, idx) => rows.push(toLabel(o, it, idx + 1)));
     }
     return rows.filter((l) => l.barcode);
   }, [orders]);
 
-  const selectedLabels = allLabels.filter((l) => selected[l.key]);
-  const selectedCount = selectedLabels.length;
+  const selectedCount = allLabels.filter((l) => selected[l.key]).length;
 
   function toggle(key: string) {
     setSelected((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -90,6 +90,18 @@ export function LabelsWorkspacePage() {
     const next: Record<string, boolean> = {};
     for (const l of allLabels) next[l.key] = true;
     setSelected(next);
+    setSelecting(true);
+  }
+
+  function printSelected() {
+    if (!selectedCount) return;
+    setPrintAll(false);
+    window.print();
+  }
+
+  function printEveryLabel() {
+    setPrintAll(true);
+    window.setTimeout(() => window.print(), 50);
   }
 
   async function addFromBarcode() {
@@ -122,6 +134,7 @@ export function LabelsWorkspacePage() {
                 handType: d.item.handType as never,
                 size: d.item.size as never,
                 barcodeValue: d.item.barcodeValue,
+                labelBarcode: d.item.labelBarcode,
                 productionDays: 3,
                 unitPrice: 0
               }
@@ -144,25 +157,15 @@ export function LabelsWorkspacePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 print:space-y-4 print:bg-white">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between print:hidden">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">Print Labels</h1>
-          <p className="mt-1 text-sm text-ink-muted">
-            {selectedCount} of {allLabels.length} barcode labels ready
-          </p>
+          <p className="mt-1 text-sm text-ink-muted">{allLabels.length} labels ready</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" onClick={selectAll} disabled={!allLabels.length}>
-            Select all
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => setSelected({})} disabled={!selectedCount}>
-            Deselect
-          </Button>
-          <Button type="button" onClick={() => window.print()} disabled={!selectedCount}>
-            Print all ({selectedCount})
-          </Button>
-        </div>
+        <Button type="button" onClick={printEveryLabel} disabled={!allLabels.length}>
+          Print all ({allLabels.length})
+        </Button>
       </header>
 
       {err && (
@@ -174,7 +177,7 @@ export function LabelsWorkspacePage() {
       <div className="flex flex-wrap items-end gap-3 print:hidden">
         <div className="min-w-[240px] flex-1">
           <label className="ui-label" htmlFor="label-bc">
-            Select barcodes to print
+            Add barcode
           </label>
           <div className="mt-1 flex gap-2">
             <input
@@ -197,34 +200,64 @@ export function LabelsWorkspacePage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 print:hidden">
+        <Button
+          type="button"
+          variant={selecting ? "primary" : "secondary"}
+          onClick={() => setSelecting((v) => !v)}
+          disabled={!allLabels.length}
+        >
+          Select barcodes to print
+        </Button>
+        {selecting && (
+          <>
+            <p className="text-sm text-ink-muted">Selected: {selectedCount}</p>
+            <Button type="button" variant="secondary" onClick={selectAll} disabled={!allLabels.length}>
+              Select all
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setSelected({})} disabled={!selectedCount}>
+              Deselect all
+            </Button>
+            <Button type="button" onClick={printSelected} disabled={!selectedCount}>
+              Print selected ({selectedCount})
+            </Button>
+          </>
+        )}
+      </div>
+
       {loading ? (
-        <p className="text-sm text-ink-muted">Loading labels…</p>
+        <p className="text-sm text-ink-muted print:hidden">Loading labels…</p>
       ) : allLabels.length === 0 ? (
         <div className="print:hidden">
           <EmptyState title="No barcode labels" body="Create an order to generate printable labels." />
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 print:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 print:grid-cols-2 print:bg-white">
           {allLabels.map((l) => {
             const on = Boolean(selected[l.key]);
+            const hideForPrint = !printAll && !on;
             return (
               <article
                 key={l.key}
                 className={clsx(
-                  "label-print relative flex h-[210px] flex-col justify-between bg-white p-3 text-black",
-                  "border border-neutral-800 shadow-[2px_2px_0_rgba(0,0,0,0.06)]",
-                  !on && "print:hidden opacity-60"
+                  "label-print relative flex h-[200px] flex-col justify-between bg-white p-3 text-black",
+                  "border border-neutral-800",
+                  selecting && on && "ring-2 ring-accent",
+                  hideForPrint && "print:hidden",
+                  selecting && !on && "opacity-70"
                 )}
               >
-                <button
-                  type="button"
-                  onClick={() => toggle(l.key)}
-                  className="print:hidden absolute right-2 top-2 h-5 w-5 border border-neutral-800 bg-white"
-                  aria-pressed={on}
-                  aria-label={on ? "Deselect label" : "Select label"}
-                >
-                  {on ? <span className="block text-center text-[11px] font-bold">✓</span> : null}
-                </button>
+                {selecting && (
+                  <label className="print:hidden absolute right-2 top-2 flex h-6 w-6 items-center justify-center border border-neutral-800 bg-white">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 accent-accent"
+                      checked={on}
+                      onChange={() => toggle(l.key)}
+                      aria-label={on ? "Deselect label" : "Select label"}
+                    />
+                  </label>
+                )}
                 <div className="flex items-start justify-between gap-2 pr-6">
                   <div>
                     <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-neutral-500">
@@ -307,17 +340,17 @@ export function PrintLabelsPage() {
             qty: 1
           }
         ]
-      : order.items.map((it) => ({
+      : order.items.map((it, idx) => ({
           title: it.clothingType,
           subtitle: `${shortOrderId(order.orderId)} · ${order.customerName}`,
-          barcode: it.barcodeValue || it._id || it.clothingCode,
+          barcode: it.labelBarcode || labelBarcode(order.orderId, idx + 1, it.barcodeValue),
           due: order.requiredCompletionDate,
           priority: order.priority || "NORMAL",
           qty: it.quantity
         }));
 
   return (
-    <div className="min-h-screen bg-white p-6 text-black">
+    <div className="min-h-screen bg-white p-6 text-black print:bg-white">
       <div className="mb-6 flex items-center justify-between print:hidden">
         <div>
           <h1 className="text-lg font-semibold">Print labels — {shortOrderId(order.orderId)}</h1>

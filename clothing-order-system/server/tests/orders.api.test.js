@@ -250,4 +250,48 @@ describe("Orders API (PostgreSQL/Prisma)", () => {
     expect(list.body).toHaveLength(1);
     expect(list.body[0].orderId).toBe(created.body.orderId);
   });
+
+  it("validates men's shirt / trouser / both garment sets", async () => {
+    const shirt = { ...validItem, clothingCode: "SHIRT", clothingType: "Shirt", quantity: 1 };
+    const trouser = { ...validItem, clothingCode: "PANT", clothingType: "Trousers", quantity: 1 };
+
+    const both = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Mens Both",
+        customerPhone: "5558880001",
+        requiredCompletionDate: "2027-06-01",
+        mensGarmentSet: "both",
+        items: [shirt, trouser]
+      });
+    expect(both.status).toBe(201);
+    expect(both.body.items).toHaveLength(2);
+
+    const shirtOnly = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Mens Shirt",
+        customerPhone: "5558880002",
+        requiredCompletionDate: "2027-06-01",
+        mensGarmentSet: "shirt",
+        items: [shirt]
+      });
+    expect(shirtOnly.status).toBe(201);
+    expect(shirtOnly.body.items).toHaveLength(1);
+    expect(shirtOnly.body.items[0].clothingType).toMatch(/shirt/i);
+
+    const bad = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Mens Bad",
+        customerPhone: "5558880003",
+        requiredCompletionDate: "2027-06-01",
+        mensGarmentSet: "shirt",
+        items: [shirt, trouser]
+      });
+    expect(bad.status).toBe(400);
+  });
 });
