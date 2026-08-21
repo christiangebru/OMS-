@@ -36,6 +36,9 @@ export async function hydrateOrder(order, { includeCheckpoints = true } = {}) {
       orderBy: { createdAt: "asc" }
     })
   ]);
+  if (!order.group && order.groupId) {
+    order.group = await prisma.orderGroup.findUnique({ where: { id: order.groupId } });
+  }
 
   const itemIds = items.map((i) => i.id);
   const [images, checkpoints, assignments] = await Promise.all([
@@ -95,10 +98,15 @@ export async function hydrateOrders(orders) {
   const customerById = new Map(customers.map((c) => [c.id, c]));
   const itemsByOrder = groupBy(items, (it) => it.order);
   const imagesByItem = groupBy(images, (img) => img.orderItemId);
+  const groupIds = [...new Set(orders.map((o) => o.groupId).filter(Boolean))];
+  const groups = groupIds.length
+    ? await prisma.orderGroup.findMany({ where: { id: { in: groupIds } } })
+    : [];
+  const groupById = new Map(groups.map((g) => [g.id, g]));
 
   return orders.map((order) =>
     assembleOrder(
-      order,
+      { ...order, group: groupById.get(order.groupId) || order.group || null },
       customerById.get(order.customerId) || null,
       itemsByOrder.get(order.id) || [],
       imagesForItems(itemsByOrder.get(order.id) || [], imagesByItem),
@@ -161,7 +169,19 @@ function assembleOrder(order, customer, items, images, checkpoints, presence = n
     customerName: customer?.name || "",
     customerPhone: customer?.phone || "",
     items: hydratedItems,
-    balanceRemaining: balanceRemaining(order)
+    balanceRemaining: balanceRemaining(order),
+    group: order.group
+      ? {
+          _id: order.group.id,
+          name: order.group.name,
+          responsibleName: order.group.responsibleName,
+          responsiblePhone: order.group.responsiblePhone,
+          sharedDueDate: order.group.sharedDueDate,
+          sharedPriority: order.group.sharedPriority
+        }
+      : order.groupId
+        ? { _id: order.groupId, name: order.groupCode || "" }
+        : null
   };
 }
 

@@ -31,6 +31,12 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
   const due = options.dueDate ? new Date(options.dueDate) : null;
   const overdueOrder = due ? due.getTime() < Date.now() : false;
   const assignment = options.assignment || null;
+  const assignments =
+    Array.isArray(options.assignments) && options.assignments.length
+      ? options.assignments
+      : assignment
+        ? [assignment]
+        : [];
 
   let lastCompletedAt = null;
 
@@ -52,9 +58,13 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
     }
 
     const cp = checkpoints.find((c) => c.stage === stage);
-    const assignedHere = Boolean(assignment && assignment.stage === stage && !assignment.completedAt);
+    const stageAsg =
+      assignments.find((a) => a.stage === stage && !a.completedAt) ||
+      assignments.find((a) => a.stage === stage) ||
+      null;
+    const assignedHere = Boolean(stageAsg);
     const assignedTo = assignedHere
-      ? assignment.staff?.name || assignment.staffName || null
+      ? stageAsg.staff?.name || stageAsg.staffName || null
       : null;
 
     if (!cp) {
@@ -72,7 +82,7 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
         overdue: overdueOrder && status === "next",
         assigned: assignedHere,
         assignedTo,
-        handoverStatus: assignedHere ? handoverStatus(assignment) : null
+        handoverStatus: assignedHere ? handoverStatus(stageAsg) : null
       };
       return row;
     }
@@ -100,7 +110,7 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
       overdue: overdueOrder && open,
       assigned: assignedHere,
       assignedTo,
-      handoverStatus: assignedHere ? handoverStatus(assignment) : null,
+      handoverStatus: assignedHere ? handoverStatus(stageAsg) : null,
       notes: cp.notes || "",
       checkpointId: cp.id
     };
@@ -122,7 +132,7 @@ export function inferScanAction(checkpoints, nextStage) {
   return { action: "check_in", stage: nextStage, openCheckpoint: null };
 }
 
-const WORK_STAGES = new Set(["CUTTING", "SEWING", "EMBROIDERY", "FINISHING"]);
+const WORK_STAGES = new Set(["CUTTING", "SEWING", "EMBROIDERY", "FINISHING", "PACKAGING"]);
 
 /**
  * Manager/floor next action for a garment. Scanner remains the check-in/out path.
@@ -144,6 +154,9 @@ export function inferNextAction({ checkpoints = [], assignment, nextStage, curre
   }
   if (!assignment && WORK_STAGES.has(nextStage)) {
     return { code: "assign", label: "Assign worker", stage: nextStage };
+  }
+  if (nextStage === "PACKAGING") {
+    return { code: "check_in", label: "Scan in to packaging", stage: "PACKAGING" };
   }
   if (nextStage === "DELIVERED") {
     return { code: "check_in", label: "Mark delivered", stage: "DELIVERED" };

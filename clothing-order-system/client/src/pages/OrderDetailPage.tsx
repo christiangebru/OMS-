@@ -94,6 +94,17 @@ export function OrderDetailPage() {
           }
           hint={order.customerPhone || order.customer?.phone}
         />
+        {order.group && (
+          <Fact
+            label="Group"
+            value={
+              <Link to={`/orders/groups/${order.group._id}`} className="hover:text-accent">
+                {order.group.name}
+              </Link>
+            }
+            hint={order.group.responsibleName}
+          />
+        )}
         <Fact
           label="Due"
           value={daysLabel(days, overdue)}

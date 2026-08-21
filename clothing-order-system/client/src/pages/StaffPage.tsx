@@ -10,7 +10,7 @@ import { stageLabel } from "@/lib/format";
 import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import clsx from "clsx";
 
-const ROLES: StaffRole[] = ["TAILOR", "EMBROIDERER", "FINISHER", "CUTTER", "MANAGER"];
+const ROLES: StaffRole[] = ["TAILOR", "EMBROIDERER", "FINISHER", "CUTTER", "PACKER", "MANAGER"];
 const STATUSES: StaffStatus[] = ["AVAILABLE", "BUSY", "OFF_DUTY"];
 
 export function StaffPage() {
@@ -52,14 +52,10 @@ export function StaffPage() {
   const visible = useMemo(() => {
     const list = staff || [];
     if (!readyOnly) return list;
-    return list.filter(
-      (s) => s.active && s.status === "AVAILABLE" && (s.activeAssignmentCount || 0) < 4
-    );
+    return list.filter((s) => s.active && s.status !== "OFF_DUTY");
   }, [staff, readyOnly]);
 
-  const availableNow = (staff || []).filter(
-    (s) => s.active && s.status === "AVAILABLE" && (s.activeAssignmentCount || 0) < 4
-  ).length;
+  const availableNow = (staff || []).filter((s) => s.active && s.status !== "OFF_DUTY").length;
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();

@@ -13,6 +13,7 @@ export async function seedClothingTypes() {
   await prisma.clothingTypeConfig.deleteMany({});
   await prisma.clothingTypeConfig.createMany({
     data: DEFAULT_CLOTHING_TYPE_SEEDS.map((c) => ({
+      id: newId(),
       key: c.key,
       label: c.label,
       stageSequence: c.stageSequence,
@@ -82,7 +83,7 @@ export async function seedOrderWithItem({
       unitPrice: 100,
       lineTotal: 100,
       difficultyLevel,
-      barcodeValue: generateItemBarcodeValue(itemId),
+      barcodeValue: generateItemBarcodeValue(orderId, 1),
       barcodeGeneratedAt: new Date()
     }
   });
@@ -109,7 +110,7 @@ export async function seedOrderWithItem({
           unitPrice: 50,
           lineTotal: 50,
           difficultyLevel: extra.difficultyLevel || 3,
-          barcodeValue: generateItemBarcodeValue(sid),
+          barcodeValue: generateItemBarcodeValue(orderId, siblings.length + 2),
           barcodeGeneratedAt: new Date()
         }
       })
@@ -134,6 +135,7 @@ export async function seedOrderWithItem({
     "SEWING",
     "EMBROIDERY",
     "FINISHING",
+    "PACKAGING",
     "READY",
     "DELIVERED"
   ];

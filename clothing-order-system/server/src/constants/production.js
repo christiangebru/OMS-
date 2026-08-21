@@ -4,6 +4,7 @@ export const ProductionStage = [
   "SEWING",
   "EMBROIDERY",
   "FINISHING",
+  "PACKAGING",
   "READY",
   "DELIVERED"
 ];
@@ -14,7 +15,10 @@ export const SKIP_EMBROIDERY_SEQUENCE = ProductionStage.filter((s) => s !== "EMB
 
 export const OrderPriority = ["NORMAL", "RUSH", "VIP"];
 
-export const StaffRole = ["TAILOR", "EMBROIDERER", "FINISHER", "CUTTER", "MANAGER"];
+export const StaffRole = ["TAILOR", "EMBROIDERER", "FINISHER", "CUTTER", "PACKER", "MANAGER"];
+
+/** Stages that represent a physical workstation (workers of the same stage). */
+export const WORKSTATION_STAGES = ["CUTTING", "SEWING", "EMBROIDERY", "FINISHING", "PACKAGING"];
 
 /** Login roles. Workers are optional user accounts; staff records remain the shop-floor identity. */
 export const UserRole = [
@@ -34,7 +38,7 @@ export const ROLE_PRODUCTION_STAGES = {
   tailor: ["SEWING"],
   embroiderer: ["EMBROIDERY"],
   finisher: ["FINISHING"],
-  packer: ["READY"],
+  packer: ["PACKAGING", "READY"],
   delivery: ["READY", "DELIVERED"]
 };
 

@@ -189,8 +189,198 @@ router.get("/operations", requireCapability("dashboard"), async (_req, res) => {
         nextStage: i.nextStage,
         workerName: i.assignment?.staff?.name || null,
         barcodeValue: i.barcodeValue
-      }))
+      })),
+    waitingAtWorkstation: board.items
+      .filter((i) => i.boardStatus === "distributed" || i.boardStatus === "assigned")
+      .slice(0, 12)
+      .map((i) => ({
+        itemId: i.itemId,
+        orderId: i.orderId,
+        clothingType: i.clothingType,
+        customerName: i.customer?.name || "—",
+        nextStage: i.nextStage,
+        workerName: i.assignment?.staff?.name || null,
+        barcodeValue: i.barcodeValue,
+        boardStatus: i.boardStatus
+      })),
+    workerQueues: (board.staff.workers || []).map((st) => ({
+      _id: st._id,
+      name: st.name,
+      queued: st.activeAssignmentCount || 0,
+      status: st.status
+    }))
   });
+});
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function parseRange(query) {
+  const now = new Date();
+  const range = query.range || "month";
+  let from;
+  let to = new Date(now);
+  to.setHours(23, 59, 59, 999);
+  if (query.from && query.to) {
+    from = startOfDay(query.from);
+    to = new Date(query.to);
+    to.setHours(23, 59, 59, 999);
+    return { from, to, range: "custom" };
+  }
+  if (range === "today") {
+    from = startOfDay(now);
+  } else if (range === "week") {
+    from = startOfDay(now);
+    from.setDate(from.getDate() - 6);
+  } else {
+    from = startOfDay(now);
+    from.setDate(1);
+  }
+  return { from, to, range };
+}
+
+function bucketKey(date, range) {
+  const d = new Date(date);
+  if (range === "today") {
+    return `${String(d.getHours()).padStart(2, "0")}:00`;
+  }
+  if (range === "week") {
+    return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+router.get("/business", requireCapability("dashboard"), async (req, res) => {
+  try {
+    const { from, to, range } = parseRange(req.query);
+    const [ordersInRange, allOpen, customersInRange, customerCount, logs, checkpointsToday] =
+      await Promise.all([
+        prisma.order.findMany({
+          where: { createdAt: { gte: from, lte: to } },
+          include: { customer: true, items: true }
+        }),
+        prisma.order.findMany({
+          where: { productionStatus: { notIn: ["delivered"] } },
+          select: {
+            totalAgreedPrice: true,
+            depositPaid: true,
+            productionStatus: true,
+            customerId: true
+          }
+        }),
+        prisma.customer.findMany({
+          where: { createdAt: { gte: from, lte: to } },
+          select: { id: true }
+        }),
+        prisma.customer.count(),
+        prisma.productionLog.findMany({
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          include: { user: { select: { id: true, name: true } } }
+        }),
+        prisma.stageCheckpoint.findMany({
+          where: { checkedOutAt: { gte: startOfDay(new Date()), lte: to } },
+          select: { id: true, stage: true, checkedInAt: true, checkedOutAt: true }
+        })
+      ]);
+
+    const revenue = ordersInRange.reduce((sum, o) => sum + (o.totalRevenue || o.totalAgreedPrice || 0), 0);
+    const orderCount = ordersInRange.length;
+    const aov = orderCount ? revenue / orderCount : 0;
+    const outstanding = allOpen.reduce(
+      (sum, o) => sum + Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0)),
+      0
+    );
+    const ready = allOpen.filter((o) => o.productionStatus === "completed").length;
+
+    const trendMap = new Map();
+    for (const o of ordersInRange) {
+      const key = bucketKey(o.createdAt, range);
+      const e = trendMap.get(key) || { period: key, revenue: 0, orders: 0 };
+      e.revenue += o.totalRevenue || o.totalAgreedPrice || 0;
+      e.orders += 1;
+      trendMap.set(key, e);
+    }
+    const trend = [...trendMap.values()];
+
+    const statusMap = new Map();
+    for (const o of ordersInRange) {
+      statusMap.set(o.productionStatus, (statusMap.get(o.productionStatus) || 0) + 1);
+    }
+    const statusDistribution = [...statusMap.entries()].map(([status, count]) => ({ status, count }));
+
+    const paidCount = ordersInRange.filter(
+      (o) => Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0)) === 0
+    ).length;
+    const unpaidCount = orderCount - paidCount;
+
+    const customerRev = new Map();
+    for (const o of ordersInRange) {
+      const id = o.customerId;
+      const e = customerRev.get(id) || {
+        customerId: id,
+        name: o.customer?.name || "—",
+        revenue: 0,
+        orders: 0
+      };
+      e.revenue += o.totalRevenue || o.totalAgreedPrice || 0;
+      e.orders += 1;
+      customerRev.set(id, e);
+    }
+    const topCustomers = [...customerRev.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+
+    const durations = checkpointsToday
+      .filter((c) => c.checkedInAt && c.checkedOutAt)
+      .map((c) => new Date(c.checkedOutAt) - new Date(c.checkedInAt))
+      .filter((d) => d > 0);
+    const avgStageTurnaroundMs = durations.length
+      ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+      : null;
+
+    res.json({
+      range,
+      from,
+      to,
+      organization: "Atelier OMS",
+      kpis: {
+        revenue,
+        orders: orderCount,
+        customers: customersInRange.length,
+        totalCustomers: customerCount,
+        averageOrderValue: aov,
+        outstanding,
+        ready
+      },
+      trend,
+      statusDistribution,
+      payment: {
+        paid: paidCount,
+        outstanding: unpaidCount,
+        outstandingAmount: ordersInRange.reduce(
+          (sum, o) => sum + Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0)),
+          0
+        )
+      },
+      topCustomers,
+      completedToday: checkpointsToday.length,
+      avgStageTurnaroundMs,
+      activity: logs.map((log) => ({
+        _id: log.id,
+        action: log.action,
+        orderId: log.orderId,
+        notes: log.notes,
+        createdAt: log.createdAt,
+        userName: log.user?.name || null,
+        metadata: log.metadata || null
+      }))
+    });
+  } catch (err) {
+    console.error("[dashboard/business]", err);
+    res.status(500).json({ message: err.message || "Business dashboard query failed" });
+  }
 });
 
 router.get("/production-logs", async (req, res) => {

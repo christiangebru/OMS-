@@ -4,6 +4,7 @@ import { prisma } from "../db/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireCapability } from "../middleware/permissions.js";
 import { newId } from "../utils/ids.js";
+import { isRecordId } from "../utils/recordId.js";
 import { generateOrderId, generateOrderIdFallback, computeEstimatedCompletion } from "../utils/orderId.js";
 import { refreshStatisticSnapshot } from "../utils/stats.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
@@ -15,7 +16,7 @@ import {
   HandType,
   SizeCategory
 } from "../constants/production.js";
-import { generateOrderBarcodeValue, generateItemBarcodeValue } from "../utils/barcode.js";
+import { generateOrderBarcodeValue, ensureUniqueItemBarcode } from "../utils/barcode.js";
 import { buildSingleLabelPdf, buildBatchLabelPdf } from "../utils/labelPdf.js";
 import { hydrateOrder, hydrateOrders } from "../utils/orderHydrate.js";
 
@@ -110,6 +111,17 @@ function normalizeItemPayload(item) {
   };
 }
 
+async function resolveGroup(reqBody, client) {
+  if (reqBody.groupId) {
+    const group = await client.orderGroup.findFirst({
+      where: { id: reqBody.groupId, tenantId: DEFAULT_TENANT_ID }
+    });
+    if (!group) throw Object.assign(new Error("Order group not found"), { status: 400 });
+    return group;
+  }
+  return null;
+}
+
 async function resolveCustomerId(reqBody, client) {
   if (reqBody.customerId) {
     const existing = await client.customer.findFirst({
@@ -148,17 +160,21 @@ async function resolveCustomerId(reqBody, client) {
 }
 
 async function createItemsForOrder(order, itemPayloads, client) {
+  const existingCount = await client.orderItem.count({ where: { order: order.id } });
+  let index = existingCount;
   for (const payload of itemPayloads) {
     const { _imageUrls, ...fields } = payload;
     const itemId = newId();
     const now = new Date();
+    index += 1;
+    const barcodeValue = await ensureUniqueItemBarcode(client, order.orderId, index, itemId);
     await client.orderItem.create({
       data: {
         id: itemId,
         order: order.id,
         orderId: order.orderId,
         ...fields,
-        barcodeValue: generateItemBarcodeValue(itemId),
+        barcodeValue,
         barcodeGeneratedAt: now
       }
     });
@@ -238,11 +254,20 @@ router.get(
         },
         select: { order: true }
       });
+      const matchingGroups = await prisma.orderGroup.findMany({
+        where: {
+          tenantId: DEFAULT_TENANT_ID,
+          name: { contains: q, mode: "insensitive" }
+        },
+        select: { id: true }
+      });
       where.OR = [
         { orderId: { contains: q, mode: "insensitive" } },
         { barcodeValue: { contains: q, mode: "insensitive" } },
+        { groupCode: { contains: q, mode: "insensitive" } },
         { customerId: { in: customerIds } },
-        { id: { in: [...new Set(itemOrders.map((o) => o.order))] } }
+        { id: { in: [...new Set(itemOrders.map((o) => o.order))] } },
+        { groupId: { in: matchingGroups.map((g) => g.id) } }
       ];
     }
 
@@ -331,9 +356,12 @@ router.post(
   body("productionStatus").optional().isIn(ProductionStatus),
   body("priority").optional().isIn(OrderPriority),
   body("groupCode").optional().isString(),
+  body("groupId").optional({ nullable: true, checkFalsy: true }).custom(isRecordId),
+  body("useGroupDueDate").optional().isBoolean(),
+  body("useGroupPriority").optional().isBoolean(),
   body("totalAgreedPrice").optional().isFloat({ min: 0 }),
   body("depositPaid").optional().isFloat({ min: 0 }),
-  body("customerId").optional().isMongoId(),
+  body("customerId").optional({ checkFalsy: true }).custom(isRecordId),
   body("customerName").optional().trim().notEmpty(),
   body("customerPhone").optional().trim().notEmpty(),
   async (req, res) => {
@@ -346,6 +374,7 @@ router.post(
     try {
       const created = await prisma.$transaction(async (tx) => {
         const customerId = await resolveCustomerId(req.body, tx);
+        const group = await resolveGroup(req.body, tx);
         const itemPayloads = req.body.items.map(normalizeItemPayload);
         let orderId = await generateOrderId(tx);
         const createdAt = new Date();
@@ -356,6 +385,16 @@ router.post(
             ? Number(req.body.totalAgreedPrice)
             : totalRevenue;
 
+        const due =
+          group && req.body.useGroupDueDate && group.sharedDueDate
+            ? group.sharedDueDate
+            : new Date(req.body.requiredCompletionDate);
+        const priority =
+          group && req.body.useGroupPriority && group.sharedPriority
+            ? group.sharedPriority
+            : req.body.priority || "NORMAL";
+        const groupCode = group ? group.name : req.body.groupCode || "";
+
         let doc;
         try {
           doc = await tx.order.create({
@@ -363,11 +402,12 @@ router.post(
               tenantId: DEFAULT_TENANT_ID,
               orderId,
               customerId,
-              groupCode: req.body.groupCode || "",
-              requiredCompletionDate: new Date(req.body.requiredCompletionDate),
+              groupId: group?.id || null,
+              groupCode,
+              requiredCompletionDate: due,
               estimatedProductionCompletion,
               productionStatus: req.body.productionStatus || "pending",
-              priority: req.body.priority || "NORMAL",
+              priority,
               totalAgreedPrice,
               depositPaid: Number(req.body.depositPaid) || 0,
               totalRevenue,
@@ -385,11 +425,12 @@ router.post(
               tenantId: DEFAULT_TENANT_ID,
               orderId,
               customerId,
-              groupCode: req.body.groupCode || "",
-              requiredCompletionDate: new Date(req.body.requiredCompletionDate),
+              groupId: group?.id || null,
+              groupCode,
+              requiredCompletionDate: due,
               estimatedProductionCompletion,
               productionStatus: req.body.productionStatus || "pending",
-              priority: req.body.priority || "NORMAL",
+              priority,
               totalAgreedPrice,
               depositPaid: Number(req.body.depositPaid) || 0,
               totalRevenue,
@@ -425,9 +466,10 @@ router.put(
   body("productionStatus").optional().isIn(ProductionStatus),
   body("priority").optional().isIn(OrderPriority),
   body("groupCode").optional().isString(),
+  body("groupId").optional({ nullable: true, checkFalsy: true }).custom(isRecordId),
   body("totalAgreedPrice").optional().isFloat({ min: 0 }),
   body("depositPaid").optional().isFloat({ min: 0 }),
-  body("customerId").optional().isMongoId(),
+  body("customerId").optional({ checkFalsy: true }).custom(isRecordId),
   body("customerName").optional().trim().notEmpty(),
   body("customerPhone").optional().trim().notEmpty(),
   async (req, res) => {
@@ -450,6 +492,16 @@ router.put(
           data.customerId = await resolveCustomerId(req.body, tx);
         }
         if (req.body.groupCode !== undefined) data.groupCode = req.body.groupCode;
+        if (req.body.groupId !== undefined) {
+          if (req.body.groupId) {
+            const group = await resolveGroup(req.body, tx);
+            data.groupId = group.id;
+            data.groupCode = group.name;
+          } else {
+            data.groupId = null;
+            if (req.body.groupCode === undefined) data.groupCode = "";
+          }
+        }
         if (req.body.requiredCompletionDate) {
           data.requiredCompletionDate = new Date(req.body.requiredCompletionDate);
         }

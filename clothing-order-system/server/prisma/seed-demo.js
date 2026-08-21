@@ -56,7 +56,7 @@ async function main() {
       name: "Finisher Fadi",
       role: "FINISHER",
       skillLevel: 3,
-      skills: ["FINISHING", "READY", "DELIVERED"]
+      skills: ["FINISHING", "PACKAGING", "READY", "DELIVERED"]
     }
   ];
   for (const spec of staffSpecs) {
@@ -173,7 +173,7 @@ async function main() {
           unitPrice: it.unitPrice,
           lineTotal: it.lineTotal,
           difficultyLevel: it.difficultyLevel,
-          barcodeValue: generateItemBarcodeValue(itemId),
+          barcodeValue: generateItemBarcodeValue(orderId, items.indexOf(it) + 1),
           barcodeGeneratedAt: createdAt
         }
       });

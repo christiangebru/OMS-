@@ -26,12 +26,13 @@ export type ProductionStage =
   | "SEWING"
   | "EMBROIDERY"
   | "FINISHING"
+  | "PACKAGING"
   | "READY"
   | "DELIVERED";
 
 export type OrderPriority = "NORMAL" | "RUSH" | "VIP";
 
-export type StaffRole = "TAILOR" | "EMBROIDERER" | "FINISHER" | "CUTTER" | "MANAGER";
+export type StaffRole = "TAILOR" | "EMBROIDERER" | "FINISHER" | "CUTTER" | "PACKER" | "MANAGER";
 export type StaffStatus = "AVAILABLE" | "BUSY" | "OFF_DUTY";
 
 export interface OrderItemImage {
@@ -112,6 +113,15 @@ export interface Order {
   customerPhone: string;
   items: OrderItem[];
   groupCode?: string;
+  groupId?: string | null;
+  group?: {
+    _id: string;
+    name: string;
+    responsibleName?: string;
+    responsiblePhone?: string;
+    sharedDueDate?: string | null;
+    sharedPriority?: string | null;
+  } | null;
   requiredCompletionDate: string;
   estimatedProductionCompletion?: string;
   productionStatus: ProductionStatus;
@@ -212,6 +222,7 @@ export const PRODUCTION_STAGES: ProductionStage[] = [
   "SEWING",
   "EMBROIDERY",
   "FINISHING",
+  "PACKAGING",
   "READY",
   "DELIVERED"
 ];
@@ -237,6 +248,10 @@ export interface ScanDetails {
   };
   group: {
     groupCode: string;
+    groupId?: string | null;
+    name?: string;
+    responsibleName?: string;
+    responsiblePhone?: string;
     otherOrdersSharingGroup: number;
     otherItemsSharingGroup: number;
   };
@@ -282,6 +297,31 @@ export interface ScanDetails {
       receivedAt?: string | null;
       staff?: { _id: string; name: string; role: string; status: string } | null;
     } | null;
+    assignmentChain?: Array<{
+      stage: ProductionStage;
+      status: "waiting" | "assigned" | "in_progress" | "completed";
+      staff?: { _id: string; name: string; role: string; status: string } | null;
+    }>;
+    workstation?: {
+      stage: ProductionStage;
+      label: string;
+      workers: Array<{ _id: string; name: string; role: string; status: string }>;
+    };
+    currentWorker?: { _id: string; name: string; role: string; status: string } | null;
+    nextWorker?: { _id: string; name: string; role: string; status: string } | null;
+    nextStage?: ProductionStage;
+    location?: string;
+    managerCommand?: string;
+    allowedActions?: Array<{ code: string; label: string }>;
+    history?: Array<{
+      at: string;
+      action: string;
+      stage: string;
+      checkedInAt?: string;
+      checkedOutAt?: string | null;
+      notes?: string;
+      staffName?: string | null;
+    }>;
   };
 }
 
@@ -418,6 +458,65 @@ export interface DashboardOperations {
     nextStage: string;
     workerName: string | null;
     barcodeValue?: string;
+  }>;
+  waitingAtWorkstation?: Array<{
+    itemId: string;
+    orderId: string;
+    clothingType: string;
+    customerName: string;
+    nextStage: string;
+    workerName: string | null;
+    barcodeValue?: string;
+    boardStatus?: string;
+  }>;
+  workerQueues?: Array<{ _id: string; name: string; queued: number; status: string }>;
+}
+
+export interface OrderGroup {
+  _id: string;
+  name: string;
+  description?: string;
+  responsibleName?: string;
+  responsiblePhone?: string;
+  sharedDueDate?: string | null;
+  sharedPriority?: string | null;
+  notes?: string;
+  orderCount?: number;
+  readyCount?: number;
+  inProductionCount?: number;
+  outstanding?: number;
+  earliestDue?: string | null;
+  status?: string;
+  orders?: Order[];
+}
+
+export interface DashboardBusiness {
+  range: string;
+  from: string;
+  to: string;
+  organization: string;
+  kpis: {
+    revenue: number;
+    orders: number;
+    customers: number;
+    totalCustomers: number;
+    averageOrderValue: number;
+    outstanding: number;
+    ready: number;
+  };
+  trend: Array<{ period: string; revenue: number; orders: number }>;
+  statusDistribution: Array<{ status: string; count: number }>;
+  payment: { paid: number; outstanding: number; outstandingAmount: number };
+  topCustomers: Array<{ customerId: string; name: string; revenue: number; orders: number }>;
+  completedToday: number;
+  avgStageTurnaroundMs: number | null;
+  activity: Array<{
+    _id: string;
+    action: string;
+    orderId: string;
+    notes: string;
+    createdAt: string;
+    userName: string | null;
   }>;
 }
 

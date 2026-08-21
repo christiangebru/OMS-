@@ -7,6 +7,7 @@ export const STAGE_TO_ORDER_STATUS = {
   SEWING: "stitching",
   EMBROIDERY: "stitching",
   FINISHING: "finishing",
+  PACKAGING: "finishing",
   READY: "completed",
   DELIVERED: "delivered"
 };

@@ -9,6 +9,9 @@ import { canSee, canWriteOrders, isManagerRole } from "@/lib/roles";
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const OrdersPage = lazy(() => import("@/pages/OrdersPage").then((m) => ({ default: m.OrdersPage })));
+const GroupDetailPage = lazy(() =>
+  import("@/pages/GroupDetailPage").then((m) => ({ default: m.GroupDetailPage }))
+);
 const OrderEditPage = lazy(() => import("@/pages/OrderEditPage").then((m) => ({ default: m.OrderEditPage })));
 const OrderDetailPage = lazy(() => import("@/pages/OrderDetailPage").then((m) => ({ default: m.OrderDetailPage })));
 const GarmentPage = lazy(() => import("@/pages/GarmentPage").then((m) => ({ default: m.GarmentPage })));
@@ -130,6 +133,7 @@ export default function App() {
         >
           <Route index element={<DashboardPage />} />
           <Route path="orders" element={<OrdersPage />} />
+          <Route path="orders/groups/:id" element={<GroupDetailPage />} />
           <Route
             path="orders/new"
             element={

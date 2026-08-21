@@ -3,10 +3,11 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { Order, ScanDetails } from "@/lib/types";
 import { formatDate, shortOrderId } from "@/lib/format";
-import { PageHeader, EmptyState, ErrorState } from "@/components/ui/PageHeader";
+import { EmptyState, ErrorState } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { BarcodeImage } from "@/components/BarcodeImage";
 import { useToast } from "@/context/ToastContext";
+import clsx from "clsx";
 
 type LabelItem = {
   key: string;
@@ -16,79 +17,79 @@ type LabelItem = {
   garment: string;
   due: string;
   priority: string;
+  quantity: number;
+  location?: string;
 };
+
+function toLabel(order: Order, it: Order["items"][number]): LabelItem {
+  const key = it._id || it.barcodeValue || `${order.orderId}-${it.clothingCode}`;
+  return {
+    key,
+    barcode: it.barcodeValue || "",
+    orderId: order.orderId,
+    customer: order.customerName || order.customer?.name || "—",
+    garment: it.clothingType,
+    due: order.requiredCompletionDate,
+    priority: order.priority || "NORMAL",
+    quantity: it.quantity || 1,
+    location: it.currentStage || it.nextStage || ""
+  };
+}
 
 export function LabelsWorkspacePage() {
   const { push } = useToast();
-  const [q, setQ] = useState("");
   const [orders, setOrders] = useState<Order[]>([]);
-  const [selected, setSelected] = useState<Record<string, LabelItem>>({});
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [err, setErr] = useState<string | null>(null);
   const [barcode, setBarcode] = useState("");
-  const [garmentFilter, setGarmentFilter] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    const t = setTimeout(async () => {
+    (async () => {
       try {
-        const qs = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
-        const data = await apiJson<Order[]>(`/api/orders${qs}`);
-        if (!cancelled) setOrders(data.slice(0, 40));
+        const data = await apiJson<Order[]>("/api/orders");
+        if (cancelled) return;
+        const open = data.filter((o) => o.productionStatus !== "delivered");
+        setOrders(open);
+        const next: Record<string, boolean> = {};
+        for (const o of open) {
+          for (const it of o.items) {
+            const l = toLabel(o, it);
+            if (l.barcode) next[l.key] = true;
+          }
+        }
+        setSelected(next);
       } catch (e) {
-        if (!cancelled) setErr(e instanceof ApiError ? e.message : "Search failed");
+        if (!cancelled) setErr(e instanceof ApiError ? e.message : "Could not load labels");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    }, 200);
+    })();
     return () => {
       cancelled = true;
-      clearTimeout(t);
     };
-  }, [q]);
+  }, []);
 
-  const labels = useMemo(() => {
-    const all = Object.values(selected);
-    const f = garmentFilter.trim().toLowerCase();
-    if (!f) return all;
-    return all.filter(
-      (l) =>
-        l.garment.toLowerCase().includes(f) ||
-        l.customer.toLowerCase().includes(f) ||
-        l.barcode.toLowerCase().includes(f) ||
-        l.orderId.toLowerCase().includes(f)
-    );
-  }, [selected, garmentFilter]);
+  const allLabels = useMemo(() => {
+    const rows: LabelItem[] = [];
+    for (const o of orders) {
+      for (const it of o.items) rows.push(toLabel(o, it));
+    }
+    return rows.filter((l) => l.barcode);
+  }, [orders]);
 
-  function addItem(order: Order, it: Order["items"][number]) {
-    const key = it._id || it.barcodeValue || `${order.orderId}-${it.clothingCode}`;
-    setSelected((prev) => ({
-      ...prev,
-      [key]: {
-        key,
-        barcode: it.barcodeValue || "",
-        orderId: order.orderId,
-        customer: order.customerName || order.customer?.name || "—",
-        garment: it.clothingType,
-        due: order.requiredCompletionDate,
-        priority: order.priority || "NORMAL"
-      }
-    }));
+  const selectedLabels = allLabels.filter((l) => selected[l.key]);
+  const selectedCount = selectedLabels.length;
+
+  function toggle(key: string) {
+    setSelected((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  function addFromOrder(order: Order) {
-    const next = { ...selected };
-    for (const it of order.items) {
-      const key = it._id || it.barcodeValue || `${order.orderId}-${it.clothingCode}`;
-      next[key] = {
-        key,
-        barcode: it.barcodeValue || "",
-        orderId: order.orderId,
-        customer: order.customerName || order.customer?.name || "—",
-        garment: it.clothingType,
-        due: order.requiredCompletionDate,
-        priority: order.priority || "NORMAL"
-      };
-    }
+  function selectAll() {
+    const next: Record<string, boolean> = {};
+    for (const l of allLabels) next[l.key] = true;
     setSelected(next);
-    push(`Added ${order.items.length} label(s)`, "ok");
   }
 
   async function addFromBarcode() {
@@ -100,20 +101,43 @@ export function LabelsWorkspacePage() {
       );
       const d = data.scanDetails;
       const key = d.item._id;
-      setSelected((prev) => ({
-        ...prev,
-        [key]: {
-          key,
-          barcode: d.item.barcodeValue || v,
-          orderId: d.order.orderId,
-          customer: d.customer?.name || "—",
-          garment: d.item.clothingType,
-          due: d.timing.requiredCompletionDate,
-          priority: d.order.priority || "NORMAL"
-        }
-      }));
+      setOrders((prev) => {
+        if (prev.some((o) => o.items.some((it) => it._id === key))) return prev;
+        return [
+          {
+            _id: d.order._id,
+            orderId: d.order.orderId,
+            customerName: d.customer?.name || "—",
+            customerPhone: d.customer?.phone || "",
+            items: [
+              {
+                _id: d.item._id,
+                clothingCode: d.item.clothingCode,
+                clothingType: d.item.clothingType,
+                fabricType: d.item.fabricType,
+                color: d.item.color,
+                quantity: d.item.quantity,
+                notes: d.item.notes,
+                neckType: d.item.neckType as never,
+                handType: d.item.handType as never,
+                size: d.item.size as never,
+                barcodeValue: d.item.barcodeValue,
+                productionDays: 3,
+                unitPrice: 0
+              }
+            ],
+            requiredCompletionDate: d.timing.requiredCompletionDate,
+            productionStatus: d.order.productionStatus,
+            priority: d.order.priority,
+            createdAt: d.order.createdAt || new Date().toISOString(),
+            updatedAt: d.order.createdAt || new Date().toISOString()
+          },
+          ...prev
+        ];
+      });
+      setSelected((prev) => ({ ...prev, [key]: true }));
       setBarcode("");
-      push("Item added", "ok");
+      push("Label added", "ok");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Barcode not found");
     }
@@ -121,208 +145,121 @@ export function LabelsWorkspacePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Print labels"
-        description="Search → select garments → preview → print. Use the existing barcode PNG so labels scan on the floor."
-        actions={
-          <div className="flex flex-wrap gap-2 print:hidden">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                const next = { ...selected };
-                for (const o of orders) {
-                  for (const it of o.items) {
-                    const key = it._id || it.barcodeValue || `${o.orderId}-${it.clothingCode}`;
-                    next[key] = {
-                      key,
-                      barcode: it.barcodeValue || "",
-                      orderId: o.orderId,
-                      customer: o.customerName || o.customer?.name || "—",
-                      garment: it.clothingType,
-                      due: o.requiredCompletionDate,
-                      priority: o.priority || "NORMAL"
-                    };
-                  }
-                }
-                setSelected(next);
-              }}
-            >
-              Select all
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setSelected({})} disabled={!labels.length}>
-              Clear
-            </Button>
-            <Button type="button" onClick={() => window.print()} disabled={!labels.length}>
-              Print {labels.length || ""}
-            </Button>
-          </div>
-        }
-      />
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between print:hidden">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">Print Labels</h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            {selectedCount} of {allLabels.length} barcode labels ready
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" onClick={selectAll} disabled={!allLabels.length}>
+            Select all
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setSelected({})} disabled={!selectedCount}>
+            Deselect
+          </Button>
+          <Button type="button" onClick={() => window.print()} disabled={!selectedCount}>
+            Print all ({selectedCount})
+          </Button>
+        </div>
+      </header>
 
-      {err && <ErrorState message={err} />}
+      {err && (
+        <div className="print:hidden">
+          <ErrorState message={err} />
+        </div>
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] print:hidden">
-        <div className="space-y-4">
-          <div className="ui-card p-4">
-            <label className="ui-label" htmlFor="label-q">
-              Search orders
-            </label>
+      <div className="flex flex-wrap items-end gap-3 print:hidden">
+        <div className="min-w-[240px] flex-1">
+          <label className="ui-label" htmlFor="label-bc">
+            Select barcodes to print
+          </label>
+          <div className="mt-1 flex gap-2">
             <input
-              id="label-q"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="ui-input"
-              placeholder="Customer, order ID…"
+              id="label-bc"
+              value={barcode}
+              onChange={(e) => setBarcode(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addFromBarcode();
+                }
+              }}
+              className="ui-input font-mono"
+              placeholder="ORD-293-1"
             />
-            <ul className="mt-3 max-h-80 space-y-2 overflow-auto">
-              {orders.map((o) => (
-                <li key={o._id} className="border-b border-line pb-2 last:border-0">
-                  <div className="flex items-center justify-between gap-2 px-1 py-1">
-                    <div>
-                      <p className="text-sm font-medium text-ink">
-                        {shortOrderId(o.orderId)} · {o.customerName || o.customer?.name}
-                      </p>
-                      <p className="text-xs text-ink-muted">due {formatDate(o.requiredCompletionDate)}</p>
-                    </div>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => addFromOrder(o)}>
-                      Add all
-                    </Button>
-                  </div>
-                  <ul className="mt-1 space-y-0.5">
-                    {o.items.map((it) => {
-                      const key = it._id || it.barcodeValue || `${o.orderId}-${it.clothingCode}`;
-                      const on = Boolean(selected[key]);
-                      return (
-                        <li key={key}>
-                          <button
-                            type="button"
-                            onClick={() => (on ? setSelected((p) => {
-                              const n = { ...p };
-                              delete n[key];
-                              return n;
-                            }) : addItem(o, it))}
-                            className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-canvas"
-                          >
-                            <span>
-                              <span className="font-medium text-ink">{it.clothingType}</span>
-                              <span className="ml-2 font-mono text-ink-faint">{it.barcodeValue}</span>
-                            </span>
-                            <span className={on ? "font-semibold text-accent" : "text-ink-muted"}>
-                              {on ? "Selected" : "Select"}
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="ui-card p-4">
-            <label className="ui-label" htmlFor="label-bc">
-              Scan or enter item barcode
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="label-bc"
-                value={barcode}
-                onChange={(e) => setBarcode(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addFromBarcode();
-                  }
-                }}
-                className="ui-input font-mono"
-                placeholder="ITM-…"
-              />
-              <Button type="button" variant="secondary" onClick={addFromBarcode}>
-                Add
-              </Button>
-            </div>
+            <Button type="button" variant="secondary" onClick={addFromBarcode}>
+              Add
+            </Button>
           </div>
         </div>
-
-        <aside className="border border-line bg-surface p-4">
-          <p className="text-sm font-semibold text-ink">Queue ({labels.length})</p>
-          <label className="ui-label mt-3" htmlFor="label-filter">
-            Filter selected
-          </label>
-          <input
-            id="label-filter"
-            value={garmentFilter}
-            onChange={(e) => setGarmentFilter(e.target.value)}
-            className="ui-input"
-            placeholder="Garment, customer, barcode…"
-          />
-          {labels.length === 0 ? (
-            <p className="mt-3 text-sm text-ink-muted">No labels selected.</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {labels.map((l) => (
-                <li key={l.key} className="flex items-start justify-between gap-2 text-xs">
-                  <span>
-                    <span className="font-medium text-ink">{l.garment}</span>
-                    <span className="block font-mono text-ink-faint">{l.barcode}</span>
-                  </span>
-                  <button
-                    type="button"
-                    className="text-ink-muted hover:text-red-700"
-                    onClick={() =>
-                      setSelected((prev) => {
-                        const next = { ...prev };
-                        delete next[l.key];
-                        return next;
-                      })
-                    }
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
       </div>
 
-      {labels.length === 0 ? (
+      {loading ? (
+        <p className="text-sm text-ink-muted">Loading labels…</p>
+      ) : allLabels.length === 0 ? (
         <div className="print:hidden">
-          <EmptyState title="Nothing to print" body="Add items from an order or scan a barcode." />
+          <EmptyState title="No barcode labels" body="Create an order to generate printable labels." />
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 print:grid-cols-2">
-          {labels.map((l) => (
-            <article
-              key={l.key}
-              className="label-print flex h-[188px] flex-col justify-between border border-ink bg-white p-3 text-black"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Atelier OMS</p>
-                  <p className="mt-0.5 font-mono text-sm font-semibold">{shortOrderId(l.orderId)}</p>
-                  <p className="text-sm">{l.customer}</p>
-                </div>
-                {l.priority !== "NORMAL" && (
-                  <span className="border border-black px-1 text-[10px] font-bold">{l.priority}</span>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 print:grid-cols-2">
+          {allLabels.map((l) => {
+            const on = Boolean(selected[l.key]);
+            return (
+              <article
+                key={l.key}
+                className={clsx(
+                  "label-print relative flex h-[210px] flex-col justify-between bg-white p-3 text-black",
+                  "border border-neutral-800 shadow-[2px_2px_0_rgba(0,0,0,0.06)]",
+                  !on && "print:hidden opacity-60"
                 )}
-              </div>
-              <p className="text-base font-semibold leading-tight">{l.garment}</p>
-              <div>
-                {l.barcode ? <BarcodeImage value={l.barcode} className="h-12 w-full object-contain print:h-14" /> : null}
-                <p className="font-mono text-sm tracking-[0.18em]">{l.barcode}</p>
-                <p className="text-[11px] text-neutral-600">Due {formatDate(l.due)}</p>
-              </div>
-            </article>
-          ))}
+              >
+                <button
+                  type="button"
+                  onClick={() => toggle(l.key)}
+                  className="print:hidden absolute right-2 top-2 h-5 w-5 border border-neutral-800 bg-white"
+                  aria-pressed={on}
+                  aria-label={on ? "Deselect label" : "Select label"}
+                >
+                  {on ? <span className="block text-center text-[11px] font-bold">✓</span> : null}
+                </button>
+                <div className="flex items-start justify-between gap-2 pr-6">
+                  <div>
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-neutral-500">
+                      Atelier OMS
+                    </p>
+                    <p className="mt-0.5 font-mono text-base font-semibold tracking-tight">
+                      {shortOrderId(l.orderId)}
+                    </p>
+                    <p className="text-[13px] text-neutral-700">{l.customer}</p>
+                  </div>
+                  {l.priority !== "NORMAL" && (
+                    <span className="border border-black px-1.5 py-0.5 text-[10px] font-bold">{l.priority}</span>
+                  )}
+                </div>
+                <p className="text-lg font-semibold leading-tight">{l.garment}</p>
+                <div>
+                  {l.barcode ? (
+                    <BarcodeImage value={l.barcode} className="h-12 w-full object-contain object-left print:h-14" />
+                  ) : null}
+                  <p className="font-mono text-sm tracking-[0.16em]">{l.barcode}</p>
+                  <p className="mt-0.5 text-[11px] text-neutral-600">
+                    Due {formatDate(l.due)}
+                    {l.quantity > 1 ? ` · Qty ${l.quantity}` : ""}
+                    {l.location ? ` · ${l.location}` : ""}
+                  </p>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-/** Order-specific print view used from an order detail. */
 export function PrintLabelsPage() {
   const { orderId } = useParams<{ orderId: string }>();
   const [params] = useSearchParams();
@@ -366,7 +303,8 @@ export function PrintLabelsPage() {
             subtitle: order.customerName,
             barcode: order.barcodeValue || order.orderId,
             due: order.requiredCompletionDate,
-            priority: order.priority || "NORMAL"
+            priority: order.priority || "NORMAL",
+            qty: 1
           }
         ]
       : order.items.map((it) => ({
@@ -374,7 +312,8 @@ export function PrintLabelsPage() {
           subtitle: `${shortOrderId(order.orderId)} · ${order.customerName}`,
           barcode: it.barcodeValue || it._id || it.clothingCode,
           due: order.requiredCompletionDate,
-          priority: order.priority || "NORMAL"
+          priority: order.priority || "NORMAL",
+          qty: it.quantity
         }));
 
   return (
@@ -383,7 +322,7 @@ export function PrintLabelsPage() {
         <div>
           <h1 className="text-lg font-semibold">Print labels — {shortOrderId(order.orderId)}</h1>
           <p className="text-sm text-neutral-600">
-            {mode === "order" ? "Order label" : "All item labels"}
+            {mode === "order" ? "Order label" : `${labels.length} item labels`}
           </p>
         </div>
         <div className="flex gap-2">
@@ -401,16 +340,20 @@ export function PrintLabelsPage() {
         {labels.map((l) => (
           <article
             key={l.barcode}
-            className="flex h-[160px] flex-col justify-between rounded border border-black p-3"
+            className="label-print flex h-[200px] flex-col justify-between border border-black bg-white p-3"
           >
             <div>
+              <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-neutral-500">Atelier OMS</p>
               <p className="text-[10px] uppercase tracking-wide text-neutral-500">{l.subtitle}</p>
               <p className="text-base font-semibold">{l.title}</p>
             </div>
             <div>
               {l.barcode ? <BarcodeImage value={l.barcode} className="h-10 w-full object-contain print:h-12" /> : null}
-              <p className="font-mono text-sm tracking-[0.2em]">{l.barcode}</p>
-              <p className="text-[11px]">Due {formatDate(l.due)}</p>
+              <p className="font-mono text-sm tracking-[0.16em]">{l.barcode}</p>
+              <p className="text-[11px]">
+                Due {formatDate(l.due)}
+                {l.qty > 1 ? ` · Qty ${l.qty}` : ""}
+              </p>
             </div>
           </article>
         ))}

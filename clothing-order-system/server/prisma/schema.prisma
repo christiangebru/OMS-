@@ -77,11 +77,32 @@ model Measurement {
   @@map("measurements")
 }
 
+model OrderGroup {
+  id               String    @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
+  tenantId         String    @default("default")
+  name             String
+  description      String    @default("")
+  responsibleName  String    @default("")
+  responsiblePhone String    @default("")
+  sharedDueDate    DateTime?
+  sharedPriority   String?
+  notes            String    @default("")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  orders Order[]
+
+  @@index([tenantId])
+  @@index([name])
+  @@map("order_groups")
+}
+
 model Order {
   id                            String    @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
   tenantId                      String    @default("default")
   orderId                       String    @unique
   customerId                    String
+  groupId                       String?
   groupCode                     String    @default("")
   requiredCompletionDate        DateTime
   estimatedProductionCompletion DateTime?
@@ -98,10 +119,12 @@ model Order {
   updatedAt                     DateTime  @updatedAt
 
   customer Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  group    OrderGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   items    OrderItem[]
 
   @@index([tenantId])
   @@index([customerId])
+  @@index([groupId])
   @@index([groupCode])
   @@index([productionStatus])
   @@map("orders")
@@ -235,6 +258,8 @@ model StaffAssignment {
   distributedByUserId String?
   /// Worker acknowledged receipt of the garment.
   receivedAt         DateTime?
+  /// Manual queue order for this worker (lower = earlier). Null = automatic priority.
+  queuePosition      Int?
 
   staff     Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)

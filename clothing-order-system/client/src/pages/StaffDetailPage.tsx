@@ -21,12 +21,24 @@ type Workload = {
     assignedAt: string;
     distributedAt?: string | null;
     receivedAt?: string | null;
+    priorityReason?: string;
     item: { _id: string; clothingType: string; barcodeValue: string; orderId: string };
     due: string | null;
     overdue: boolean;
     customerName: string | null;
     priority: string | null;
   }>;
+  queue?: {
+    nowWorking: Workload["assignedItems"];
+    upNext: Workload["assignedItems"][number] | null;
+    queued: Workload["assignedItems"];
+    completed: Array<{
+      assignmentId: string;
+      stage: string;
+      completedAt: string;
+      item: { _id: string; clothingType: string; barcodeValue: string; orderId: string } | null;
+    }>;
+  };
 };
 
 export function StaffDetailPage() {
@@ -220,51 +232,79 @@ export function StaffDetailPage() {
       )}
 
       {tab === "work" && (
-        <section className="ui-card overflow-hidden">
-          {!(work?.assignedItems || []).length ? (
-            <p className="px-5 py-8 text-sm text-ink-muted">No active assignments.</p>
-          ) : (
-            <ul className="divide-y divide-line">
-              {work!.assignedItems.map((a) => (
-                <li key={a.assignmentId} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm">
-                  <div>
-                    <p className="font-medium text-ink">
-                      {a.item.clothingType} · {a.customerName || "—"}
-                    </p>
-                    <p className="text-xs capitalize text-ink-muted">
-                      {stageLabel(a.stage)} · {a.item.orderId}
-                      {a.distributedAt ? " · handed over" : " · assigned"}
-                      {a.receivedAt ? " · received" : ""}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className={a.overdue ? "text-xs font-semibold text-red-700" : "text-xs text-ink-muted"}>
-                      {a.due ? formatDate(a.due) : "—"}
-                    </span>
-                    {a.item._id && (
-                      <Link
-                        to={`/garments/${encodeURIComponent(a.item._id)}`}
-                        className="mt-1 block text-xs font-semibold text-accent"
-                      >
-                        Garment
-                      </Link>
-                    )}
-                    {a.item.barcodeValue && (
-                      <Link
-                        to={`/scan?barcode=${encodeURIComponent(a.item.barcodeValue)}`}
-                        className="mt-1 block text-xs font-semibold text-accent"
-                      >
-                        Scan
-                      </Link>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
+        <section className="space-y-4">
+          <QueueBlock title="Now working" rows={work?.queue?.nowWorking || []} empty="Not currently checked in." />
+          {work?.queue?.upNext && (
+            <QueueBlock title="Up next" rows={[work.queue.upNext]} empty="" />
           )}
+          <QueueBlock title="Queued" rows={work?.queue?.queued || []} empty="No additional queued assignments." />
+          <QueueBlock
+            title="Completed"
+            rows={(work?.queue?.completed || []).map((c) => ({
+              assignmentId: c.assignmentId,
+              stage: c.stage,
+              assignedAt: c.completedAt,
+              item: c.item || { _id: "", clothingType: "—", barcodeValue: "", orderId: "" },
+              due: null,
+              overdue: false,
+              customerName: null,
+              priority: null
+            }))}
+            empty="No completed work yet."
+          />
         </section>
       )}
     </div>
+  );
+}
+
+function QueueBlock({
+  title,
+  rows,
+  empty
+}: {
+  title: string;
+  rows: Array<{
+    assignmentId: string;
+    stage: string;
+    item: { _id: string; clothingType: string; barcodeValue: string; orderId: string };
+    due?: string | null;
+    overdue?: boolean;
+    customerName?: string | null;
+    priorityReason?: string;
+  }>;
+  empty: string;
+}) {
+  return (
+    <section className="overflow-hidden border border-line bg-surface">
+      <div className="border-b border-line px-4 py-2">
+        <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      </div>
+      {!rows.length ? (
+        empty ? <p className="px-4 py-6 text-sm text-ink-muted">{empty}</p> : null
+      ) : (
+        <ul className="divide-y divide-line">
+          {rows.map((a) => (
+            <li key={a.assignmentId} className="flex items-center justify-between gap-2 px-4 py-3 text-sm">
+              <div>
+                <p className="font-medium text-ink">
+                  {a.item.clothingType} · {a.customerName || a.item.orderId}
+                </p>
+                <p className="text-xs capitalize text-ink-muted">
+                  {stageLabel(a.stage)}
+                  {a.priorityReason ? ` · ${a.priorityReason}` : ""}
+                </p>
+              </div>
+              {a.item._id && (
+                <Link to={`/garments/${encodeURIComponent(a.item._id)}`} className="text-xs font-semibold text-accent">
+                  Open
+                </Link>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

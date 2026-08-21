@@ -2,16 +2,14 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, ScanDetails, Staff } from "@/lib/types";
-import { ScanDetailCard } from "@/components/ScanDetailCard";
-import { SuggestedAssignments } from "@/components/SuggestedAssignments";
 import { useAuth } from "@/context/AuthContext";
 import { isManagerRole, isFloorRole, canSee } from "@/lib/roles";
-import { stageLabel, shortOrderId, daysLabel, formatMoney } from "@/lib/format";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { stageLabel, shortOrderId, daysLabel, formatDate, formatMoney } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
+import { ProductionTimeline } from "@/components/ProductionTimeline";
+import { SuggestedAssignments } from "@/components/SuggestedAssignments";
+import { AssignmentChain } from "@/components/AssignmentChain";
 import clsx from "clsx";
-
-type Recent = { barcode: string; at: number; label: string; ok: boolean };
 
 export function ScanPage() {
   const { user } = useAuth();
@@ -25,12 +23,10 @@ export function ScanPage() {
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
-  const [recent, setRecent] = useState<Recent[]>([]);
-  const scannerRef = useRef<{
-    isScanning?: boolean;
-    stop: () => Promise<void>;
-    clear: () => void;
-  } | null>(null);
+  const [cameraStatus, setCameraStatus] = useState("Camera idle");
+  const scannerRef = useRef<{ isScanning?: boolean; stop: () => Promise<void>; clear: () => void } | null>(
+    null
+  );
   const lastScanRef = useRef("");
 
   const action = details?.production?.action;
@@ -55,7 +51,6 @@ export function ScanPage() {
       setBarcode(fromUrl);
       lookupBarcode(fromUrl);
     }
-    // lookupBarcode is stable enough for mount / barcode param changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -68,10 +63,9 @@ export function ScanPage() {
         );
         if (!cancelled) {
           setStaffList(data);
-          const assigned = details?.production?.assignment?.staff?._id;
-          if (assigned && data.some((s) => s._id === assigned)) {
-            setStaffId(assigned);
-          }
+          const assigned =
+            details?.production?.assignment?.staff?._id || details?.production?.currentWorker?._id;
+          if (assigned && data.some((s) => s._id === assigned)) setStaffId(assigned);
         }
       } catch {
         if (!cancelled) setStaffList([]);
@@ -80,7 +74,7 @@ export function ScanPage() {
     return () => {
       cancelled = true;
     };
-  }, [actionStage, details?.production?.assignment?.staff?._id]);
+  }, [actionStage, details?.production?.assignment?.staff?._id, details?.production?.currentWorker?._id]);
 
   async function lookupBarcode(value: string) {
     const v = value.trim();
@@ -91,25 +85,15 @@ export function ScanPage() {
       );
       setDetails(data.scanDetails);
       setFeedback(null);
-      const assigned = data.scanDetails.production?.assignment?.staff?._id;
+      const assigned =
+        data.scanDetails.production?.assignment?.staff?._id ||
+        data.scanDetails.production?.currentWorker?._id;
       if (assigned) setStaffId(assigned);
-      setRecent((prev) => {
-        if (prev[0]?.barcode === v && prev[0]?.ok) return prev;
-        return [
-          {
-            barcode: v,
-            at: Date.now(),
-            label: `${data.scanDetails.item.clothingType} · ${data.scanDetails.customer?.name || "lookup"}`,
-            ok: true
-          },
-          ...prev
-        ].slice(0, 8);
-      });
     } catch (e) {
       setDetails(null);
       setFeedback({
         ok: false,
-        message: e instanceof ApiError ? e.message : "No item found for that barcode"
+        message: e instanceof ApiError ? e.message : "Barcode not found"
       });
     }
   }
@@ -123,17 +107,19 @@ export function ScanPage() {
     }
     scannerRef.current = null;
     setCameraOn(false);
+    setCameraStatus("Camera idle");
   }
 
   async function startCamera() {
     setFeedback(null);
+    setCameraStatus("Starting camera…");
     try {
       const { Html5Qrcode } = await import("html5-qrcode");
       const scanner = new Html5Qrcode("scan-reader");
       scannerRef.current = scanner;
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 320, height: 200 } },
+        { fps: 10, qrbox: { width: 280, height: 160 } },
         (decoded) => {
           if (decoded && decoded !== lastScanRef.current) {
             lastScanRef.current = decoded;
@@ -144,12 +130,14 @@ export function ScanPage() {
         () => {}
       );
       setCameraOn(true);
+      setCameraStatus("Live — hold the label in the frame");
     } catch (e) {
       setFeedback({
         ok: false,
         message: e instanceof Error ? e.message : "Could not start camera"
       });
       setCameraOn(false);
+      setCameraStatus("Camera unavailable");
     }
   }
 
@@ -176,26 +164,11 @@ export function ScanPage() {
       });
       setFeedback({ ok: true, message: result.message });
       setDetails(result.scanDetails);
-      setRecent((prev) => [
-        {
-          barcode: barcode.trim(),
-          at: Date.now(),
-          label: `${result.scanDetails.item.clothingType} · ${result.message}`,
-          ok: true
-        },
-        ...prev
-      ].slice(0, 8));
       lastScanRef.current = "";
       setNotes("");
     } catch (ex) {
       const message = ex instanceof ApiError ? ex.message : "Scan failed";
       setFeedback({ ok: false, message });
-      setRecent((prev) =>
-        [
-          { barcode: barcode.trim(), at: Date.now(), label: message, ok: false },
-          ...prev
-        ].slice(0, 8)
-      );
       if (barcode.trim()) await lookupBarcode(barcode);
     } finally {
       setBusy(false);
@@ -211,10 +184,7 @@ export function ScanPage() {
       await lookupBarcode(barcode);
       setFeedback({ ok: true, message: "Garment received" });
     } catch (e) {
-      setFeedback({
-        ok: false,
-        message: e instanceof ApiError ? e.message : "Could not mark received"
-      });
+      setFeedback({ ok: false, message: e instanceof ApiError ? e.message : "Could not mark received" });
     } finally {
       setBusy(false);
     }
@@ -229,320 +199,267 @@ export function ScanPage() {
       await lookupBarcode(barcode);
       setFeedback({ ok: true, message: "Marked handed over" });
     } catch (e) {
-      setFeedback({
-        ok: false,
-        message: e instanceof ApiError ? e.message : "Could not mark handed over"
-      });
+      setFeedback({ ok: false, message: e instanceof ApiError ? e.message : "Could not mark handed over" });
     } finally {
       setBusy(false);
     }
   }
 
+  const codes = new Set((details?.production?.allowedActions || []).map((a) => a.code));
   const actionLabel =
     action === "check_out"
-      ? `Check out of ${stageLabel(actionStage)}`
-      : `Check in to ${stageLabel(actionStage)}`;
+      ? `Scan out / complete ${stageLabel(actionStage)}`
+      : actionStage === "READY"
+        ? "Mark ready"
+        : `Scan in to ${stageLabel(actionStage)}`;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader
-        title="Scanner"
-        description="Scan a garment. The operating panel and next action appear immediately. Camera library loads only when you start it."
-      />
-
-      {feedback && (
-        <div
-          className={clsx(
-            "rounded-xl px-4 py-3 text-center text-base font-semibold",
-            feedback.ok ? "bg-accent-soft text-accent" : "bg-red-50 text-red-800"
-          )}
-          role="status"
-        >
-          {feedback.ok ? "Recorded" : "Cannot proceed"} — {feedback.message}
-        </div>
-      )}
-
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <form id="scan-form" onSubmit={onSubmit} className="space-y-4">
-          <div className="ui-card overflow-hidden">
-            <div className="flex items-center justify-between border-b border-line px-4 py-3">
-              <p className="text-sm font-semibold text-ink">Scanner</p>
-              {!cameraOn ? (
-                <Button type="button" size="sm" onClick={startCamera}>
-                  Start camera
-                </Button>
-              ) : (
-                <Button type="button" size="sm" variant="secondary" onClick={stopCamera}>
-                  Stop camera
-                </Button>
-              )}
+    <div className="-mx-4 min-h-[calc(100vh-4rem)] bg-canvas px-4 py-4 sm:-mx-6 sm:px-6 lg:py-5">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:items-start">
+        <section className="overflow-hidden border border-line bg-ink">
+          <div className="flex items-center justify-between px-4 py-3 text-white">
+            <div>
+              <p className="text-sm font-semibold">Scanner</p>
+              <p className="text-[11px] text-white/60">{cameraStatus}</p>
             </div>
+            {!cameraOn ? (
+              <Button type="button" size="sm" onClick={startCamera}>
+                Start camera
+              </Button>
+            ) : (
+              <Button type="button" size="sm" variant="secondary" onClick={stopCamera}>
+                Stop
+              </Button>
+            )}
+          </div>
+          <div
+            id="scan-reader"
+            className={clsx(
+              "relative min-h-[320px] bg-black sm:min-h-[480px] lg:min-h-[560px]",
+              !cameraOn && "flex items-center justify-center"
+            )}
+          >
+            {!cameraOn && (
+              <div className="px-8 text-center">
+                <div className="mx-auto mb-6 h-40 w-64 rounded-sm border-2 border-dashed border-white/30" />
+                <p className="text-sm text-white/70">Hold the garment label in the frame, or type the barcode on the right.</p>
+              </div>
+            )}
+            {cameraOn && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="h-36 w-56 border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+              </div>
+            )}
+          </div>
+        </section>
+
+        <aside className="space-y-3">
+          {feedback && (
             <div
-              id="scan-reader"
               className={clsx(
-                "relative min-h-[280px] bg-ink sm:min-h-[360px]",
-                !cameraOn && "flex items-center justify-center"
+                "px-4 py-3 text-sm font-semibold",
+                feedback.ok ? "bg-accent-soft text-accent" : "bg-red-50 text-red-800"
               )}
+              role="status"
             >
-              {!cameraOn && (
-                <p className="px-6 text-center text-sm text-white/70">
-                  Start the camera or enter a barcode below. Hold the item label in the frame.
-                </p>
-              )}
-            </div>
-            <div className="border-t border-line p-4">
-              <label className="ui-label" htmlFor="barcode">
-                Item barcode
-              </label>
-              <div className="mt-1 flex gap-2">
-                <input
-                  id="barcode"
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      lookupBarcode(barcode);
-                    }
-                  }}
-                  className="ui-input mt-0 font-mono text-base"
-                  placeholder="ITM-…"
-                  autoComplete="off"
-                  autoFocus
-                />
-                <Button type="button" variant="secondary" onClick={() => lookupBarcode(barcode)}>
-                  Lookup
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {details && (
-            <div className="border border-line bg-surface p-4">
-              <p className="text-lg font-semibold text-ink">
-                {details.item.clothingType}
-                <span className="ml-2 font-mono text-sm font-normal text-ink-muted">
-                  {details.item.barcodeValue}
-                </span>
-              </p>
-              <p className="text-sm text-ink-muted">
-                {details.customer?.name || "—"} · {shortOrderId(details.order.orderId)} ·{" "}
-                {stageLabel(details.timing.currentStage || actionStage)}
-                {details.production?.assignment?.staff?.name
-                  ? ` · ${details.production.assignment.staff.name}`
-                  : " · unassigned"}
-              </p>
-              <p className="mt-1 text-xs text-ink-muted">
-                Due {daysLabel(details.timing.daysRemaining, details.timing.overdue)}
-                {details.pricing ? ` · ${formatMoney(details.pricing.balanceRemaining)} remaining` : ""}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-3">
-                {details.item._id && (
-                  <Link
-                    to={`/garments/${encodeURIComponent(details.item._id)}`}
-                    className="text-sm font-semibold text-accent hover:underline"
-                  >
-                    Open garment
-                  </Link>
-                )}
-                {canLabels && details.item.barcodeValue && (
-                  <Link
-                    to={`/labels`}
-                    className="text-sm font-semibold text-accent hover:underline"
-                  >
-                    Print labels
-                  </Link>
-                )}
-              </div>
+              {feedback.message}
             </div>
           )}
 
-          {canCheck && (
-          <div className="border border-line bg-surface space-y-4 p-4">
-            <div>
-              <label className="ui-label" htmlFor="staff">
-                Worker
-              </label>
-              <select
-                id="staff"
-                required
-                value={staffId}
-                onChange={(e) => setStaffId(e.target.value)}
-                className="ui-input"
-              >
-                <option value="">Select worker…</option>
-                {staffList.map((s) => (
-                  <option key={s._id} value={s._id}>
-                    {s.name} · {s.status.replace("_", " ")} · {s.role}
-                  </option>
-                ))}
-              </select>
-              {!staffList.length && (
-                <p className="mt-1 text-xs text-ink-muted">
-                  No skilled workers for {stageLabel(actionStage)}.
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="ui-label" htmlFor="notes">
-                Notes
-              </label>
+          <form id="scan-form" onSubmit={onSubmit} className="border border-line bg-surface p-4">
+            <label className="ui-label" htmlFor="barcode">
+              Barcode
+            </label>
+            <div className="mt-1 flex gap-2">
               <input
-                id="notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="ui-input"
-                placeholder="Optional"
+                id="barcode"
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    lookupBarcode(barcode);
+                  }
+                }}
+                className="ui-input mt-0 font-mono text-base"
+                placeholder="ORD-293-1"
+                autoComplete="off"
+                autoFocus
               />
+              <Button type="button" variant="secondary" onClick={() => lookupBarcode(barcode)}>
+                Lookup
+              </Button>
             </div>
-            {canOverride && (
-              <label className="flex items-center gap-2 text-sm text-ink-muted">
-                <input
-                  type="checkbox"
-                  checked={adminOverride}
-                  onChange={(e) => setAdminOverride(e.target.checked)}
-                  className="h-4 w-4 accent-accent"
-                />
-                Override stage sequence (manager)
-              </label>
-            )}
-                {canOverride &&
-                  details?.production?.assignment &&
-                  !details.production.assignment.distributedAt && (
-                    <Button
-                      type="button"
-                      size="lg"
-                      variant="secondary"
-                      className="min-h-12 w-full"
-                      disabled={busy}
-                      onClick={handoverAssignment}
-                    >
-                      Mark handed over
-                    </Button>
-                  )}
-                {details?.production?.assignment?.distributedAt &&
-              !details.production.assignment.receivedAt && (
-                <Button
-                  type="button"
-                  size="lg"
-                  variant="secondary"
-                  className="min-h-12 w-full max-sm:hidden"
-                  disabled={busy}
-                  onClick={receiveAssignment}
-                >
-                  Confirm received
-                </Button>
-              )}
-            <Button
-              type="submit"
-              size="lg"
-              className="min-h-14 w-full text-base max-sm:hidden"
-              disabled={busy || !barcode.trim() || !staffId || !details}
-            >
-              {busy ? "Working…" : details ? actionLabel : "Scan an item first"}
-            </Button>
-          </div>
-          )}
-        </form>
+          </form>
 
-        <aside className="space-y-4">
-          <div className="ui-card p-4">
-            <p className="text-sm font-semibold text-ink">This scan</p>
-            {details ? (
-              <dl className="mt-3 space-y-2 text-sm">
-                <div className="flex justify-between gap-2">
-                  <dt className="text-ink-muted">Stage</dt>
-                  <dd className="capitalize font-medium">{stageLabel(actionStage)}</dd>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <dt className="text-ink-muted">Action</dt>
-                  <dd className="font-medium">{action === "check_out" ? "Check out" : "Check in"}</dd>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <dt className="text-ink-muted">Due</dt>
-                  <dd className={details.timing.overdue ? "font-semibold text-red-700" : ""}>
-                    {details.timing.overdue ? "Overdue" : "On time"}
-                  </dd>
-                </div>
-              </dl>
-            ) : (
-              <p className="mt-3 text-sm text-ink-muted">Waiting for a barcode.</p>
-            )}
-          </div>
-          <div className="ui-card p-4">
-            <p className="text-sm font-semibold text-ink">Recent scans</p>
-            {recent.length === 0 ? (
-              <p className="mt-3 text-sm text-ink-muted">None yet this session.</p>
-            ) : (
-              <ul className="mt-3 space-y-2">
-                {recent.map((r) => (
-                  <li key={`${r.barcode}-${r.at}`}>
-                    <button
-                      type="button"
-                      className="w-full text-left text-xs"
-                      onClick={() => {
-                        setBarcode(r.barcode);
-                        lookupBarcode(r.barcode);
-                      }}
+          {!details ? (
+            <div className="border border-line bg-surface px-4 py-10 text-center text-sm text-ink-muted">
+              Scan or look up a garment to see where it is, who has it, and what to do next.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="border border-line bg-surface p-4">
+                <p className="font-mono text-xs font-semibold text-ink">{shortOrderId(details.order.orderId)}</p>
+                <p className="mt-1 text-lg font-semibold text-ink">{details.customer?.name || "—"}</p>
+                <p className="text-sm text-ink-muted">
+                  {details.item.clothingType}
+                  {details.group?.name ? ` · ${details.group.name}` : ""}
+                </p>
+                <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                  <Fact k="Due" v={formatDate(details.timing.requiredCompletionDate)} warn={details.timing.overdue} />
+                  <Fact k="Priority" v={details.order.priority || "NORMAL"} />
+                  <Fact k="Status" v={details.production?.boardStatus?.replace(/_/g, " ") || details.order.productionStatus} />
+                  <Fact k="Balance" v={formatMoney(details.pricing.balanceRemaining)} />
+                </dl>
+              </div>
+
+              <div className="border border-line bg-surface p-4 text-sm">
+                <p className="ui-label">Current location</p>
+                <p className="mt-1 font-semibold capitalize text-ink">
+                  {details.production?.location || stageLabel(details.timing.currentStage || "unstarted")}
+                </p>
+                <p className="mt-3 ui-label">Current worker</p>
+                <p className="mt-1 font-medium text-ink">
+                  {details.production?.currentWorker?.name || details.production?.assignment?.staff?.name || "Unassigned"}
+                </p>
+                <p className="mt-3 ui-label">Next stage / worker</p>
+                <p className="mt-1 capitalize text-ink">
+                  {stageLabel(details.production?.nextStage || details.timing.nextExpectedStage)}
+                  {details.production?.nextWorker?.name ? ` — ${details.production.nextWorker.name}` : ""}
+                </p>
+                {details.production?.managerCommand && (
+                  <p className="mt-3 bg-accent-soft px-3 py-2 text-sm text-accent">
+                    {details.production.managerCommand}
+                  </p>
+                )}
+              </div>
+
+              {canCheck && (
+                <div className="border border-line bg-surface space-y-3 p-4">
+                  <label className="block text-sm">
+                    <span className="ui-label">Workstation worker</span>
+                    <select
+                      required
+                      value={staffId}
+                      onChange={(e) => setStaffId(e.target.value)}
+                      className="ui-input"
                     >
-                      <span className="font-mono text-ink">{r.barcode}</span>
-                      <span className={clsx("mt-0.5 block", r.ok ? "text-ink-muted" : "text-red-700")}>
-                        {r.label}
+                      <option value="">Select worker…</option>
+                      {staffList.map((s) => (
+                        <option key={s._id} value={s._id}>
+                          {s.name} · {s.activeAssignmentCount || 0} queued
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <input
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="ui-input"
+                    placeholder="Optional note"
+                  />
+                  {canOverride && (
+                    <label className="flex items-center gap-2 text-xs text-ink-muted">
+                      <input
+                        type="checkbox"
+                        checked={adminOverride}
+                        onChange={(e) => setAdminOverride(e.target.checked)}
+                        className="h-4 w-4 accent-accent"
+                      />
+                      Override sequence
+                    </label>
+                  )}
+                  <div className="flex flex-col gap-2">
+                    {canOverride && codes.has("handover") && (
+                      <Button type="button" variant="secondary" disabled={busy} onClick={handoverAssignment}>
+                        Hand to workstation
+                      </Button>
+                    )}
+                    {codes.has("receive") && (
+                      <Button type="button" variant="secondary" disabled={busy} onClick={receiveAssignment}>
+                        Confirm received
+                      </Button>
+                    )}
+                    {(codes.has("check_in") ||
+                      codes.has("check_out") ||
+                      codes.has("start_first") ||
+                      codes.has("mark_ready") ||
+                      codes.has("send_next")) && (
+                      <Button type="submit" form="scan-form" disabled={busy || !staffId}>
+                        {busy ? "Working…" : actionLabel}
+                      </Button>
+                    )}
+                    {canLabels && (
+                      <Link to="/labels" className="text-center text-sm font-semibold text-accent">
+                        Print / reprint label
+                      </Link>
+                    )}
+                    {details.item._id && (
+                      <Link
+                        to={`/garments/${encodeURIComponent(details.item._id)}`}
+                        className="text-center text-sm font-semibold text-accent"
+                      >
+                        Open garment / assignment path
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="border border-line bg-surface p-4">
+                <p className="text-sm font-semibold text-ink">Production path</p>
+                <ol className="mt-3 space-y-1.5 text-sm">
+                  {(details.production?.assignmentChain || []).map((step) => (
+                    <li key={step.stage} className="flex justify-between gap-2">
+                      <span className="capitalize text-ink">
+                        {step.status === "completed" ? "✓" : step.status === "in_progress" ? "●" : "○"}{" "}
+                        {stageLabel(step.stage)}
                       </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                      <span className="text-ink-muted">{step.staff?.name || "—"}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              {canOverride && details.item._id && (
+                <AssignmentChain
+                  orderItemId={details.item._id}
+                  scan={details}
+                  onSaved={() => lookupBarcode(barcode)}
+                />
+              )}
+
+              {canOverride && details.item._id && (
+                <SuggestedAssignments
+                  orderItemId={details.item._id}
+                  stage={actionStage}
+                  onAssigned={(id) => {
+                    setStaffId(id);
+                    lookupBarcode(barcode);
+                  }}
+                />
+              )}
+
+              {details.item._id && (
+                <div className="border border-line bg-surface p-4">
+                  <p className="mb-3 text-sm font-semibold text-ink">What happened</p>
+                  <ProductionTimeline orderItemId={details.item._id} stages={details.production?.stageStates} />
+                </div>
+              )}
+              <p className="text-xs text-ink-faint">{daysLabel(details.timing.daysRemaining, details.timing.overdue)}</p>
+            </div>
+          )}
         </aside>
       </div>
+    </div>
+  );
+}
 
-      {canCheck && (
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:hidden">
-        {details?.production?.assignment?.distributedAt && !details.production.assignment.receivedAt ? (
-          <Button
-            type="button"
-            size="lg"
-            variant="secondary"
-            className="mb-2 min-h-12 w-full"
-            disabled={busy}
-            onClick={receiveAssignment}
-          >
-            Confirm received
-          </Button>
-        ) : null}
-        <Button
-          type="submit"
-          form="scan-form"
-          size="lg"
-          className="min-h-14 w-full text-base"
-          disabled={busy || !barcode.trim() || !staffId || !details}
-        >
-          {busy ? "Working…" : details ? actionLabel : "Scan an item first"}
-        </Button>
-      </div>
-      )}
-      {canCheck && <div className="h-24 sm:hidden" aria-hidden />}
-
-      {details && (
-        <>
-          <ScanDetailCard details={details} />
-          {canOverride && details.item._id && (
-            <SuggestedAssignments
-              orderItemId={details.item._id}
-              stage={actionStage}
-              onAssigned={(id) => {
-                setStaffId(id);
-                setFeedback({
-                  ok: true,
-                  message: "Worker assigned. Confirm check-in when the garment is in their hands."
-                });
-              }}
-            />
-          )}
-        </>
-      )}
+function Fact({ k, v, warn }: { k: string; v?: string; warn?: boolean }) {
+  return (
+    <div>
+      <dt className="text-[11px] uppercase tracking-wide text-ink-faint">{k}</dt>
+      <dd className={clsx("capitalize", warn && "font-semibold text-red-700")}>{v || "—"}</dd>
     </div>
   );
 }

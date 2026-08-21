@@ -10,10 +10,11 @@ export async function resolveStageSequence(clothingType) {
   if (key) {
     const config = await prisma.clothingTypeConfig.findUnique({ where: { key } });
     if (config?.stageSequence?.length) {
+      const stageSequence = ensurePackagingStage(config.stageSequence);
       return {
         key: config.key,
         label: config.label,
-        stageSequence: config.stageSequence,
+        stageSequence,
         includesEmbroidery: config.includesEmbroidery,
         fallback: false
       };
@@ -22,10 +23,28 @@ export async function resolveStageSequence(clothingType) {
   return {
     key: key || "unknown",
     label: clothingType || "Unknown",
-    stageSequence: [...SKIP_EMBROIDERY_SEQUENCE],
+    stageSequence: ensurePackagingStage([...SKIP_EMBROIDERY_SEQUENCE]),
     includesEmbroidery: false,
     fallback: true
   };
+}
+
+/** Existing clothing-type configs stored without PACKAGING still get it before READY. */
+export function ensurePackagingStage(seq = []) {
+  const list = Array.isArray(seq) ? [...seq] : [];
+  if (list.includes("PACKAGING")) return list;
+  const ready = list.indexOf("READY");
+  if (ready >= 0) {
+    list.splice(ready, 0, "PACKAGING");
+    return list;
+  }
+  const delivered = list.indexOf("DELIVERED");
+  if (delivered >= 0) {
+    list.splice(delivered, 0, "PACKAGING");
+    return list;
+  }
+  list.push("PACKAGING");
+  return list;
 }
 
 /**

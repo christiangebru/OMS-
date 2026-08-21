@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireCapability } from "../middleware/permissions.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { normalizePhone } from "../utils/migrateHelpers.js";
+import { isRecordId } from "../utils/recordId.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -72,7 +73,7 @@ router.get("/", query("q").optional().isString(), async (req, res) => {
   );
 });
 
-router.get("/:id", param("id").isMongoId(), async (req, res) => {
+router.get("/:id", param("id").custom(isRecordId), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
@@ -174,7 +175,7 @@ router.post(
 router.patch(
   "/:id",
   requireCapability("customers.write"),
-  param("id").isMongoId(),
+  param("id").custom(isRecordId),
   body("name").optional().trim().notEmpty(),
   body("phone").optional().trim().notEmpty(),
   body("secondaryPhone").optional().isString(),
@@ -217,7 +218,7 @@ router.patch(
 router.post(
   "/:id/measurements",
   requireCapability("customers.write"),
-  param("id").isMongoId(),
+  param("id").custom(isRecordId),
   body("chest").optional().isFloat(),
   body("waist").optional().isFloat(),
   body("hip").optional().isFloat(),

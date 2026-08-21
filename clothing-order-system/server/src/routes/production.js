@@ -13,37 +13,78 @@ import { rankStaffForAssignment } from "../utils/assignmentScore.js";
 import { hydrateOrder } from "../utils/orderHydrate.js";
 import { buildProductionQueue } from "../utils/productionBoard.js";
 import { renderBarcodePng } from "../utils/barcode.js";
+import { isRecordId } from "../utils/recordId.js";
+import { WORKSTATION_STAGES } from "../constants/production.js";
 
 const router = Router();
 router.use(requireAuth);
 
-async function assertStaffForStage(staffId, stage, { requireAvailable = true } = {}, client = prisma) {
+async function assertStaffForStage(staffId, stage, { requireOnDuty = true } = {}, client = prisma) {
   const staff = await client.staff.findFirst({
     where: { id: staffId, tenantId: DEFAULT_TENANT_ID, active: true }
   });
   if (!staff) {
     throw Object.assign(new Error("Staff not found or inactive"), { status: 400 });
   }
-  if (requireAvailable && staff.status !== "AVAILABLE") {
+  if (requireOnDuty && staff.status === "OFF_DUTY") {
     throw Object.assign(
-      new Error(`Staff ${staff.name} is ${staff.status}. Only AVAILABLE staff can check in.`),
+      new Error(`${staff.name} is off duty and cannot take this stage.`),
       { status: 400 }
     );
   }
   const skill = await client.staffSkill.findFirst({ where: { staffId: staff.id, stage } });
   if (!skill) {
-    throw Object.assign(new Error(`Staff ${staff.name} is not skilled for stage ${stage}`), {
-      status: 400
-    });
+    throw Object.assign(
+      new Error(`Worker is not assigned to this stage: ${staff.name} is not skilled for ${stage}`),
+      { status: 400 }
+    );
   }
   return staff;
+}
+
+async function refreshStaffPresence(staffId, client = prisma) {
+  const staff = await client.staff.findUnique({ where: { id: staffId } });
+  if (!staff || staff.status === "OFF_DUTY") return;
+  const open = await client.stageCheckpoint.count({
+    where: { checkedInByStaffId: staffId, checkedOutAt: null }
+  });
+  const next = open > 0 ? "BUSY" : "AVAILABLE";
+  if (staff.status !== next) {
+    await client.staff.update({ where: { id: staffId }, data: { status: next } });
+  }
+}
+
+async function upsertAssignment(tx, { staffId, orderItemId, stage, suggestedStaffId, followedSuggestion, userId }) {
+  await tx.staffAssignment.updateMany({
+    where: { orderItemId, stage, completedAt: null, staffId: { not: staffId } },
+    data: { completedAt: new Date() }
+  });
+  const existing = await tx.staffAssignment.findFirst({
+    where: { orderItemId, stage, staffId, completedAt: null }
+  });
+  if (existing) return existing;
+  const activeForStaff = await tx.staffAssignment.count({
+    where: { staffId, completedAt: null }
+  });
+  return tx.staffAssignment.create({
+    data: {
+      staffId,
+      orderItemId,
+      stage,
+      assignedAt: new Date(),
+      completedAt: null,
+      suggestedStaffId: suggestedStaffId || null,
+      followedSuggestion: Boolean(followedSuggestion),
+      queuePosition: activeForStaff
+    }
+  });
 }
 
 router.post(
   "/scan",
   body("barcodeValue").trim().notEmpty(),
   body("stage").isIn(ProductionStage),
-  body("staffId").isMongoId(),
+  body("staffId").custom(isRecordId),
   body("notes").optional().isString(),
   body("adminOverride").optional().isBoolean(),
   async (req, res) => {
@@ -73,7 +114,7 @@ router.post(
 
       if (openAtStage) {
         // Check-out
-        await assertStaffForStage(staffId, stage, { requireAvailable: false });
+        const staff = await assertStaffForStage(staffId, stage, { requireOnDuty: false });
         checkpoint = await prisma.$transaction(async (tx) => {
           const cp = await tx.stageCheckpoint.update({
             where: { id: openAtStage.id },
@@ -86,20 +127,38 @@ router.post(
             }
           });
           await tx.staffAssignment.updateMany({
-            where: { orderItemId: item.id, stage, staffId, completedAt: null },
-            data: { completedAt: new Date() }
-          });
-          // Complete any remaining active assignment for this item+stage regardless of staff
-          await tx.staffAssignment.updateMany({
             where: { orderItemId: item.id, stage, completedAt: null },
             data: { completedAt: new Date() }
           });
           await syncOrderStatusFromItems(item.order, req.user.id, tx);
+          const orderRow = await tx.order.findUnique({ where: { id: item.order } });
+          await tx.productionLog.create({
+            data: {
+              orderId: orderRow?.orderId || item.orderId,
+              mongoOrderId: item.order,
+              userId: req.user.id,
+              action: "scan_out",
+              fromStatus: stage,
+              toStatus: stage,
+              notes: `Checked out of ${stage} by ${staff.name}`,
+              metadata: { stage, staffId, itemId: item.id, barcodeValue: item.barcodeValue }
+            }
+          });
           return cp;
         });
+        await refreshStaffPresence(staffId);
         action = "check_out";
       } else {
         // Check-in
+        const alreadyHere = await prisma.stageCheckpoint.findFirst({
+          where: { orderItemId: item.id, stage, checkedOutAt: null }
+        });
+        if (alreadyHere) {
+          return res.status(400).json({
+            message: `This garment is already checked into ${stage}`
+          });
+        }
+
         const validation = await validateCheckIn(item.id, stage, stageSequence, {
           adminOverride
         });
@@ -107,7 +166,21 @@ router.post(
           return res.status(400).json({ message: validation.message });
         }
 
-        await assertStaffForStage(staffId, stage, { requireAvailable: true });
+        const staff = await assertStaffForStage(staffId, stage, { requireOnDuty: true });
+
+        const otherOpen = await prisma.stageCheckpoint.findFirst({
+          where: {
+            checkedInByStaffId: staffId,
+            checkedOutAt: null,
+            orderItemId: { not: item.id }
+          },
+          include: { orderItem: true }
+        });
+        if (otherOpen && !adminOverride) {
+          return res.status(400).json({
+            message: `${staff.name} is already working on ${otherOpen.orderItem?.orderId || "another garment"} (${otherOpen.stage}). Scan that item out first.`
+          });
+        }
 
         checkpoint = await prisma.$transaction(async (tx) => {
           const cp = await tx.stageCheckpoint.create({
@@ -119,9 +192,29 @@ router.post(
               notes
             }
           });
+          await upsertAssignment(tx, {
+            staffId,
+            orderItemId: item.id,
+            stage,
+            userId: req.user.id
+          });
           await syncOrderStatusFromItems(item.order, req.user.id, tx);
+          const orderRow = await tx.order.findUnique({ where: { id: item.order } });
+          await tx.productionLog.create({
+            data: {
+              orderId: orderRow?.orderId || item.orderId,
+              mongoOrderId: item.order,
+              userId: req.user.id,
+              action: "scan_in",
+              fromStatus: stage,
+              toStatus: stage,
+              notes: `Checked in to ${stage} — ${staff.name}`,
+              metadata: { stage, staffId, itemId: item.id, barcodeValue: item.barcodeValue }
+            }
+          });
           return cp;
         });
+        await refreshStaffPresence(staffId);
         action = "check_in";
       }
 
@@ -149,7 +242,7 @@ router.post(
 router.get(
   "/suggest-assignment",
   requireCapability("distribution"),
-  query("orderItemId").isMongoId(),
+  query("orderItemId").custom(isRecordId),
   query("stage").isIn(ProductionStage),
   async (req, res) => {
     const errors = validationResult(req);
@@ -172,39 +265,45 @@ router.get(
 router.post(
   "/assignments",
   requireCapability("distribution"),
-  body("staffId").isMongoId(),
-  body("orderItemId").isMongoId(),
+  body("staffId").custom(isRecordId),
+  body("orderItemId").custom(isRecordId),
   body("stage").isIn(ProductionStage),
-  body("suggestedStaffId").optional({ nullable: true }).isMongoId(),
+  body("suggestedStaffId").optional({ nullable: true, checkFalsy: true }).custom(isRecordId),
   body("followedSuggestion").optional().isBoolean(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
-      await assertStaffForStage(req.body.staffId, req.body.stage, { requireAvailable: false });
+      await assertStaffForStage(req.body.staffId, req.body.stage, { requireOnDuty: true });
 
       const assignment = await prisma.$transaction(async (tx) => {
-        await tx.staffAssignment.updateMany({
-          where: {
-            orderItemId: req.body.orderItemId,
-            stage: req.body.stage,
-            completedAt: null
-          },
-          data: { completedAt: new Date() }
+        const created = await upsertAssignment(tx, {
+          staffId: req.body.staffId,
+          orderItemId: req.body.orderItemId,
+          stage: req.body.stage,
+          suggestedStaffId: req.body.suggestedStaffId,
+          followedSuggestion: req.body.followedSuggestion,
+          userId: req.user.id
         });
-        const created = await tx.staffAssignment.create({
-          data: {
-            staffId: req.body.staffId,
-            orderItemId: req.body.orderItemId,
-            stage: req.body.stage,
-            assignedAt: new Date(),
-            completedAt: null,
-            suggestedStaffId: req.body.suggestedStaffId || null,
-            followedSuggestion: Boolean(req.body.followedSuggestion)
-          }
-        });
-        await tx.staff.update({ where: { id: req.body.staffId }, data: { status: "BUSY" } });
+        const orderItem = await tx.orderItem.findUnique({ where: { id: req.body.orderItemId } });
+        if (orderItem) {
+          const orderRow = await tx.order.findUnique({ where: { id: orderItem.order } });
+          await tx.productionLog.create({
+            data: {
+              orderId: orderRow?.orderId || orderItem.orderId,
+              mongoOrderId: orderItem.order,
+              userId: req.user.id,
+              action: "assignment",
+              notes: `Assigned ${req.body.stage}`,
+              metadata: {
+                stage: req.body.stage,
+                staffId: req.body.staffId,
+                itemId: req.body.orderItemId
+              }
+            }
+          });
+        }
         return created;
       });
 
@@ -268,7 +367,7 @@ router.get("/floor", requireCapability("scan"), async (req, res) => {
 router.post(
   "/assignments/:id/distribute",
   requireCapability("distribution"),
-  param("id").isMongoId(),
+  param("id").custom(isRecordId),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -292,7 +391,7 @@ router.post(
 
 router.post(
   "/assignments/:id/receive",
-  param("id").isMongoId(),
+  param("id").custom(isRecordId),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -314,5 +413,101 @@ router.post(
     res.json(s(updated));
   }
 );
+
+/** Pre-assign the full production path for a garment. */
+router.post(
+  "/assignment-chain",
+  requireCapability("distribution"),
+  body("orderItemId").custom(isRecordId),
+  body("path").isArray({ min: 1 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    const item = await prisma.orderItem.findUnique({ where: { id: req.body.orderItemId } });
+    if (!item) return res.status(404).json({ message: "Order item not found" });
+
+    try {
+      const created = [];
+      await prisma.$transaction(async (tx) => {
+        for (const step of req.body.path) {
+          if (!step?.staffId || !ProductionStage.includes(step.stage)) {
+            throw Object.assign(new Error("Each path step needs stage and staffId"), { status: 400 });
+          }
+          await assertStaffForStage(step.staffId, step.stage, { requireOnDuty: true }, tx);
+          const asg = await upsertAssignment(tx, {
+            staffId: step.staffId,
+            orderItemId: item.id,
+            stage: step.stage,
+            followedSuggestion: Boolean(step.followedSuggestion),
+            suggestedStaffId: step.suggestedStaffId,
+            userId: req.user.id
+          });
+          created.push(asg);
+        }
+        const orderRow = await tx.order.findUnique({ where: { id: item.order } });
+        await tx.productionLog.create({
+          data: {
+            orderId: orderRow?.orderId || item.orderId,
+            mongoOrderId: item.order,
+            userId: req.user.id,
+            action: "assignment_chain",
+            notes: `Production path set (${req.body.path.length} stages)`,
+            metadata: { itemId: item.id, path: req.body.path }
+          }
+        });
+      });
+      const details = await buildScanDetails(item.id);
+      res.status(201).json({ ok: true, assignments: created.map(s), scanDetails: details });
+    } catch (e) {
+      if (e.status) return res.status(e.status).json({ message: e.message });
+      throw e;
+    }
+  }
+);
+
+router.post(
+  "/queue/reorder",
+  requireCapability("distribution"),
+  body("staffId").custom(isRecordId),
+  body("assignmentIds").isArray({ min: 1 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    const ids = req.body.assignmentIds.map(String);
+    await prisma.$transaction(
+      ids.map((id, index) =>
+        prisma.staffAssignment.updateMany({
+          where: { id, staffId: req.body.staffId, completedAt: null },
+          data: { queuePosition: index }
+        })
+      )
+    );
+    res.json({ ok: true, staffId: req.body.staffId, assignmentIds: ids });
+  }
+);
+
+router.get("/workstations", requireCapability("scan"), async (_req, res) => {
+  const staff = await prisma.staff.findMany({
+    where: { tenantId: DEFAULT_TENANT_ID, active: true },
+    include: { skills: true, assignments: { where: { completedAt: null } } }
+  });
+  const workstations = WORKSTATION_STAGES.map((stage) => {
+    const workers = staff.filter((st) => st.skills.some((sk) => sk.stage === stage));
+    return {
+      stage,
+      label: `${stage.charAt(0)}${stage.slice(1).toLowerCase()} workstation`,
+      workers: workers.map((st) => ({
+        _id: st.id,
+        name: st.name,
+        role: st.role,
+        status: st.status,
+        queuedCount: st.assignments.filter((a) => a.stage === stage).length
+      }))
+    };
+  });
+  res.json({ workstations });
+});
 
 export default router;

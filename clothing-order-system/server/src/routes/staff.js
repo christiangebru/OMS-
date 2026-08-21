@@ -7,6 +7,8 @@ import { requireCapability } from "../middleware/permissions.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { StaffRole, StaffStatus, ProductionStage } from "../constants/production.js";
 import { attachStaffBoard } from "../utils/staffBoard.js";
+import { decorateQueueRow, splitWorkerQueue } from "../utils/workerQueue.js";
+import { isRecordId } from "../utils/recordId.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -63,7 +65,7 @@ router.get(
   }
 );
 
-router.get("/:id/workload", param("id").isMongoId(), async (req, res) => {
+router.get("/:id/workload", param("id").custom(isRecordId), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
@@ -84,6 +86,7 @@ router.get("/:id/workload", param("id").isMongoId(), async (req, res) => {
 
   const recentCompletions = await prisma.staffAssignment.findMany({
     where: { staffId: staff.id, completedAt: { not: null } },
+    include: { orderItem: true },
     orderBy: { completedAt: "desc" },
     take: 20
   });
@@ -121,6 +124,45 @@ router.get("/:id/workload", param("id").isMongoId(), async (req, res) => {
     ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
     : null;
 
+  const openNow = await prisma.stageCheckpoint.findMany({
+    where: { checkedInByStaffId: staff.id, checkedOutAt: null },
+    include: { orderItem: true }
+  });
+
+  const assignedItems = active.map((a) => {
+    const o = orderById.get(a.orderItem.order);
+    return decorateQueueRow(a, o, {
+      item: {
+        _id: a.orderItem.id,
+        clothingType: a.orderItem.clothingType,
+        barcodeValue: a.orderItem.barcodeValue,
+        orderId: a.orderItem.orderId
+      },
+      due: o?.requiredCompletionDate || null,
+      customerName: o?.customer?.name || null,
+      orderItemId: a.orderItem.id
+    });
+  });
+
+  const completedRows = recentCompletions.slice(0, 12).map((a) => ({
+    assignmentId: a.id,
+    stage: a.stage,
+    completedAt: a.completedAt,
+    item: a.orderItem
+      ? {
+          _id: a.orderItem.id,
+          clothingType: a.orderItem.clothingType,
+          barcodeValue: a.orderItem.barcodeValue,
+          orderId: a.orderItem.orderId
+        }
+      : null
+  }));
+
+  const queue = splitWorkerQueue({
+    assignments: assignedItems,
+    openCheckpoints: openNow
+  });
+
   res.json({
     staffId: staff.id,
     name: staff.name,
@@ -130,33 +172,17 @@ router.get("/:id/workload", param("id").isMongoId(), async (req, res) => {
     recentCompletions: sMany(recentCompletions),
     averageStageDurationMs: avgStageDurationMs,
     completedCheckpointSample: checkpoints.length,
-    assignedItems: active.map((a) => {
-      const o = orderById.get(a.orderItem.order);
-      return {
-        assignmentId: a.id,
-        stage: a.stage,
-        assignedAt: a.assignedAt,
-        distributedAt: a.distributedAt,
-        receivedAt: a.receivedAt,
-        item: {
-          _id: a.orderItem.id,
-          clothingType: a.orderItem.clothingType,
-          barcodeValue: a.orderItem.barcodeValue,
-          orderId: a.orderItem.orderId
-        },
-        due: o?.requiredCompletionDate || null,
-        overdue: o
-          ? o.requiredCompletionDate < now &&
-            !["completed", "delivered"].includes(o.productionStatus)
-          : false,
-        customerName: o?.customer?.name || null,
-        priority: o?.priority || null
-      };
-    })
+    assignedItems,
+    queue: {
+      nowWorking: queue.nowWorking,
+      upNext: queue.upNext,
+      queued: queue.queued,
+      completed: completedRows
+    }
   });
 });
 
-router.get("/:id", param("id").isMongoId(), async (req, res) => {
+router.get("/:id", param("id").custom(isRecordId), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
@@ -207,7 +233,7 @@ router.post(
 router.patch(
   "/:id",
   requireCapability("staff.write"),
-  param("id").isMongoId(),
+  param("id").custom(isRecordId),
   body("name").optional().trim().notEmpty(),
   body("phone").optional().trim().notEmpty(),
   body("role").optional().isIn(StaffRole),
@@ -249,7 +275,7 @@ router.patch(
   }
 );
 
-router.post("/:id/deactivate", requireCapability("staff.write"), param("id").isMongoId(), async (req, res) => {
+router.post("/:id/deactivate", requireCapability("staff.write"), param("id").custom(isRecordId), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 

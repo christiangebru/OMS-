@@ -44,7 +44,7 @@ export const ROLE_STAGES: Partial<Record<UserRole, string[]>> = {
   tailor: ["SEWING"],
   embroiderer: ["EMBROIDERY"],
   finisher: ["FINISHING"],
-  packer: ["READY"],
+  packer: ["PACKAGING", "READY"],
   delivery: ["READY", "DELIVERED"]
 };
 

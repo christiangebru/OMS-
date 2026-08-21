@@ -16,6 +16,7 @@ import staffRoutes from "./routes/staff.js";
 import orderItemRoutes from "./routes/orderItems.js";
 import clothingTypeRoutes from "./routes/clothingTypes.js";
 import productionRoutes from "./routes/production.js";
+import orderGroupRoutes from "./routes/orderGroups.js";
 import { refreshStatisticSnapshot } from "./utils/stats.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +50,7 @@ app.use("/api/customers", customerRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/clothing-types", clothingTypeRoutes);
 app.use("/api/production", productionRoutes);
+app.use("/api/order-groups", orderGroupRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/analytics", analyticsRoutes);
 

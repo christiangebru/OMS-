@@ -88,7 +88,7 @@ describe("Orders API (PostgreSQL/Prisma)", () => {
     expect(res.body.totalAgreedPrice).toBe(90); // defaults to revenue
     expect(res.body.balanceRemaining).toBe(60); // 90 - 30
     expect(res.body.items[0]._id).toBeTruthy();
-    expect(res.body.items[0].barcodeValue).toMatch(/^ITM-/);
+    expect(res.body.items[0].barcodeValue).toMatch(/^ORD-\d+-\d+$/);
     expect(res.body.customer.name).toBe("Maria Tailor");
 
     // Reload from a fresh GET to prove persistence in PostgreSQL.
@@ -203,7 +203,7 @@ describe("Orders API (PostgreSQL/Prisma)", () => {
         items: [validItem]
       });
     expect(res.status).toBe(201);
-    expect(res.body.items[0].barcodeValue).toMatch(/^ITM-/);
+    expect(res.body.items[0].barcodeValue).toMatch(/^ORD-\d+-\d+$/);
   });
 
   it("creates one order with multiple garments, each with its own barcode", async () => {
@@ -226,7 +226,7 @@ describe("Orders API (PostgreSQL/Prisma)", () => {
     expect(res.body.items).toHaveLength(3);
     const barcodes = res.body.items.map((it) => it.barcodeValue);
     expect(new Set(barcodes).size).toBe(3);
-    barcodes.forEach((b) => expect(b).toMatch(/^ITM-/));
+    barcodes.forEach((b) => expect(b).toMatch(/^ORD-\d+-\d+$/));
     expect(res.body.totalRevenue).toBe(900);
     expect(res.body.balanceRemaining).toBe(700);
   });

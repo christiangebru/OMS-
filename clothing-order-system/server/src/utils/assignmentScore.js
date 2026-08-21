@@ -35,14 +35,14 @@ function priorityScore(priority) {
 
 function buildReason({ staff, skillMatch, stageSkill, priority, daysLeft }) {
   const reasons = [];
-  if (staff.status === "AVAILABLE") {
-    reasons.push({ ok: true, code: "available", label: "Available" });
-  } else {
+  if (staff.status === "OFF_DUTY") {
     reasons.push({
       ok: false,
       code: "availability",
-      label: staff.status === "BUSY" ? "Currently busy" : staff.status.replace("_", " ")
+      label: "Off duty"
     });
+  } else {
+    reasons.push({ ok: true, code: "available", label: "Can take work" });
   }
 
   if (skillMatch >= 0.75) {
@@ -83,7 +83,7 @@ function buildReason({ staff, skillMatch, stageSkill, priority, daysLeft }) {
   const dueCapacity =
     daysLeft != null && daysLeft < 0
       ? "Overdue — needs fastest available worker"
-      : active <= 2 && staff.status === "AVAILABLE"
+      : active <= 2
         ? "Can take this deadline"
         : "Workload may delay this deadline";
 
@@ -99,7 +99,7 @@ function buildReason({ staff, skillMatch, stageSkill, priority, daysLeft }) {
   const summary = [
     stageSkill >= 4 ? `High Skill ${stageSkill}/5` : `Skill ${stageSkill}/5`,
     active === 0 ? "Low workload" : `${active} active`,
-    staff.status === "AVAILABLE" ? "Available" : staff.status.replace("_", " ").toLowerCase(),
+    staff.status === "OFF_DUTY" ? "off duty" : active > 0 ? `${active} queued` : "Available",
     dueBit
   ].join(" · ");
 

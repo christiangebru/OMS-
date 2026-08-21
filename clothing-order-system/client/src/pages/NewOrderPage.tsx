@@ -7,6 +7,7 @@ import type {
   HandType,
   NeckType,
   Order,
+  OrderGroup,
   OrderItem,
   OrderItemImage,
   OrderPriority,
@@ -150,10 +151,31 @@ export function NewOrderPage() {
   const [deposit, setDeposit] = useState(0);
   const [due, setDue] = useState("");
   const [priority, setPriority] = useState<OrderPriority>("NORMAL");
+  const [orderKind, setOrderKind] = useState<"individual" | "group">("individual");
+  const [groupMode, setGroupMode] = useState<"new" | "existing">("existing");
+  const [groups, setGroups] = useState<OrderGroup[]>([]);
+  const [groupId, setGroupId] = useState(params.get("groupId") || "");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupPerson, setNewGroupPerson] = useState("");
+  const [newGroupPhone, setNewGroupPhone] = useState("");
+  const [newGroupNotes, setNewGroupNotes] = useState("");
+  const [useGroupDue, setUseGroupDue] = useState(false);
+  const [useGroupPriority, setUseGroupPriority] = useState(false);
 
   useEffect(() => {
     apiJson<ClothingTypeConfig[]>("/api/clothing-types").then(setTypes).catch(() => {});
-  }, []);
+    apiJson<OrderGroup[]>("/api/order-groups")
+      .then((rows) => {
+        setGroups(rows);
+        const preset = params.get("groupId");
+        if (preset) {
+          setOrderKind("group");
+          setGroupMode("existing");
+          setGroupId(preset);
+        }
+      })
+      .catch(() => {});
+  }, [params]);
 
   useEffect(() => {
     const cid = params.get("customerId");
@@ -237,6 +259,26 @@ export function NewOrderPage() {
     setBusy(true);
     setErr(null);
     try {
+      let resolvedGroupId = groupId || undefined;
+      if (orderKind === "group" && groupMode === "new") {
+        if (!newGroupName.trim()) {
+          setErr("Group name is required");
+          setBusy(false);
+          return;
+        }
+        const createdGroup = await apiJson<OrderGroup>("/api/order-groups", {
+          method: "POST",
+          body: JSON.stringify({
+            name: newGroupName.trim(),
+            responsibleName: newGroupPerson,
+            responsiblePhone: newGroupPhone,
+            notes: newGroupNotes,
+            sharedDueDate: useGroupDue && due ? new Date(due).toISOString() : undefined,
+            sharedPriority: useGroupPriority ? priority : undefined
+          })
+        });
+        resolvedGroupId = createdGroup._id;
+      }
       const created = await apiJson<Order>("/api/orders", {
         method: "POST",
         body: JSON.stringify({
@@ -247,7 +289,10 @@ export function NewOrderPage() {
           priority,
           totalAgreedPrice: Number(agreed),
           depositPaid: Number(deposit),
-          items: drafts.map(toPayloadItem)
+          items: drafts.map(toPayloadItem),
+          groupId: orderKind === "group" ? resolvedGroupId : undefined,
+          useGroupDueDate: orderKind === "group" && useGroupDue,
+          useGroupPriority: orderKind === "group" && useGroupPriority
         })
       });
       const cid = created.customer?._id || customerId;
@@ -316,6 +361,94 @@ export function NewOrderPage() {
 
       <div className="ui-card p-5">
         {phase === "customer" && (
+          <div className="space-y-5">
+            <fieldset>
+              <legend className="ui-label">Order type</legend>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  className={clsx(
+                    "min-h-11 rounded-control px-3 text-sm",
+                    orderKind === "individual" ? "bg-accent text-white" : "bg-canvas text-ink-muted"
+                  )}
+                  onClick={() => setOrderKind("individual")}
+                >
+                  Individual
+                </button>
+                <button
+                  type="button"
+                  className={clsx(
+                    "min-h-11 rounded-control px-3 text-sm",
+                    orderKind === "group" ? "bg-accent text-white" : "bg-canvas text-ink-muted"
+                  )}
+                  onClick={() => setOrderKind("group")}
+                >
+                  Group / event
+                </button>
+              </div>
+            </fieldset>
+            {orderKind === "group" && (
+              <div className="space-y-3 rounded-control border border-line p-3">
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={groupMode === "existing" ? "primary" : "secondary"}
+                    onClick={() => setGroupMode("existing")}
+                  >
+                    Add to existing group
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={groupMode === "new" ? "primary" : "secondary"}
+                    onClick={() => setGroupMode("new")}
+                  >
+                    Create new group
+                  </Button>
+                </div>
+                {groupMode === "existing" ? (
+                  <select className="ui-input" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+                    <option value="">Select group…</option>
+                    {groups.map((g) => (
+                      <option key={g._id} value={g._id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input
+                      className="ui-input"
+                      placeholder="Group name"
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                    />
+                    <input
+                      className="ui-input"
+                      placeholder="Responsible person"
+                      value={newGroupPerson}
+                      onChange={(e) => setNewGroupPerson(e.target.value)}
+                    />
+                    <input
+                      className="ui-input"
+                      placeholder="Responsible phone"
+                      value={newGroupPhone}
+                      onChange={(e) => setNewGroupPhone(e.target.value)}
+                    />
+                    <input
+                      className="ui-input sm:col-span-2"
+                      placeholder="Notes"
+                      value={newGroupNotes}
+                      onChange={(e) => setNewGroupNotes(e.target.value)}
+                    />
+                  </div>
+                )}
+                <p className="text-xs text-ink-muted">
+                  Group values are defaults. Each order stays independent and can override due date and priority.
+                </p>
+              </div>
+            )}
           <CustomerPicker
             customerId={customerId}
             customerName={customerName}
@@ -340,6 +473,7 @@ export function NewOrderPage() {
               setCustomerPhone(p);
             }}
           />
+          </div>
         )}
 
         {phase === "garments" && (
@@ -611,6 +745,22 @@ export function NewOrderPage() {
                 <option value="VIP">VIP</option>
               </select>
             </Labeled>
+            {orderKind === "group" && (
+              <div className="sm:col-span-2 space-y-2 text-sm text-ink-muted">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={useGroupDue} onChange={(e) => setUseGroupDue(e.target.checked)} />
+                  Use group due date for this order
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={useGroupPriority}
+                    onChange={(e) => setUseGroupPriority(e.target.checked)}
+                  />
+                  Use group priority for this order
+                </label>
+              </div>
+            )}
             <Labeled label="Deposit (whole order)">
               <input
                 className="ui-input tabular"

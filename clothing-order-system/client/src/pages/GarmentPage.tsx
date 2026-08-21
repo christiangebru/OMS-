@@ -7,6 +7,7 @@ import { PageHeader, ErrorState, Skeleton, Badge } from "@/components/ui/PageHea
 import { Button } from "@/components/ui/Button";
 import { BarcodeImage } from "@/components/BarcodeImage";
 import { ProductionTimeline } from "@/components/ProductionTimeline";
+import { AssignmentChain } from "@/components/AssignmentChain";
 import { StageStrip } from "@/components/StageStrip";
 import { SpecSheet } from "@/components/SpecSheet";
 import { ReferenceGallery } from "@/components/ReferenceGallery";
@@ -291,6 +292,10 @@ export function GarmentPage() {
           <ProductionTimeline orderItemId={details.item._id} stages={details.production?.stageStates} />
         </div>
       </section>
+
+      {manager && details.item._id && (
+        <AssignmentChain orderItemId={details.item._id} scan={details} onSaved={load} />
+      )}
 
       <div className="flex gap-2">
         {(

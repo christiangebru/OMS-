@@ -9,11 +9,12 @@ import { buildScanDetails } from "../utils/scanDetails.js";
 import { resolveStageSequence } from "../utils/stageSequence.js";
 import { buildStageStates } from "../utils/stageTimeline.js";
 import { persistPublicImage } from "../utils/objectStore.js";
+import { isRecordId } from "../utils/recordId.js";
 
 const router = Router();
 router.use(requireAuth);
 
-router.get("/:id/scan-details", param("id").isMongoId(), async (req, res) => {
+router.get("/:id/scan-details", param("id").custom(isRecordId), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
@@ -22,7 +23,7 @@ router.get("/:id/scan-details", param("id").isMongoId(), async (req, res) => {
   res.json(details);
 });
 
-router.get("/:id/timeline", param("id").isMongoId(), async (req, res) => {
+router.get("/:id/timeline", param("id").custom(isRecordId), async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
@@ -103,7 +104,7 @@ router.get("/:id/timeline", param("id").isMongoId(), async (req, res) => {
   });
 });
 
-router.post("/:id/images", param("id").isMongoId(), (req, res) => {
+router.post("/:id/images", param("id").custom(isRecordId), (req, res) => {
   uploadItemImages.array("images", 12)(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ message: err.message || "Upload failed" });
@@ -155,8 +156,8 @@ router.post("/:id/images", param("id").isMongoId(), (req, res) => {
 
 router.delete(
   "/:id/images/:imageId",
-  param("id").isMongoId(),
-  param("imageId").isMongoId(),
+  param("id").custom(isRecordId),
+  param("imageId").custom(isRecordId),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -172,8 +173,8 @@ router.delete(
 
 router.patch(
   "/:id/images/:imageId",
-  param("id").isMongoId(),
-  param("imageId").isMongoId(),
+  param("id").custom(isRecordId),
+  param("imageId").custom(isRecordId),
   body("caption").optional().isString(),
   body("category").optional().isString(),
   body("sortOrder").optional().isInt(),
@@ -196,7 +197,7 @@ router.patch(
   }
 );
 
-router.get("/:id/barcode-label", param("id").isMongoId(), async (req, res) => {
+router.get("/:id/barcode-label", param("id").custom(isRecordId), async (req, res) => {
   const item = await prisma.orderItem.findUnique({ where: { id: req.params.id } });
   if (!item) return res.status(404).json({ message: "Order item not found" });
 
