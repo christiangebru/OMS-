@@ -58,20 +58,52 @@ export async function ensureUniqueItemBarcode(client, orderId, index, _itemId) {
   return operationalItemBarcode(orderId, n);
 }
 
+const BARCODE_DEFAULTS = {
+  bcid: "code128",
+  scale: 6,
+  height: 14,
+  includetext: false,
+  textxalign: "center",
+  paddingwidth: 12,
+  paddingheight: 8,
+  backgroundcolor: "FFFFFF",
+  barcolor: "000000"
+};
+
+function barcodeOptions(text, opts = {}) {
+  return {
+    ...BARCODE_DEFAULTS,
+    text: String(text),
+    scale: opts.scale || BARCODE_DEFAULTS.scale,
+    height: opts.height || BARCODE_DEFAULTS.height,
+    includetext: opts.includetext === true,
+    textsize: opts.textsize || 10,
+    paddingwidth: opts.paddingwidth ?? BARCODE_DEFAULTS.paddingwidth,
+    paddingheight: opts.paddingheight ?? BARCODE_DEFAULTS.paddingheight
+  };
+}
+
 /**
- * Compact Code128 for physical garment labels.
+ * High-resolution Code128 PNG. Bars only — human-readable code is rendered
+ * as text beside the image so it stays sharp when printed or scaled.
  */
 export async function renderBarcodePng(text, opts = {}) {
-  const value = String(text);
-  return bwipjs.toBuffer({
-    bcid: "code128",
-    text: value,
-    scale: opts.scale || 2,
-    height: opts.height || 8,
-    includetext: opts.includetext !== false,
-    textxalign: "center",
-    textsize: opts.textsize || 8,
-    paddingwidth: 4,
-    paddingheight: 2
-  });
+  return bwipjs.toBuffer(barcodeOptions(text, opts));
+}
+
+/**
+ * Vector Code128 for on-screen / print labels (no CSS upscaling blur).
+ */
+export function renderBarcodeSvg(text, opts = {}) {
+  const toSvg = typeof bwipjs.toSVG === "function" ? bwipjs.toSVG : null;
+  if (!toSvg) {
+    throw new Error("SVG barcode rendering is not available");
+  }
+  return toSvg(
+    barcodeOptions(text, {
+      ...opts,
+      scale: opts.scale || 3,
+      includetext: false
+    })
+  );
 }

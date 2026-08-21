@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { PageErrorBoundary } from "../PageErrorBoundary";
 
 export function AppLayout() {
   return (
@@ -14,7 +15,9 @@ export function AppLayout() {
         </div>
         <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6 lg:p-8 print:overflow-visible print:bg-white print:p-0">
           <div className="mx-auto max-w-7xl animate-fade-in print:max-w-none print:bg-white">
-            <Outlet />
+            <PageErrorBoundary>
+              <Outlet />
+            </PageErrorBoundary>
           </div>
         </main>
       </div>

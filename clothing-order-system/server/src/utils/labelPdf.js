@@ -33,7 +33,7 @@ export async function buildSingleLabelPdf(label) {
   const h = mm(LABEL_HEIGHT_MM);
   const doc = new PDFDocument({ size: [w, h], margin: mm(2) });
   const done = collectPdf(doc);
-  const png = await renderBarcodePng(label.barcodeValue, { scale: 2, height: 10 });
+  const png = await renderBarcodePng(label.barcodeValue);
 
   doc.fontSize(7).text(label.title || "", { width: w - mm(4), align: "center" });
   if (label.subtitle) {
@@ -72,7 +72,7 @@ export async function buildBatchLabelPdf(labels) {
     const x = margin + col * (cellW + gap);
     const y = margin + row * (cellH + gap);
     const label = labels[i];
-    const png = await renderBarcodePng(label.barcodeValue, { scale: 2, height: 10 });
+    const png = await renderBarcodePng(label.barcodeValue);
 
     doc.rect(x, y, cellW, cellH).stroke("#ccc");
     doc.fontSize(8).fillColor("#000").text(label.title || "", x + 4, y + 4, {

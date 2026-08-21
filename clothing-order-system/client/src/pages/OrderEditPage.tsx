@@ -722,7 +722,7 @@ export function OrderEditPage() {
                     {it.barcodeValue && (
                       <div className="max-w-xs rounded-lg bg-canvas p-3">
                         <p className="ui-label">Item barcode</p>
-                        <BarcodeImage value={it.barcodeValue} className="mt-2 h-14 w-full object-contain" />
+                        <BarcodeImage value={it.labelBarcode || it.barcodeValue} className="mt-2 barcode-mark" />
                       </div>
                     )}
                     <Link

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { imageUrlFromPath } from "@/lib/api";
+import { SmartImage } from "./SmartImage";
 import type { OrderItemImage } from "@/lib/types";
 import clsx from "clsx";
 
@@ -21,6 +22,7 @@ const CATEGORY_ORDER = [
 
 export function ReferenceGallery({ images }: { images: OrderItemImage[] }) {
   const [preview, setPreview] = useState<OrderItemImage | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
   if (!images?.length) {
     return <p className="text-sm text-ink-muted">No reference images.</p>;
   }
@@ -41,23 +43,22 @@ export function ReferenceGallery({ images }: { images: OrderItemImage[] }) {
             {groups.length > 1 && <p className="ui-label mb-2 capitalize">{g.cat}</p>}
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {g.items.map((img) => (
-                <button
-                  key={img._id || img.imageUrl}
-                  type="button"
-                  onClick={() => setPreview(img)}
-                  className="group text-left"
-                >
-                  <img
-                    src={imageUrlFromPath(img.imageUrl)}
+                <div key={img._id || img.imageUrl} className="text-left">
+                  <SmartImage
+                    src={img.imageUrl}
                     alt={img.caption || img.category || "Reference"}
-                    className="aspect-square w-full rounded-control object-cover"
+                    className="aspect-square w-full rounded-control object-contain"
+                    onOpen={() => {
+                      setPreviewFailed(false);
+                      setPreview(img);
+                    }}
                   />
                   {(img.caption || img.category) && (
                     <span className="mt-1 block truncate text-[11px] capitalize text-ink-muted">
                       {img.caption || img.category}
                     </span>
                   )}
-                </button>
+                </div>
               ))}
             </div>
           </div>
@@ -70,11 +71,19 @@ export function ReferenceGallery({ images }: { images: OrderItemImage[] }) {
           onClick={() => setPreview(null)}
           aria-label="Close preview"
         >
-          <img
-            src={imageUrlFromPath(preview.imageUrl)}
-            alt={preview.caption || preview.category || ""}
-            className="mx-auto max-h-[88vh] max-w-full object-contain"
-          />
+          {previewFailed ? (
+            <p className="mx-auto max-w-lg text-center text-sm text-white">
+              Could not load image
+              {preview.imageUrl ? `: ${imageUrlFromPath(preview.imageUrl)}` : ""}
+            </p>
+          ) : (
+            <img
+              src={imageUrlFromPath(preview.imageUrl)}
+              alt={preview.caption || preview.category || ""}
+              className="mx-auto max-h-[88vh] max-w-full object-contain"
+              onError={() => setPreviewFailed(true)}
+            />
+          )}
           <p className={clsx("mt-3 text-center text-sm text-white/80")}>
             {[preview.category, preview.caption].filter(Boolean).join(" · ") || "Reference"} · tap to close
           </p>

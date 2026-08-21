@@ -7,6 +7,9 @@ import { PageHeader, EmptyState, ErrorState, Skeleton } from "@/components/ui/Pa
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { stageLabel } from "@/lib/format";
+import { canWriteStaff } from "@/lib/roles";
+import { RowActions } from "@/components/RowActions";
+import { useAuth } from "@/context/AuthContext";
 import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import clsx from "clsx";
 
@@ -14,6 +17,8 @@ const ROLES: StaffRole[] = ["TAILOR", "EMBROIDERER", "FINISHER", "CUTTER", "PACK
 const STATUSES: StaffStatus[] = ["AVAILABLE", "BUSY", "OFF_DUTY"];
 
 export function StaffPage() {
+  const { user } = useAuth();
+  const canManage = canWriteStaff(user?.role);
   const [staff, setStaff] = useState<Staff[] | null>(null);
   const [role, setRole] = useState("");
   const [status, setStatus] = useState("");
@@ -57,6 +62,47 @@ export function StaffPage() {
 
   const availableNow = (staff || []).filter((s) => s.active && s.status !== "OFF_DUTY").length;
 
+  async function deactivateStaff(id: string) {
+    try {
+      await apiJson(`/api/staff/${id}/deactivate`, { method: "POST" });
+      await load();
+    } catch (ex) {
+      setErr(ex instanceof ApiError ? ex.message : "Could not deactivate");
+    }
+  }
+
+  async function activateStaff(id: string) {
+    try {
+      await apiJson(`/api/staff/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: true, status: "AVAILABLE" })
+      });
+      await load();
+    } catch (ex) {
+      setErr(ex instanceof ApiError ? ex.message : "Could not activate");
+    }
+  }
+
+  function staffActions(s: Staff) {
+    return [
+      { label: "View", to: `/staff/${s._id}` },
+      { label: "Edit", to: `/staff/${s._id}` },
+      {
+        label: "Deactivate",
+        hidden: !canManage || !s.active,
+        danger: true,
+        confirm:
+          "This worker will no longer appear for new assignments. Queued work stays until it is scanned out.",
+        onClick: () => void deactivateStaff(s._id)
+      },
+      {
+        label: "Activate",
+        hidden: !canManage || s.active,
+        onClick: () => void activateStaff(s._id)
+      }
+    ];
+  }
+
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     try {
@@ -78,9 +124,11 @@ export function StaffPage() {
         title="Workforce"
         description="Who can take work right now, what they are holding, and where they are strongest."
         actions={
-          <Button type="button" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Add staff"}
-          </Button>
+          canManage ? (
+            <Button type="button" onClick={() => setShowForm((v) => !v)}>
+              {showForm ? "Cancel" : "Add staff"}
+            </Button>
+          ) : undefined
         }
       />
 
@@ -150,7 +198,7 @@ export function StaffPage() {
         </button>
       </div>
 
-      {showForm && (
+      {showForm && canManage && (
         <form onSubmit={onCreate} className="ui-card grid gap-3 p-4 sm:grid-cols-4">
           <input
             required
@@ -195,8 +243,8 @@ export function StaffPage() {
         <>
           <ul className="space-y-3 md:hidden">
             {visible.map((s) => (
-              <li key={s._id}>
-                <Link to={`/staff/${s._id}`} className="block border border-line bg-surface p-4">
+              <li key={s._id} className="flex items-start justify-between gap-3 border border-line bg-surface p-4">
+                <Link to={`/staff/${s._id}`} className="min-w-0 flex-1">
                   <p className="font-semibold text-ink">{s.name}</p>
                   <p className="text-xs capitalize text-ink-muted">
                     {s.role.toLowerCase()}
@@ -208,6 +256,7 @@ export function StaffPage() {
                     {s.strongestLevel ?? s.skillLevel}/5
                   </p>
                 </Link>
+                <RowActions actions={staffActions(s)} />
               </li>
             ))}
           </ul>
@@ -222,6 +271,7 @@ export function StaffPage() {
                   <th>Active</th>
                   <th>Overdue</th>
                   <th>Skill</th>
+                  <th className="text-right"> </th>
                 </tr>
               </thead>
               <tbody>
@@ -245,6 +295,9 @@ export function StaffPage() {
                       {s.overdueAssignmentCount ?? 0}
                     </td>
                     <td className="tabular text-xs text-ink-muted">{s.strongestLevel ?? s.skillLevel}/5</td>
+                    <td className="text-right">
+                      <RowActions actions={staffActions(s)} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

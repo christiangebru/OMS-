@@ -85,4 +85,28 @@ describe("role capabilities", () => {
     const queue = await request(app).get("/api/production/queue").set(auth(tailorToken));
     expect(queue.status).toBe(403);
   });
+
+  it("lets a manager update staff but not delete an order", async () => {
+    const { staff, order } = await seedOrderWithItem({ clothingType: "thobe" });
+    const patched = await request(app)
+      .patch(`/api/staff/${staff.id}`)
+      .set(auth(managerToken))
+      .send({ name: "Patched Worker" });
+    expect(patched.status).toBe(200);
+    expect(patched.body.name).toBe("Patched Worker");
+
+    const removed = await request(app)
+      .delete(`/api/orders/${encodeURIComponent(order.orderId)}`)
+      .set(auth(managerToken));
+    expect(removed.status).toBe(403);
+  });
+
+  it("blocks a tailor from staff writes", async () => {
+    const { staff } = await seedOrderWithItem({ clothingType: "thobe" });
+    const patched = await request(app)
+      .patch(`/api/staff/${staff.id}`)
+      .set(auth(tailorToken))
+      .send({ name: "Nope" });
+    expect(patched.status).toBe(403);
+  });
 });

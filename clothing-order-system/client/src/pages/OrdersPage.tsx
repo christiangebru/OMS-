@@ -6,8 +6,9 @@ import { formatDate, formatMoney, shortOrderId } from "@/lib/format";
 import { PageHeader, EmptyState, ErrorState, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/context/AuthContext";
-import { canWriteOrders } from "@/lib/roles";
+import { canWriteOrders, canDeleteOrders, canSee } from "@/lib/roles";
 import { FilterChips } from "@/components/ui/FilterChips";
+import { RowActions } from "@/components/RowActions";
 import clsx from "clsx";
 
 const LANES = [
@@ -26,6 +27,8 @@ export function OrdersPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const canCreate = canWriteOrders(user?.role);
+  const canDelete = canDeleteOrders(user?.role);
+  const canLabels = canSee(user?.role, "labels");
   const [orders, setOrders] = useState<Order[]>([]);
   const [groups, setGroups] = useState<OrderGroup[]>([]);
   const [q, setQ] = useState("");
@@ -62,7 +65,14 @@ export function OrdersPage() {
     };
   }, [q]);
 
-  const groupedIds = useMemo(() => new Set(orders.filter((o) => o.groupId).map((o) => o.groupId as string)), [orders]);
+  async function deleteOrder(orderId: string) {
+    try {
+      await apiJson(`/api/orders/${encodeURIComponent(orderId)}`, { method: "DELETE" });
+      setOrders((list) => list.filter((o) => o.orderId !== orderId));
+    } catch (e) {
+      setErr(describeApiError(e, "Could not delete order"));
+    }
+  }
 
   const visibleOrders = useMemo(() => {
     return orders.filter((o) => {
@@ -82,6 +92,10 @@ export function OrdersPage() {
     });
   }, [orders, lane]);
 
+  const groupedIds = useMemo(
+    () => new Set(orders.filter((o) => o.groupId).map((o) => o.groupId as string)),
+    [orders]
+  );
   const ungrouped = visibleOrders.filter((o) => !o.groupId);
   const groupsOnPage = groups.filter((g) => groupedIds.has(g._id) || visibleOrders.some((o) => o.groupId === g._id));
 
@@ -158,10 +172,20 @@ export function OrdersPage() {
               </button>
               {open && (
                 <div className="border-t border-line px-4 py-3">
-                  <div className="mb-2 flex justify-end">
+                  <div className="mb-2 flex justify-end gap-2">
                     <Button type="button" size="sm" variant="secondary" onClick={() => navigate(`/orders/groups/${g._id}`)}>
                       Group details
                     </Button>
+                    {canCreate && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => navigate(`/orders/groups/${g._id}`)}
+                      >
+                        Edit group
+                      </Button>
+                    )}
                   </div>
                   <ul className="divide-y divide-line">
                     {members.map((o) => (
@@ -193,8 +217,8 @@ export function OrdersPage() {
             !["completed", "delivered"].includes(o.productionStatus);
           const balance = Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0));
           return (
-            <li key={o.orderId} className="border border-line bg-surface px-4 py-4">
-              <Link to={`/orders/${encodeURIComponent(o.orderId)}`} className="flex flex-wrap items-center justify-between gap-3">
+            <li key={o.orderId} className="flex items-start justify-between gap-3 border border-line bg-surface px-4 py-4">
+              <Link to={`/orders/${encodeURIComponent(o.orderId)}`} className="min-w-0 flex-1">
                 <div>
                   <p className="font-mono text-xs font-semibold text-ink">{shortOrderId(o.orderId)}</p>
                   <p className="mt-1 font-medium text-ink">{o.customerName || o.customer?.name || "—"}</p>
@@ -204,7 +228,7 @@ export function OrdersPage() {
                     {o.priority && o.priority !== "NORMAL" ? ` · ${o.priority}` : ""}
                   </p>
                 </div>
-                <div className="text-right text-xs">
+                <div className="mt-2 text-xs">
                   <Badge tone={o.productionStatus === "completed" || o.productionStatus === "delivered" ? "ok" : "progress"}>
                     {o.productionStatus}
                   </Badge>
@@ -212,6 +236,29 @@ export function OrdersPage() {
                   <p className="mt-1 text-ink-muted">{balance > 0 ? `${formatMoney(balance)} due` : "Paid"}</p>
                 </div>
               </Link>
+              <RowActions
+                actions={[
+                  { label: "View", to: `/orders/${encodeURIComponent(o.orderId)}` },
+                  {
+                    label: "Edit",
+                    hidden: !canCreate,
+                    to: `/orders/${encodeURIComponent(o.orderId)}/edit`
+                  },
+                  {
+                    label: "Print labels",
+                    hidden: !canLabels,
+                    to: `/orders/${encodeURIComponent(o.orderId)}/print-labels`
+                  },
+                  {
+                    label: "Delete order",
+                    hidden: !canDelete,
+                    danger: true,
+                    confirm:
+                      "This permanently deletes the order and all garments, assignments, and production history. This cannot be undone.",
+                    onClick: () => void deleteOrder(o.orderId)
+                  }
+                ]}
+              />
             </li>
           );
         })}

@@ -9,6 +9,7 @@ import {
 import { buildStageStates, inferScanAction, inferNextAction, boardStatusFrom } from "./stageTimeline.js";
 import { WORKSTATION_STAGES } from "../constants/production.js";
 import { operationalItemBarcode } from "./barcode.js";
+import { storedImagePath } from "./publicImage.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -331,7 +332,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
         siblings.findIndex((s) => s.id === item.id) + 1 || 1,
         item.barcodeValue
       ),
-      images: images.map(s)
+      images: images.map((img) => s({ ...img, imageUrl: storedImagePath(img.imageUrl) }))
     },
     group: {
       groupCode: order.groupCode || "",

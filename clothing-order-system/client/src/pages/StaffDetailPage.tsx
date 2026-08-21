@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
-import type { ProductionStage, Staff, StaffStatus } from "@/lib/types";
+import type { ProductionStage, Staff, StaffRole, StaffStatus } from "@/lib/types";
 import { PRODUCTION_STAGES } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader, ErrorState, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { formatDate, formatDuration, stageLabel } from "@/lib/format";
+import { useAuth } from "@/context/AuthContext";
+import { canWriteStaff } from "@/lib/roles";
 import { useToast } from "@/context/ToastContext";
 import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 
@@ -43,6 +45,8 @@ type Workload = {
 
 export function StaffDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const canManage = canWriteStaff(user?.role);
   const { push } = useToast();
   const [staff, setStaff] = useState<Staff | null>(null);
   const [work, setWork] = useState<Workload | null>(null);
@@ -77,7 +81,7 @@ export function StaffDetailPage() {
   useLiveRefresh(load, 25000);
 
   async function setStatus(status: StaffStatus) {
-    if (!id) return;
+    if (!id || !canManage) return;
     try {
       const updated = await apiJson<Staff>(`/api/staff/${id}`, {
         method: "PATCH",
@@ -91,7 +95,7 @@ export function StaffDetailPage() {
   }
 
   async function saveSkills() {
-    if (!id) return;
+    if (!id || !canManage) return;
     try {
       const updated = await apiJson<Staff>(`/api/staff/${id}`, {
         method: "PATCH",
@@ -107,7 +111,7 @@ export function StaffDetailPage() {
   }
 
   async function deactivate() {
-    if (!id || !window.confirm("Deactivate this staff member?")) return;
+    if (!id || !canManage || !window.confirm("This worker will no longer appear for new assignments. Queued work stays until it is scanned out.")) return;
     try {
       const updated = await apiJson<Staff>(`/api/staff/${id}/deactivate`, { method: "POST" });
       setStaff(updated);
@@ -166,17 +170,77 @@ export function StaffDetailPage() {
             {!staff.active && <Badge tone="urgent">Inactive</Badge>}
           </div>
           <div className="flex flex-wrap gap-2">
-            {(["AVAILABLE", "BUSY", "OFF_DUTY"] as StaffStatus[]).map((s) => (
-              <Button key={s} type="button" size="sm" variant="secondary" onClick={() => setStatus(s)}>
-                Set {s.replace("_", " ")}
-              </Button>
-            ))}
-            {staff.active && (
+            {canManage &&
+              (["AVAILABLE", "BUSY", "OFF_DUTY"] as StaffStatus[]).map((s) => (
+                <Button key={s} type="button" size="sm" variant="secondary" onClick={() => setStatus(s)}>
+                  Set {s.replace("_", " ")}
+                </Button>
+              ))}
+            {canManage && staff.active && (
               <Button type="button" size="sm" variant="danger" onClick={deactivate}>
                 Deactivate
               </Button>
             )}
+            {canManage && !staff.active && (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  apiJson<Staff>(`/api/staff/${id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ active: true, status: "AVAILABLE" })
+                  }).then(setStaff)
+                }
+              >
+                Activate
+              </Button>
+            )}
           </div>
+          {canManage && (
+            <form
+              className="grid gap-3 border-t border-line pt-4 sm:grid-cols-3"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const form = e.currentTarget;
+                const name = (form.elements.namedItem("staff-name") as HTMLInputElement).value;
+                const phone = (form.elements.namedItem("staff-phone") as HTMLInputElement).value;
+                const role = (form.elements.namedItem("staff-role") as HTMLSelectElement).value as StaffRole;
+                try {
+                  const updated = await apiJson<Staff>(`/api/staff/${id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ name, phone, role })
+                  });
+                  setStaff(updated);
+                  push("Profile saved", "ok");
+                } catch (err) {
+                  setErr(err instanceof ApiError ? err.message : "Could not save");
+                }
+              }}
+            >
+              <label className="text-sm">
+                <span className="ui-label">Name</span>
+                <input name="staff-name" defaultValue={staff.name} className="ui-input" required />
+              </label>
+              <label className="text-sm">
+                <span className="ui-label">Phone</span>
+                <input name="staff-phone" defaultValue={staff.phone} className="ui-input" required />
+              </label>
+              <label className="text-sm">
+                <span className="ui-label">Role</span>
+                <select name="staff-role" defaultValue={staff.role} className="ui-input">
+                  {(["TAILOR", "EMBROIDERER", "FINISHER", "CUTTER", "PACKER", "MANAGER"] as StaffRole[]).map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="sm:col-span-3">
+                <Button type="submit">Save profile</Button>
+              </div>
+            </form>
+          )}
         </section>
       )}
 
@@ -225,7 +289,7 @@ export function StaffDetailPage() {
               );
             })}
           </ul>
-          <Button type="button" onClick={saveSkills}>
+          <Button type="button" onClick={saveSkills} disabled={!canManage}>
             Save skills
           </Button>
         </section>

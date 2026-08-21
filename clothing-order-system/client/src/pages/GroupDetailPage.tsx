@@ -76,6 +76,13 @@ export function GroupDetailPage() {
 
   async function removeOrder(order: Order) {
     if (!id) return;
+    if (
+      !window.confirm(
+        `Remove ${order.orderId} from this group? The order itself stays in the system as an independent order.`
+      )
+    ) {
+      return;
+    }
     try {
       await apiJson(`/api/order-groups/${id}/orders/${encodeURIComponent(order.orderId)}`, {
         method: "DELETE"

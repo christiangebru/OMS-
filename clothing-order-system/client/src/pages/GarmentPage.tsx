@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { apiJson, ApiError, apiBaseUrl, authToken, imageUrlFromPath } from "@/lib/api";
+import { apiJson, ApiError, apiBaseUrl, authToken } from "@/lib/api";
 import type { ScanDetails } from "@/lib/types";
 import { daysLabel, formatDate, formatMoney, stageLabel, boardStatusLabel, handoverLabel, shortOrderId } from "@/lib/format";
 import { PageHeader, ErrorState, Skeleton, Badge } from "@/components/ui/PageHeader";
@@ -11,6 +11,8 @@ import { AssignmentChain } from "@/components/AssignmentChain";
 import { StageStrip } from "@/components/StageStrip";
 import { SpecSheet } from "@/components/SpecSheet";
 import { ReferenceGallery } from "@/components/ReferenceGallery";
+import { SmartImage } from "@/components/SmartImage";
+import { RowActions } from "@/components/RowActions";
 import { garmentPath } from "@/components/GarmentCard";
 import { useAuth } from "@/context/AuthContext";
 import { isManagerRole, canSee, canWriteOrders } from "@/lib/roles";
@@ -22,7 +24,6 @@ export function GarmentPage() {
   const { user } = useAuth();
   const [details, setDetails] = useState<ScanDetails | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"make" | "images" | "customer">("make");
   const hydrated = useRef(false);
 
@@ -48,34 +49,6 @@ export function GarmentPage() {
     load();
   }, [load]);
   useLiveRefresh(load, 20000);
-
-  async function handover() {
-    const id = details?.production?.assignment?._id;
-    if (!id) return;
-    setBusy(true);
-    try {
-      await apiJson(`/api/production/assignments/${id}/distribute`, { method: "POST" });
-      await load();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Handover failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function receive() {
-    const id = details?.production?.assignment?._id;
-    if (!id) return;
-    setBusy(true);
-    try {
-      await apiJson(`/api/production/assignments/${id}/receive`, { method: "POST" });
-      await load();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Receive failed");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   function printLabel() {
     if (!details?.item._id) return;
@@ -119,15 +92,26 @@ export function GarmentPage() {
         title={details.item.clothingType}
         description={`${details.customer?.name || "—"} · ${shortOrderId(details.order.orderId)}`}
         actions={
-          <div className="flex flex-wrap gap-2">
-            {canLabels && (
-              <Button type="button" variant="secondary" onClick={printLabel}>
-                Print label
-              </Button>
-            )}
-            <Link to={`/orders/${encodeURIComponent(details.order.orderId)}`}>
-              <Button variant="secondary">Order</Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link to={scanTo}>
+              <Button>Open scanner</Button>
             </Link>
+            <RowActions
+              actions={[
+                { label: "Print label", hidden: !canLabels, onClick: printLabel },
+                { label: "View order", to: `/orders/${encodeURIComponent(details.order.orderId)}` },
+                {
+                  label: "Edit order",
+                  hidden: !canWriteOrders(user?.role),
+                  to: `/orders/${encodeURIComponent(details.order.orderId)}/edit`
+                },
+                {
+                  label: "Set assignment path",
+                  hidden: !manager,
+                  to: "/distribution"
+                }
+              ]}
+            />
           </div>
         }
       />
@@ -155,8 +139,8 @@ export function GarmentPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 gap-3">
             {details.item.images?.[0]?.imageUrl ? (
-              <img
-                src={imageUrlFromPath(details.item.images[0].imageUrl)}
+              <SmartImage
+                src={details.item.images[0].imageUrl}
                 alt=""
                 className="h-16 w-16 shrink-0 rounded-control object-cover sm:h-20 sm:w-20"
               />
@@ -174,7 +158,7 @@ export function GarmentPage() {
             </div>
           </div>
           <div className="w-40">
-            {barcode && <BarcodeImage value={barcode} className="h-12 w-full object-contain" />}
+            {barcode && <BarcodeImage value={barcode} className="barcode-mark" />}
             <p className="mt-1 text-center font-mono text-[11px] tracking-wide text-ink-muted">{barcode}</p>
           </div>
         </div>
@@ -185,18 +169,23 @@ export function GarmentPage() {
             <p className="mt-1 text-lg font-semibold capitalize text-ink">
               {stageLabel(details.timing.currentStage || details.timing.nextExpectedStage)}
             </p>
-            <p className="text-xs capitalize text-ink-muted">Next {stageLabel(details.timing.nextExpectedStage)}</p>
+            <p className="text-xs capitalize text-ink-muted">
+              {details.production?.location || `Next ${stageLabel(details.timing.nextExpectedStage)}`}
+            </p>
           </div>
           <div>
             <p className="ui-label">Worker</p>
             <p className="mt-1 text-lg font-semibold text-ink">{worker?.name || "Unassigned"}</p>
             <p className="text-xs text-ink-muted">
+              Next {details.production?.nextWorker?.name || "—"}
+            </p>
+            <p className="text-xs text-ink-muted">
               {assignment?.receivedAt
-                ? "Received"
+                ? "Assigned — not the same as busy"
                 : assignment?.distributedAt
                   ? "Handed over — not received"
                   : assignment
-                    ? "Assigned — not handed over"
+                    ? "Assigned — queued, not busy"
                     : "Waiting for assignment"}
             </p>
           </div>
@@ -252,12 +241,13 @@ export function GarmentPage() {
       </section>
 
       <section className="space-y-3">
-        {next?.code === "assign" && manager && details.item._id && (
-          <SuggestedAssignments
-            orderItemId={details.item._id}
-            stage={next.stage}
-            onAssigned={() => load()}
-          />
+        {next?.code === "assign" && manager && (
+          <p className="rounded-control bg-canvas px-3 py-2 text-sm text-ink-muted">
+            Assignment is planned on Distribution. Physical movement uses the scanner.
+            <Link to="/distribution" className="ml-1 font-semibold text-accent">
+              Open distribution
+            </Link>
+          </p>
         )}
         {next?.code === "assign" && !manager && (
           <p className="rounded-control bg-canvas px-3 py-2 text-sm text-ink-muted">
@@ -265,25 +255,19 @@ export function GarmentPage() {
           </p>
         )}
         <div className="flex flex-col gap-2 sm:flex-row">
-          {next?.code === "handover" && manager && (
-            <Button type="button" size="lg" className="min-h-12 w-full sm:w-auto" disabled={busy} onClick={handover}>
-              {busy ? "Working…" : "Mark handed over"}
+          <Link to={scanTo} className="block w-full sm:w-auto">
+            <Button size="lg" className="min-h-12 w-full">
+              {next?.code === "check_out"
+                ? `Scan out · ${stageLabel(next.stage)}`
+                : next?.code === "check_in" || next?.code === "start_first"
+                  ? `Scan in${next?.stage ? ` · ${stageLabel(next.stage)}` : ""}`
+                  : "Take to scanner"}
             </Button>
-          )}
-          {next?.code === "receive" && (
-            <Button type="button" size="lg" className="min-h-12 w-full sm:w-auto" disabled={busy} onClick={receive}>
-              {busy ? "Working…" : "Confirm received"}
-            </Button>
-          )}
-          {next?.code !== "done" && (
-            <Link to={scanTo} className="block w-full sm:w-auto">
-              <Button size="lg" className="min-h-12 w-full" variant={next?.code === "assign" ? "secondary" : "primary"}>
-                {next?.code === "check_out" || next?.code === "check_in" ? next.label : "Scan garment"}
-                {next?.stage ? ` · ${stageLabel(next.stage)}` : ""}
-              </Button>
-            </Link>
-          )}
+          </Link>
         </div>
+        <p className="text-xs text-ink-muted">
+          This page is the garment passport. Scan in and scan out happen on the scanner — assigned does not mean busy.
+        </p>
       </section>
 
       <section className="ui-card p-4 sm:p-5">

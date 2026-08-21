@@ -61,8 +61,16 @@ export function isFloorRole(role?: string) {
   return Boolean(role && ROLE_STAGES[role as UserRole]);
 }
 
+export function canWriteStaff(role?: string) {
+  return role === "admin" || role === "manager";
+}
+
 export function canWriteOrders(role?: string) {
   return role === "admin" || role === "manager" || role === "reception";
+}
+
+export function canDeleteOrders(role?: string) {
+  return role === "admin";
 }
 
 export function navForRole(role?: UserRole) {

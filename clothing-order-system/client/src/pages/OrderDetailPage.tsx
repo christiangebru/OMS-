@@ -1,18 +1,20 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
-import { apiJson, ApiError, imageUrlFromPath } from "@/lib/api";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { apiJson, ApiError } from "@/lib/api";
 import type { ClothingTypeConfig, Order } from "@/lib/types";
 import { SpecSheet } from "@/components/SpecSheet";
 import { daysLabel, formatDate, formatMoney, labelBarcode, shortOrderId, stageLabel, boardStatusLabel } from "@/lib/format";
 import { stageSequenceFor } from "@/lib/stages";
 import { PageHeader, ErrorState, Skeleton, Badge } from "@/components/ui/PageHeader";
-import { Button } from "@/components/ui/Button";
 import { StageStrip } from "@/components/StageStrip";
+import { SmartImage } from "@/components/SmartImage";
 import { useAuth } from "@/context/AuthContext";
-import { canWriteOrders, canSee } from "@/lib/roles";
+import { canWriteOrders, canSee, canDeleteOrders } from "@/lib/roles";
+import { RowActions } from "@/components/RowActions";
 
 export function OrderDetailPage() {
   const { orderId } = useParams<{ orderId: string }>();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
   const [types, setTypes] = useState<ClothingTypeConfig[]>([]);
@@ -57,6 +59,7 @@ export function OrderDetailPage() {
   const days = (due.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
   const canEdit = canWriteOrders(user?.role);
   const canLabels = canSee(user?.role, "labels");
+  const canDelete = canDeleteOrders(user?.role);
   const customerId = order.customerId || order.customer?._id;
   const paid = order.productionStatus === "delivered" || (order.balanceRemaining || 0) <= 0;
 
@@ -66,18 +69,42 @@ export function OrderDetailPage() {
         title={shortOrderId(order.orderId)}
         description={`${order.customerName || order.customer?.name || "Customer"} · ${formatDate(order.createdAt)}`}
         actions={
-          <div className="flex flex-wrap gap-2">
-            {canLabels && (
-              <Link to={`/orders/${encodeURIComponent(order.orderId)}/print-labels`}>
-                <Button variant="secondary">Print labels</Button>
-              </Link>
-            )}
-            {canEdit && (
-              <Link to={`/orders/${encodeURIComponent(order.orderId)}/edit`}>
-                <Button variant="secondary">Edit order</Button>
-              </Link>
-            )}
-          </div>
+          <RowActions
+            actions={[
+              {
+                label: "Print labels",
+                hidden: !canLabels,
+                to: `/orders/${encodeURIComponent(order.orderId)}/print-labels`
+              },
+              {
+                label: "Edit order",
+                hidden: !canEdit,
+                to: `/orders/${encodeURIComponent(order.orderId)}/edit`
+              },
+              {
+                label: "View customer",
+                hidden: !customerId,
+                to: customerId ? `/customers/${customerId}` : undefined
+              },
+              {
+                label: "Delete order",
+                hidden: !canDelete,
+                danger: true,
+                confirm:
+                  "This permanently deletes the order and all garments, assignments, and production history. This cannot be undone.",
+                onClick: () => {
+                  void (async () => {
+                    try {
+                      await apiJson(`/api/orders/${encodeURIComponent(order.orderId)}`, { method: "DELETE" });
+                      navigate("/orders");
+                    } catch (e) {
+                      setErr(e instanceof ApiError ? e.message : "Could not delete order");
+                    }
+                  })();
+                }
+              }
+            ]}
+          />
         }
       />
 
@@ -135,7 +162,7 @@ export function OrderDetailPage() {
               <li key={it._id || it.barcodeValue} className="border border-line bg-surface p-4">
                 <div className="flex flex-wrap items-start gap-4">
                   {thumb ? (
-                    <img src={imageUrlFromPath(thumb)} alt="" className="h-16 w-16 rounded-control object-cover" />
+                    <SmartImage src={thumb} alt="" className="h-16 w-16 rounded-control object-cover" />
                   ) : (
                     <div className="flex h-16 w-16 items-center justify-center rounded-control bg-canvas text-xs text-ink-faint">
                       {it.clothingType.slice(0, 2)}
@@ -171,18 +198,17 @@ export function OrderDetailPage() {
                       <SpecSheet item={it} />
                     </div>
                     {it._id && (
-                      <div className="mt-3 flex flex-wrap gap-3">
-                        <Link to={`/garments/${encodeURIComponent(it._id)}`} className="text-xs font-semibold text-accent">
-                          Open garment
-                        </Link>
-                        {it.barcodeValue && (
-                          <Link
-                            to={`/scan?barcode=${encodeURIComponent(it.barcodeValue)}`}
-                            className="text-xs font-semibold text-accent"
-                          >
-                            Scan
-                          </Link>
-                        )}
+                      <div className="mt-3">
+                        <RowActions
+                          align="left"
+                          actions={[
+                            { label: "View garment", to: `/garments/${encodeURIComponent(it._id)}` },
+                            {
+                              label: "Take to scanner",
+                              to: `/scan?barcode=${encodeURIComponent(it.labelBarcode || it.barcodeValue || "")}`
+                            }
+                          ]}
+                        />
                       </div>
                     )}
                   </div>

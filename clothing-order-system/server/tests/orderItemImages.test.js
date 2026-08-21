@@ -67,4 +67,25 @@ describe("order item images", () => {
     const leftover = await prisma.orderItemImage.findUnique({ where: { id: image.id } });
     expect(leftover).toBeNull();
   });
+
+  it("strips filesystem paths from scan-details image URLs", async () => {
+    const { item } = await seedOrderWithItem({ clothingType: "thobe" });
+    await prisma.orderItemImage.create({
+      data: {
+        id: newId(),
+        orderItemId: item.id,
+        imageUrl: "/Users/MAC/studio/server/uploads/front.jpg",
+        caption: "Front",
+        category: "front",
+        sortOrder: 0
+      }
+    });
+
+    const details = await request(app)
+      .get(`/api/order-items/${item.id}/scan-details`)
+      .set(auth(token));
+    expect(details.status).toBe(200);
+    expect(details.body.item.images[0].imageUrl).toBe("uploads/front.jpg");
+    expect(details.body.item.images[0].imageUrl).not.toMatch(/\/Users\//);
+  });
 });

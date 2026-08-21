@@ -134,7 +134,18 @@ describe("production queue and distribution", () => {
       .set(auth(token));
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/image\/png/);
-    expect(res.body.length).toBeGreaterThan(40);
+    expect(res.body.length).toBeGreaterThan(800);
+  });
+
+  it("renders a vector SVG barcode for an item code", async () => {
+    const { item } = await seedOrderWithItem({ clothingType: "thobe" });
+    const res = await request(app)
+      .get("/api/production/barcode.svg")
+      .query({ value: item.barcodeValue })
+      .set(auth(token));
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/image\/svg/);
+    expect(String(res.text || res.body)).toMatch(/<svg/i);
   });
 
   it("returns operations summary without requiring distribution capability", async () => {

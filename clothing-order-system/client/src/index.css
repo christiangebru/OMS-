@@ -42,6 +42,14 @@
   .screen-hidden {
     display: none !important;
   }
+  .barcode-mark {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 4.5rem;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
   .animate-fade-in {
     animation: fade-in 0.28s ease-out;
   }
@@ -52,7 +60,7 @@
     }
     to {
       opacity: 1;
-      transform: translateY(0);
+      transform: none;
     }
   }
 }
@@ -85,6 +93,10 @@
   @page {
     margin: 8mm;
     size: auto;
+  }
+  .barcode-mark {
+    max-height: 18mm;
+    image-rendering: crisp-edges;
   }
   .label-print {
     background: #ffffff !important;

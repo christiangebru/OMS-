@@ -5,6 +5,7 @@ import {
   fetchWithTimeout,
   isAbortError
 } from "./fetchTimeout.js";
+import { publicImageUrl } from "./imageUrl";
 
 const API_BASE = resolveApiBase(import.meta.env.VITE_API_URL);
 
@@ -145,9 +146,7 @@ export async function deleteOrderItemImage(itemId: string, imageId: string) {
 }
 
 export function imageUrlFromPath(path: string): string {
-  if (!path) return "";
-  if (path.startsWith("http")) return path;
-  return `${API_BASE}/${path.replace(/^\//, "")}`;
+  return publicImageUrl(path, API_BASE);
 }
 
 export function balanceRemaining(totalAgreedPrice?: number, depositPaid?: number): number {

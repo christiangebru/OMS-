@@ -1,6 +1,7 @@
 import { prisma } from "../db/prisma.js";
 import { s } from "./serialize.js";
 import { operationalItemBarcode } from "./barcode.js";
+import { storedImagePath } from "./publicImage.js";
 import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./stageSequence.js";
 import { boardStatusFrom } from "./stageTimeline.js";
 
@@ -150,7 +151,9 @@ function assembleOrder(order, customer, items, images, checkpoints, presence = n
   const checkpointsByItem = groupBy(checkpoints, (cp) => cp.orderItemId);
 
   const hydratedItems = items.map((it, idx) => {
-    const imgs = (imagesByItem.get(it.id) || []).map(s);
+    const imgs = (imagesByItem.get(it.id) || []).map((img) =>
+      s({ ...img, imageUrl: storedImagePath(img.imageUrl) })
+    );
     const ops = presence.get(it.id) || {};
     return {
       ...s(it),

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { apiJson, ApiError, describeApiError, imageUrlFromPath } from "@/lib/api";
+import { apiJson, ApiError, describeApiError } from "@/lib/api";
 import type { ProductionStage, ScanDetails, Staff } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 import { isManagerRole, isFloorRole, canSee } from "@/lib/roles";
@@ -10,6 +10,8 @@ import { ProductionTimeline } from "@/components/ProductionTimeline";
 import { SuggestedAssignments } from "@/components/SuggestedAssignments";
 import { AssignmentChain } from "@/components/AssignmentChain";
 import { SpecSheet } from "@/components/SpecSheet";
+import { CameraScanPane } from "@/components/CameraScanPane";
+import { SmartImage } from "@/components/SmartImage";
 import clsx from "clsx";
 
 export function ScanPage() {
@@ -23,13 +25,6 @@ export function ScanPage() {
   const [details, setDetails] = useState<ScanDetails | null>(null);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [cameraOn, setCameraOn] = useState(false);
-  const [cameraStatus, setCameraStatus] = useState("Camera idle");
-  const scannerRef = useRef<{ isScanning?: boolean; stop: () => Promise<void>; clear: () => void } | null>(
-    null
-  );
-  const lastScanRef = useRef("");
-  const startLockRef = useRef(false);
 
   const action = details?.production?.action;
   const actionStage = (details?.production?.actionStage ||
@@ -94,66 +89,10 @@ export function ScanPage() {
     }
   }
 
-  const stopCamera = useCallback(async () => {
-    try {
-      if (scannerRef.current?.isScanning) await scannerRef.current.stop();
-      scannerRef.current?.clear();
-    } catch {
-      /* ignore */
-    }
-    scannerRef.current = null;
-    startLockRef.current = false;
-    setCameraOn(false);
-    setCameraStatus("Camera idle");
-  }, []);
-
-  const startCamera = useCallback(async () => {
-    if (startLockRef.current || scannerRef.current) return;
-    startLockRef.current = true;
-    setFeedback(null);
-    setCameraStatus("Starting camera…");
-    try {
-      const { Html5Qrcode } = await import("html5-qrcode");
-      const scanner = new Html5Qrcode("scan-reader");
-      scannerRef.current = scanner;
-      await scanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 260, height: 140 } },
-        (decoded) => {
-          if (decoded && decoded !== lastScanRef.current) {
-            lastScanRef.current = decoded;
-            setBarcode(decoded);
-            lookupBarcode(decoded);
-          }
-        },
-        () => {}
-      );
-      setCameraOn(true);
-      setCameraStatus("Live — hold the label in the frame");
-    } catch (e) {
-      startLockRef.current = false;
-      scannerRef.current = null;
-      setCameraOn(false);
-      setCameraStatus("Camera unavailable");
-      setFeedback({
-        ok: false,
-        message:
-          e instanceof Error
-            ? `${e.message}. Type the barcode on the right if the camera is blocked.`
-            : "Could not start camera. Type the barcode on the right."
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      void startCamera();
-    }, 50);
-    return () => {
-      window.clearTimeout(t);
-      void stopCamera();
-    };
-  }, [startCamera, stopCamera]);
+  function onDecoded(decoded: string) {
+    setBarcode(decoded);
+    void lookupBarcode(decoded);
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -178,7 +117,6 @@ export function ScanPage() {
       });
       setFeedback({ ok: true, message: result.message });
       setDetails(result.scanDetails);
-      lastScanRef.current = "";
       setNotes("");
     } catch (ex) {
       const message = ex instanceof ApiError ? ex.message : "Scan failed";
@@ -230,46 +168,7 @@ export function ScanPage() {
   return (
     <div className="-mx-4 min-h-[calc(100vh-4rem)] bg-canvas px-4 py-4 sm:-mx-6 sm:px-6 lg:py-5">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:items-start">
-        <section className="overflow-hidden border border-line bg-ink">
-          <div className="flex items-center justify-between px-4 py-3 text-white">
-            <div>
-              <p className="text-sm font-semibold">Scanner</p>
-              <p className="text-[11px] text-white/60">{cameraStatus}</p>
-            </div>
-            {cameraOn ? (
-              <Button type="button" size="sm" variant="secondary" onClick={() => void stopCamera()}>
-                Stop
-              </Button>
-            ) : cameraStatus === "Camera unavailable" ? (
-              <Button type="button" size="sm" onClick={() => void startCamera()}>
-                Retry camera
-              </Button>
-            ) : null}
-          </div>
-          <div
-            id="scan-reader"
-            className={clsx(
-              "relative min-h-[320px] bg-black sm:min-h-[480px] lg:min-h-[560px]",
-              !cameraOn && "flex items-center justify-center"
-            )}
-          >
-            {!cameraOn && cameraStatus !== "Starting camera…" && (
-              <div className="px-8 text-center">
-                <div className="mx-auto mb-6 h-40 w-64 rounded-sm border-2 border-dashed border-white/30" />
-                <p className="text-sm text-white/70">
-                  {cameraStatus === "Camera unavailable"
-                    ? "Camera could not start. Type the barcode on the right."
-                    : "Opening camera…"}
-                </p>
-              </div>
-            )}
-            {cameraOn && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="h-36 w-56 border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
-              </div>
-            )}
-          </div>
-        </section>
+        <CameraScanPane onDecoded={onDecoded} />
 
         <aside className="space-y-3">
           {feedback && (
@@ -329,8 +228,8 @@ export function ScanPage() {
                   {` · ${shortOrderId(details.order.orderId)}`}
                 </p>
                 {details.item.images?.[0]?.imageUrl ? (
-                  <img
-                    src={imageUrlFromPath(details.item.images[0].imageUrl)}
+                  <SmartImage
+                    src={details.item.images[0].imageUrl}
                     alt=""
                     className="mt-3 h-20 w-20 rounded-control object-cover"
                   />

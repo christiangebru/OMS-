@@ -12,7 +12,7 @@ import { syncOrderStatusFromItems } from "../utils/syncOrderFromStages.js";
 import { rankStaffForAssignment } from "../utils/assignmentScore.js";
 import { hydrateOrder } from "../utils/orderHydrate.js";
 import { buildProductionQueue } from "../utils/productionBoard.js";
-import { renderBarcodePng } from "../utils/barcode.js";
+import { renderBarcodePng, renderBarcodeSvg } from "../utils/barcode.js";
 import { isRecordId } from "../utils/recordId.js";
 import { WORKSTATION_STAGES } from "../constants/production.js";
 
@@ -315,10 +315,19 @@ router.post(
   }
 );
 
-/** Preview scan details by barcode without mutating */
+router.get("/barcode.svg", query("value").trim().notEmpty(), async (req, res) => {
+  try {
+    const svg = renderBarcodeSvg(req.query.value);
+    res.set("Cache-Control", "private, max-age=86400");
+    res.type("image/svg+xml").send(svg);
+  } catch {
+    res.status(400).json({ message: "Could not render barcode" });
+  }
+});
+
 router.get("/barcode.png", query("value").trim().notEmpty(), async (req, res) => {
   try {
-    const png = await renderBarcodePng(req.query.value, { scale: 2, height: 10, includetext: true });
+    const png = await renderBarcodePng(req.query.value);
     res.set("Cache-Control", "private, max-age=86400");
     res.type("image/png").send(png);
   } catch {

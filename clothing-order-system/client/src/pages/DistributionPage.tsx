@@ -417,6 +417,17 @@ function LaneActions({
             Reassign
           </Button>
         )}
+      <div className="flex gap-1">
+        <Link
+          to={`/scan?barcode=${encodeURIComponent(item.labelBarcode || item.barcodeValue)}`}
+          className="text-xs font-semibold text-accent"
+        >
+          Scanner
+        </Link>
+        <Link to={`/garments/${encodeURIComponent(item.itemId)}`} className="text-xs font-semibold text-accent">
+          Garment
+        </Link>
+      </div>
     </div>
   );
 }

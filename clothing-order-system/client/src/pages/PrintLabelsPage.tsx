@@ -300,7 +300,7 @@ export function LabelsWorkspacePage() {
                 <p className="text-lg font-semibold leading-tight">{l.garment}</p>
                 <div>
                   {l.barcode ? (
-                    <BarcodeImage value={l.barcode} className="h-12 w-full object-contain object-left print:h-14" />
+                    <BarcodeImage value={l.barcode} />
                   ) : null}
                   <p className="font-mono text-sm tracking-[0.16em]">{l.barcode}</p>
                   <p className="mt-0.5 text-[11px] text-neutral-600">
@@ -406,7 +406,7 @@ export function PrintLabelsPage() {
               <p className="text-base font-semibold">{l.title}</p>
             </div>
             <div>
-              {l.barcode ? <BarcodeImage value={l.barcode} className="h-10 w-full object-contain print:h-12" /> : null}
+              {l.barcode ? <BarcodeImage value={l.barcode} /> : null}
               <p className="font-mono text-sm tracking-[0.16em]">{l.barcode}</p>
               <p className="text-[11px]">
                 Due {formatDate(l.due)}

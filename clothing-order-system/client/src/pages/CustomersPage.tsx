@@ -7,6 +7,7 @@ import { PageHeader, ErrorState, EmptyState, Skeleton } from "@/components/ui/Pa
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/context/AuthContext";
 import { canWriteOrders } from "@/lib/roles";
+import { RowActions } from "@/components/RowActions";
 
 export function CustomersPage() {
   const { user } = useAuth();
@@ -66,8 +67,8 @@ export function CustomersPage() {
         <>
           <ul className="space-y-3 md:hidden">
             {customers.map((c) => (
-              <li key={c._id}>
-                <Link to={`/customers/${c._id}`} className="ui-card block p-4">
+              <li key={c._id} className="ui-card flex items-start justify-between gap-3 p-4">
+                <Link to={`/customers/${c._id}`} className="min-w-0 flex-1">
                   <p className="font-medium text-ink">{c.name}</p>
                   <p className="text-sm text-ink-muted">{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
                   <p className="mt-1 text-xs text-ink-faint">
@@ -77,6 +78,17 @@ export function CustomersPage() {
                     {(c.outstandingBalance || 0) > 0 ? ` · ${formatMoney(c.outstandingBalance)} due` : ""}
                   </p>
                 </Link>
+                <RowActions
+                  actions={[
+                    { label: "View", to: `/customers/${c._id}` },
+                    { label: "Edit", hidden: !canWriteOrders(user?.role), to: `/customers/${c._id}` },
+                    {
+                      label: "New order",
+                      hidden: !canWriteOrders(user?.role),
+                      to: `/orders/new?customerId=${c._id}`
+                    }
+                  ]}
+                />
               </li>
             ))}
           </ul>
@@ -109,9 +121,17 @@ export function CustomersPage() {
                   </td>
                   <td className="tabular text-xs">{formatMoney(c.outstandingBalance)}</td>
                   <td className="text-right">
-                    <Link to={`/customers/${c._id}`} className="text-xs font-semibold text-accent hover:underline">
-                      Open
-                    </Link>
+                    <RowActions
+                      actions={[
+                        { label: "View", to: `/customers/${c._id}` },
+                        { label: "Edit", hidden: !canWriteOrders(user?.role), to: `/customers/${c._id}` },
+                        {
+                          label: "New order",
+                          hidden: !canWriteOrders(user?.role),
+                          to: `/orders/new?customerId=${c._id}`
+                        }
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}
