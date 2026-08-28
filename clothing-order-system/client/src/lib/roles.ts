@@ -40,12 +40,12 @@ const ROLE_NAV: Record<UserRole, NavKey[]> = {
 };
 
 export const ROLE_STAGES: Partial<Record<UserRole, string[]>> = {
-  cutter: ["CUTTING"],
-  tailor: ["SEWING"],
+  cutter: ["CUTTING", "SEWING_CUTTING"],
+  tailor: ["SEWING", "SEWING_CUTTING", "FINAL_SEWING"],
   embroiderer: ["EMBROIDERY"],
   finisher: ["FINISHING"],
-  packer: ["PACKAGING", "READY"],
-  delivery: ["READY", "DELIVERED"]
+  packer: ["PACKAGING", "SHOWROOM", "READY"],
+  delivery: ["SHOWROOM", "READY", "DELIVERED"]
 };
 
 export function canSee(role: UserRole | undefined, key: NavKey) {

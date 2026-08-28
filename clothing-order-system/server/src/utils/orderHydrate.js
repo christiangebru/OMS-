@@ -1,9 +1,10 @@
 import { prisma } from "../db/prisma.js";
 import { s } from "./serialize.js";
-import { operationalItemBarcode } from "./barcode.js";
+import { operationalItemBarcode, operationalPartBarcode } from "./barcode.js";
 import { storedImagePath } from "./publicImage.js";
 import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./stageSequence.js";
 import { boardStatusFrom } from "./stageTimeline.js";
+import { isGarmentCompleteStage, isTopLevelItem, parentReadyForAssembly } from "./productionModel.js";
 
 export function balanceRemaining(order) {
   const total = Number(order.totalAgreedPrice) || 0;
@@ -90,12 +91,20 @@ export async function hydrateOrders(orders) {
   ]);
 
   const allItemIds = items.map((i) => i.id);
-  const images = allItemIds.length
-    ? await prisma.orderItemImage.findMany({
-        where: { orderItemId: { in: allItemIds } },
-        orderBy: [{ sortOrder: "asc" }, { uploadedAt: "asc" }]
-      })
-    : [];
+  const [images, listCheckpoints] = await Promise.all([
+    allItemIds.length
+      ? prisma.orderItemImage.findMany({
+          where: { orderItemId: { in: allItemIds } },
+          orderBy: [{ sortOrder: "asc" }, { uploadedAt: "asc" }]
+        })
+      : Promise.resolve([]),
+    allItemIds.length
+      ? prisma.stageCheckpoint.findMany({
+          where: { orderItemId: { in: allItemIds }, checkedOutAt: { not: null } },
+          select: { orderItemId: true, stage: true }
+        })
+      : Promise.resolve([])
+  ]);
 
   const customerById = new Map(customers.map((c) => [c.id, c]));
   const itemsByOrder = groupBy(items, (it) => it.order);
@@ -105,17 +114,33 @@ export async function hydrateOrders(orders) {
     ? await prisma.orderGroup.findMany({ where: { id: { in: groupIds } } })
     : [];
   const groupById = new Map(groups.map((g) => [g.id, g]));
+  const completeSet = new Set(
+    listCheckpoints.filter((c) => isGarmentCompleteStage(c.stage)).map((c) => c.orderItemId)
+  );
 
-  return orders.map((order) =>
-    assembleOrder(
+  return orders.map((order) => {
+    const hydrated = assembleOrder(
       { ...order, group: groupById.get(order.groupId) || order.group || null },
       customerById.get(order.customerId) || null,
       itemsByOrder.get(order.id) || [],
       imagesForItems(itemsByOrder.get(order.id) || [], imagesByItem),
       [],
       new Map()
-    )
-  );
+    );
+    const garments = (hydrated.items || []).filter((it) => isTopLevelItem(it));
+    const completed = garments.filter((g) => completeSet.has(g._id)).length;
+    const ready =
+      (garments.length > 0 && completed === garments.length) ||
+      ["ready_to_pack", "completed", "delivered"].includes(order.productionStatus);
+    return {
+      ...hydrated,
+      completion: {
+        completed,
+        total: garments.length,
+        readyToPack: ready
+      }
+    };
+  });
 }
 
 function imagesForItems(items, imagesByItem) {
@@ -136,11 +161,15 @@ async function itemPresence(items, checkpoints, assignments) {
       (asgByItem.get(it.id) || []).find((a) => a.stage === nextStage) ||
       (asgByItem.get(it.id) || [])[0] ||
       null;
+    const parts = items.filter((p) => p.parentItemId === it.id);
     map.set(it.id, {
       currentStage: deriveCurrentStage(cps, stageSequence),
       nextStage,
       boardStatus: boardStatusFrom({ checkpoints: cps, assignment }),
-      workerName: assignment?.staff?.name || null
+      workerName: assignment?.staff?.name || null,
+      readyForAssembly: parts.length
+        ? parentReadyForAssembly(parts, cpsByItem, stageSequence) && !it.assembledAt
+        : false
     });
   }
   return map;
@@ -150,11 +179,16 @@ function assembleOrder(order, customer, items, images, checkpoints, presence = n
   const imagesByItem = groupBy(images, (img) => img.orderItemId);
   const checkpointsByItem = groupBy(checkpoints, (cp) => cp.orderItemId);
 
-  const hydratedItems = items.map((it, idx) => {
+  const hydratedItems = items.map((it) => {
     const imgs = (imagesByItem.get(it.id) || []).map((img) =>
       s({ ...img, imageUrl: storedImagePath(img.imageUrl) })
     );
     const ops = presence.get(it.id) || {};
+    const idx = it.itemIndex || 1;
+    const labelBarcode =
+      it.itemKind === "part"
+        ? operationalPartBarcode(order.orderId, idx, it.partCode, it.barcodeValue)
+        : operationalItemBarcode(order.orderId, idx, it.barcodeValue);
     return {
       ...s(it),
       images: imgs,
@@ -164,9 +198,22 @@ function assembleOrder(order, customer, items, images, checkpoints, presence = n
       nextStage: ops.nextStage ?? null,
       boardStatus: ops.boardStatus ?? null,
       workerName: ops.workerName ?? null,
-      labelBarcode: operationalItemBarcode(order.orderId, idx + 1, it.barcodeValue)
+      labelBarcode,
+      readyForAssembly: Boolean(ops.readyForAssembly)
     };
   });
+
+  for (const it of hydratedItems) {
+    it.parts = hydratedItems.filter((p) => p.parentItemId === it._id);
+  }
+
+  const garments = hydratedItems.filter((it) => isTopLevelItem({ ...it, parentItemId: it.parentItemId, itemKind: it.itemKind }));
+  const completedCount = garments.filter((g) => isGarmentCompleteStage(g.currentStage)).length;
+  const completion = {
+    completed: completedCount,
+    total: garments.length,
+    readyToPack: garments.length > 0 && completedCount === garments.length
+  };
 
   return {
     ...s(order),
@@ -174,6 +221,7 @@ function assembleOrder(order, customer, items, images, checkpoints, presence = n
     customerName: customer?.name || "",
     customerPhone: customer?.phone || "",
     items: hydratedItems,
+    completion,
     balanceRemaining: balanceRemaining(order),
     group: order.group
       ? {

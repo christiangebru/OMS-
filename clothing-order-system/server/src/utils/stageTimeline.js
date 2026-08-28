@@ -1,5 +1,6 @@
 import { deriveCurrentStage, nextExpectedStage } from "./stageSequence.js";
-import { FULL_STAGE_SEQUENCE } from "../constants/production.js";
+import { FULL_STAGE_SEQUENCE, WORKSTATION_STAGES } from "../constants/production.js";
+import { findCheckpoint, aliasesForStage, canonicalStage } from "./productionModel.js";
 
 export function formatDurationMs(ms) {
   if (ms == null || Number.isNaN(ms)) return null;
@@ -18,14 +19,22 @@ function waitingMs(from, until) {
   return Math.max(0, end - start);
 }
 
+function assignmentForStage(assignments, stage) {
+  const aliases = aliasesForStage(stage);
+  return (
+    assignments.find((a) => aliases.includes(a.stage) && !a.completedAt) ||
+    assignments.find((a) => aliases.includes(a.stage)) ||
+    null
+  );
+}
+
 /**
  * Merge clothing-type stage sequence with checkpoints into a visual timeline.
- * Always returns the full production sequence so skipped stages (e.g. embroidery)
- * remain visible rather than disappearing.
+ * Always returns the canonical production sequence so skipped stages remain visible.
  */
 export function buildStageStates(checkpoints = [], stageSequence = [], options = {}) {
   const sequence = stageSequence?.length ? stageSequence : FULL_STAGE_SEQUENCE;
-  const inSequence = new Set(sequence);
+  const inSequence = new Set(sequence.map((s) => canonicalStage(s) || s));
   const next = nextExpectedStage(checkpoints, sequence);
   const current = deriveCurrentStage(checkpoints, sequence);
   const due = options.dueDate ? new Date(options.dueDate) : null;
@@ -41,7 +50,8 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
   let lastCompletedAt = null;
 
   return FULL_STAGE_SEQUENCE.map((stage) => {
-    if (!inSequence.has(stage)) {
+    const canon = canonicalStage(stage) || stage;
+    if (!inSequence.has(canon) && !sequence.includes(stage)) {
       return {
         stage,
         status: "skipped",
@@ -57,18 +67,15 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
       };
     }
 
-    const cp = checkpoints.find((c) => c.stage === stage);
-    const stageAsg =
-      assignments.find((a) => a.stage === stage && !a.completedAt) ||
-      assignments.find((a) => a.stage === stage) ||
-      null;
+    const cp = findCheckpoint(checkpoints, stage);
+    const stageAsg = assignmentForStage(assignments, stage);
     const assignedHere = Boolean(stageAsg);
     const assignedTo = assignedHere
       ? stageAsg.staff?.name || stageAsg.staffName || null
       : null;
 
     if (!cp) {
-      const status = stage === next ? "next" : "waiting";
+      const status = (canonicalStage(stage) || stage) === (canonicalStage(next) || next) ? "next" : "waiting";
       const blocked = overdueOrder && (status === "next" || status === "waiting");
       const row = {
         stage,
@@ -106,7 +113,7 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
       durationMs,
       waitingMs: wait,
       open,
-      isCurrent: current === stage,
+      isCurrent: (canonicalStage(current) || current) === canon,
       overdue: overdueOrder && open,
       assigned: assignedHere,
       assignedTo,
@@ -132,10 +139,15 @@ export function inferScanAction(checkpoints, nextStage) {
   return { action: "check_in", stage: nextStage, openCheckpoint: null };
 }
 
-const WORK_STAGES = new Set(["CUTTING", "SEWING", "EMBROIDERY", "FINISHING", "PACKAGING"]);
+const WORK_STAGES = new Set([
+  ...WORKSTATION_STAGES,
+  "PACKAGING",
+  "SHOWROOM",
+  "READY"
+]);
 
 /**
- * Manager/floor next action for a garment. Scanner remains the check-in/out path.
+ * Scanner is the physical hand-off. Assign first, then scan in — no separate distribute/receive.
  */
 export function inferNextAction({ checkpoints = [], assignment, nextStage, currentStage }) {
   const deliveredDone = checkpoints.some((c) => c.stage === "DELIVERED" && c.checkedOutAt);
@@ -144,34 +156,37 @@ export function inferNextAction({ checkpoints = [], assignment, nextStage, curre
   }
   const open = checkpoints.find((c) => c.checkedInAt && !c.checkedOutAt);
   if (open) {
-    return { code: "check_out", label: "Check out", stage: open.stage };
-  }
-  if (assignment && !assignment.distributedAt) {
-    return { code: "handover", label: "Mark handed over", stage: assignment.stage };
-  }
-  if (assignment && assignment.distributedAt && !assignment.receivedAt) {
-    return { code: "receive", label: "Confirm received", stage: assignment.stage };
+    return { code: "check_out", label: "Scan out", stage: open.stage };
   }
   if (!assignment && WORK_STAGES.has(nextStage)) {
     return { code: "assign", label: "Assign worker", stage: nextStage };
   }
   if (nextStage === "PACKAGING") {
-    return { code: "check_in", label: "Scan in to packaging", stage: "PACKAGING" };
+    return { code: "check_in", label: "Scan in to pack", stage: "PACKAGING" };
   }
   if (nextStage === "DELIVERED") {
     return { code: "check_in", label: "Mark delivered", stage: "DELIVERED" };
   }
-  if (nextStage === "READY") {
-    return { code: "check_in", label: "Mark ready", stage: "READY" };
+  if (nextStage === "SHOWROOM" || nextStage === "READY") {
+    return { code: "check_in", label: "Move to showroom", stage: nextStage };
   }
-  return { code: "check_in", label: "Check in", stage: nextStage };
+  if (assignment?.staff) {
+    return {
+      code: "check_in",
+      label: `Scan in to ${String(nextStage || assignment.stage).toLowerCase().replace(/_/g, " ")} — ${assignment.staff.name}`,
+      stage: nextStage || assignment.stage
+    };
+  }
+  return { code: "check_in", label: "Scan in", stage: nextStage };
 }
 
+/**
+ * UNASSIGNED = waiting. After workers are assigned = RECEIVED (manager state).
+ * Scan-in = in_progress. Assigned ≠ busy.
+ */
 export function boardStatusFrom({ checkpoints = [], assignment }) {
   const inProgress = checkpoints.some((c) => c.checkedInAt && !c.checkedOutAt);
   if (inProgress) return "in_progress";
   if (!assignment) return "waiting";
-  if (assignment.receivedAt) return "received";
-  if (assignment.distributedAt) return "distributed";
-  return "assigned";
+  return "received";
 }

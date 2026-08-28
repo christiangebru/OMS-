@@ -51,6 +51,7 @@ type Draft = {
   measureValues: Record<string, string>;
   copiedFromPrevious?: boolean;
   fromMensSet?: boolean;
+  selectedPartCodes?: string[];
 };
 
 const EDIT_LABELS = ["Type", "Reuse", "Fit", "Specs", "Images", "Price"];
@@ -176,6 +177,7 @@ export function NewOrderPage() {
   const [useGroupDue, setUseGroupDue] = useState(false);
   const [useGroupPriority, setUseGroupPriority] = useState(false);
   const [mensSet, setMensSet] = useState<"" | "shirt" | "trouser" | "both">("");
+  const [partLabelMode, setPartLabelMode] = useState<"none" | "all" | "selected">("none");
 
   useEffect(() => {
     apiJson<ClothingTypeConfig[]>("/api/clothing-types").then(setTypes).catch(() => {});
@@ -314,8 +316,18 @@ export function NewOrderPage() {
           priority,
           totalAgreedPrice: Number(agreed),
           depositPaid: Number(deposit),
-          items: drafts.map(toPayloadItem),
+          items: drafts.map((d) => {
+            const cfg = types.find(
+              (t) => t.label.toLowerCase() === d.clothingType.toLowerCase() || t.key === d.clothingCode.toLowerCase()
+            );
+            return {
+              ...toPayloadItem(d),
+              itemKind: cfg?.itemKind === "accessory" ? "accessory" : "garment",
+              selectedPartCodes: d.selectedPartCodes || []
+            };
+          }),
           mensGarmentSet: mensSet || undefined,
+          partLabelMode,
           groupId: orderKind === "group" ? resolvedGroupId : undefined,
           useGroupDueDate: orderKind === "group" && useGroupDue,
           useGroupPriority: orderKind === "group" && useGroupPriority
@@ -333,7 +345,8 @@ export function NewOrderPage() {
           /* best-effort */
         }
       }
-      push(`Order created · ${created.items.length} garment${created.items.length === 1 ? "" : "s"}`, "ok");
+      const garmentCount = (created.items || []).filter((it) => it.itemKind !== "part").length;
+      push(`Order created · ${garmentCount} garment${garmentCount === 1 ? "" : "s"}`, "ok");
       navigate(`/orders/${encodeURIComponent(created.orderId)}`, { replace: true });
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not create order");
@@ -871,6 +884,86 @@ export function NewOrderPage() {
               ))}
             </ul>
             <p className="text-right text-base font-semibold tabular">Total {formatMoney(agreed)}</p>
+            <div className="rounded-lg border border-line p-4">
+              <p className="ui-label">Part labels</p>
+              <p className="mt-1 text-xs text-ink-muted">
+                Order and garment labels always print. Part labels are optional (wrist, body, lower body).
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(
+                  [
+                    ["none", "No part labels"],
+                    ["all", "All part labels"],
+                    ["selected", "Selected part labels"]
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setPartLabelMode(id)}
+                    className={clsx(
+                      "rounded-control px-3 py-2 text-sm",
+                      partLabelMode === id ? "bg-accent text-white" : "bg-canvas text-ink-muted"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {partLabelMode === "selected" && (
+                <ul className="mt-3 space-y-3">
+                  {drafts.map((d) => {
+                    const cfg = types.find(
+                      (t) => t.label.toLowerCase() === d.clothingType.toLowerCase()
+                    );
+                    const codes = cfg?.partCodes?.length ? cfg.partCodes : [];
+                    if (!codes.length || cfg?.itemKind === "accessory") {
+                      return (
+                        <li key={d.key} className="text-xs text-ink-muted">
+                          {d.clothingType}: no part labels
+                        </li>
+                      );
+                    }
+                    return (
+                      <li key={d.key}>
+                        <p className="text-sm font-medium text-ink">{d.clothingType}</p>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {codes.map((code) => {
+                            const on = (d.selectedPartCodes || []).includes(code);
+                            return (
+                              <button
+                                key={code}
+                                type="button"
+                                onClick={() =>
+                                  setDrafts((list) =>
+                                    list.map((row) =>
+                                      row.key === d.key
+                                        ? {
+                                            ...row,
+                                            selectedPartCodes: on
+                                              ? (row.selectedPartCodes || []).filter((c) => c !== code)
+                                              : [...(row.selectedPartCodes || []), code]
+                                          }
+                                        : row
+                                    )
+                                  )
+                                }
+                                className={clsx(
+                                  "rounded-control px-2.5 py-1 text-xs font-mono",
+                                  on ? "bg-accent text-white" : "bg-canvas text-ink-muted"
+                                )}
+                              >
+                                {code}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           </div>
         )}
       </div>

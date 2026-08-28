@@ -18,16 +18,20 @@ export type ProductionStatus =
   | "stitching"
   | "finishing"
   | "completed"
+  | "ready_to_pack"
   | "delivered";
 
 export type ProductionStage =
   | "RECEIVED"
   | "CUTTING"
   | "SEWING"
+  | "SEWING_CUTTING"
   | "EMBROIDERY"
+  | "FINAL_SEWING"
   | "FINISHING"
   | "PACKAGING"
   | "READY"
+  | "SHOWROOM"
   | "DELIVERED";
 
 export type OrderPriority = "NORMAL" | "RUSH" | "VIP";
@@ -55,6 +59,9 @@ export interface StageCheckpoint {
   checkedOutByStaffId?: string | null;
   notes?: string;
 }
+
+export type ItemKind = "garment" | "accessory" | "part";
+export type PartLabelMode = "none" | "all" | "selected";
 
 export interface OrderItem {
   _id?: string;
@@ -91,8 +98,17 @@ export interface OrderItem {
   };
   currentStage?: ProductionStage | null;
   nextStage?: ProductionStage | null;
-  boardStatus?: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | null;
+  boardStatus?: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | "unassigned" | null;
   workerName?: string | null;
+  itemKind?: ItemKind;
+  parentItemId?: string | null;
+  partCode?: string;
+  itemIndex?: number;
+  assembledAt?: string | null;
+  offSiteStages?: string[];
+  printPartLabel?: boolean;
+  parts?: OrderItem[];
+  readyForAssembly?: boolean;
 }
 
 export interface CustomerSummary {
@@ -134,6 +150,9 @@ export interface Order {
   totalRevenue?: number;
   barcodeValue?: string;
   barcodeGeneratedAt?: string;
+  notes?: string;
+  partLabelMode?: PartLabelMode;
+  completion?: { completed: number; total: number; readyToPack: boolean };
   createdAt: string;
   updatedAt: string;
 }
@@ -220,12 +239,12 @@ export interface DashboardSummary {
 
 export const PRODUCTION_STAGES: ProductionStage[] = [
   "RECEIVED",
-  "CUTTING",
-  "SEWING",
+  "SEWING_CUTTING",
   "EMBROIDERY",
+  "FINAL_SEWING",
   "FINISHING",
+  "SHOWROOM",
   "PACKAGING",
-  "READY",
   "DELIVERED"
 ];
 
@@ -386,6 +405,11 @@ export interface ClothingTypeConfig {
   label: string;
   stageSequence: ProductionStage[];
   includesEmbroidery: boolean;
+  itemKind?: ItemKind;
+  partCodes?: string[];
+  offSiteStages?: string[];
+  compactLabel?: boolean;
+  measurementProfile?: string;
 }
 
 export interface DashboardOperations {

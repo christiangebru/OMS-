@@ -3,7 +3,6 @@ import { body, param, query, validationResult } from "express-validator";
 import { prisma } from "../db/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireCapability } from "../middleware/permissions.js";
-import { newId } from "../utils/ids.js";
 import { isRecordId } from "../utils/recordId.js";
 import { generateOrderId, generateOrderIdFallback, computeEstimatedCompletion } from "../utils/orderId.js";
 import { refreshStatisticSnapshot } from "../utils/stats.js";
@@ -14,11 +13,19 @@ import {
   OrderPriority,
   NeckType,
   HandType,
-  SizeCategory
+  SizeCategory,
+  PartLabelMode,
+  ItemKind
 } from "../constants/production.js";
-import { generateOrderBarcodeValue, ensureUniqueItemBarcode, operationalItemBarcode } from "../utils/barcode.js";
+import { generateOrderBarcodeValue, operationalItemBarcode, operationalPartBarcode } from "../utils/barcode.js";
 import { buildSingleLabelPdf, buildBatchLabelPdf } from "../utils/labelPdf.js";
 import { hydrateOrder, hydrateOrders } from "../utils/orderHydrate.js";
+import {
+  createItemsForOrder,
+  replaceItemsForOrder,
+  upsertItemsForOrder
+} from "../utils/orderItemsWrite.js";
+import { isTopLevelItem, partLabel } from "../utils/productionModel.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -49,13 +56,20 @@ function validateItems(items) {
     ) {
       return { ok: false, message: `${label}.quantity must be a number >= 1` };
     }
-    if (!NeckType.includes(it.neckType)) {
+    if (it.itemKind && !ItemKind.includes(it.itemKind)) {
+      return { ok: false, message: `${label}.itemKind must be one of: ${ItemKind.join(", ")}` };
+    }
+    const kind = it.itemKind || "garment";
+    const neck = it.neckType || (kind === "accessory" ? "oval" : it.neckType);
+    const hand = it.handType || (kind === "accessory" ? "normal" : it.handType);
+    const size = it.size || (kind === "accessory" ? "adult" : it.size);
+    if (!NeckType.includes(neck)) {
       return { ok: false, message: `${label}.neckType must be one of: ${NeckType.join(", ")}` };
     }
-    if (!HandType.includes(it.handType)) {
+    if (!HandType.includes(hand)) {
       return { ok: false, message: `${label}.handType must be one of: ${HandType.join(", ")}` };
     }
-    if (!SizeCategory.includes(it.size)) {
+    if (!SizeCategory.includes(size)) {
       return { ok: false, message: `${label}.size must be one of: ${SizeCategory.join(", ")}` };
     }
     if (it.measurements && !GENDERS.includes(it.measurements.gender)) {
@@ -121,14 +135,25 @@ function normalizeItemPayload(item) {
     color: String(item.color).trim(),
     quantity: qty,
     notes: item.notes ? String(item.notes) : "",
-    neckType: item.neckType,
-    handType: item.handType,
-    size: item.size,
+    neckType: item.neckType || "oval",
+    handType: item.handType || "normal",
+    size: item.size || "adult",
     measurements,
     productionDays,
     unitPrice,
     lineTotal: unitPrice * qty,
     difficultyLevel,
+    itemKind: item.itemKind || undefined,
+    partCode: item.partCode ? String(item.partCode).toUpperCase() : "",
+    offSiteStages: Array.isArray(item.offSiteStages) ? item.offSiteStages.map(String) : undefined,
+    id: item.id || item._id || undefined,
+    _id: item._id || item.id || undefined,
+    _selectedPartCodes: Array.isArray(item.selectedPartCodes)
+      ? item.selectedPartCodes
+      : Array.isArray(item.partCodes)
+        ? item.partCodes
+        : [],
+    _partLabelMode: item.partLabelMode || undefined,
     _imageUrls: Array.isArray(item.images)
       ? item.images
           .map((img) => (typeof img === "string" ? { imageUrl: img } : img))
@@ -185,44 +210,6 @@ async function resolveCustomerId(reqBody, client) {
   throw Object.assign(new Error("customerId or customerName+customerPhone required"), {
     status: 400
   });
-}
-
-async function createItemsForOrder(order, itemPayloads, client) {
-  const existingCount = await client.orderItem.count({ where: { order: order.id } });
-  let index = existingCount;
-  for (const payload of itemPayloads) {
-    const { _imageUrls, ...fields } = payload;
-    const itemId = newId();
-    const now = new Date();
-    index += 1;
-    const barcodeValue = await ensureUniqueItemBarcode(client, order.orderId, index, itemId);
-    await client.orderItem.create({
-      data: {
-        id: itemId,
-        order: order.id,
-        orderId: order.orderId,
-        ...fields,
-        barcodeValue,
-        barcodeGeneratedAt: now
-      }
-    });
-    if (_imageUrls?.length) {
-      await client.orderItemImage.createMany({
-        data: _imageUrls.map((img) => ({
-          orderItemId: itemId,
-          imageUrl: img.imageUrl,
-          caption: img.caption || "",
-          uploadedAt: now
-        }))
-      });
-    }
-  }
-}
-
-async function replaceItemsForOrder(order, itemPayloads, client) {
-  // Deleting items cascades their images, checkpoints and assignments (see schema).
-  await client.orderItem.deleteMany({ where: { order: order.id } });
-  await createItemsForOrder(order, itemPayloads, client);
 }
 
 async function logProduction(userId, order, action, fromStatus, toStatus, notes = "", client) {
@@ -354,13 +341,39 @@ router.get("/:orderId/barcode-labels/batch", param("orderId").notEmpty(), async 
   if (!order) return res.status(404).json({ message: "Order not found" });
   const items = await prisma.orderItem.findMany({
     where: { order: order.id },
-    orderBy: { createdAt: "asc" }
+    orderBy: [{ itemIndex: "asc" }, { createdAt: "asc" }]
   });
-  const labels = items.map((it, idx) => ({
-    barcodeValue: operationalItemBarcode(order.orderId, idx + 1, it.barcodeValue),
-    title: it.clothingType,
-    subtitle: `${order.orderId} · ${it.clothingCode}`
-  }));
+  const labels = [
+    {
+      barcodeValue: order.barcodeValue,
+      title: order.orderId,
+      subtitle: "Order",
+      size: "standard"
+    }
+  ];
+  const top = items.filter((it) => isTopLevelItem(it));
+  for (const it of top) {
+    labels.push({
+      barcodeValue: operationalItemBarcode(order.orderId, it.itemIndex || 1, it.barcodeValue),
+      title: it.clothingType,
+      subtitle: `${order.orderId} · ${it.clothingCode}`,
+      size: it.itemKind === "accessory" ? "compact" : "standard"
+    });
+    const parts = items.filter((p) => p.parentItemId === it.id && p.printPartLabel);
+    for (const part of parts) {
+      labels.push({
+        barcodeValue: operationalPartBarcode(
+          order.orderId,
+          it.itemIndex || 1,
+          part.partCode,
+          part.barcodeValue
+        ),
+        title: partLabel(part.partCode),
+        subtitle: operationalItemBarcode(order.orderId, it.itemIndex || 1, it.barcodeValue),
+        size: "compact"
+      });
+    }
+  }
   const pdf = await buildBatchLabelPdf(labels);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
@@ -393,6 +406,8 @@ router.post(
   body("customerName").optional().trim().notEmpty(),
   body("customerPhone").optional().trim().notEmpty(),
   body("mensGarmentSet").optional().isIn(["shirt", "trouser", "both"]),
+  body("partLabelMode").optional().isIn(PartLabelMode),
+  body("notes").optional().isString(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -442,6 +457,8 @@ router.post(
               totalAgreedPrice,
               depositPaid: Number(req.body.depositPaid) || 0,
               totalRevenue,
+              notes: req.body.notes ? String(req.body.notes) : "",
+              partLabelMode: req.body.partLabelMode || "none",
               barcodeValue: generateOrderBarcodeValue(orderId),
               barcodeGeneratedAt: createdAt,
               createdBy: req.user.id,
@@ -465,6 +482,8 @@ router.post(
               totalAgreedPrice,
               depositPaid: Number(req.body.depositPaid) || 0,
               totalRevenue,
+              notes: req.body.notes ? String(req.body.notes) : "",
+              partLabelMode: req.body.partLabelMode || "none",
               barcodeValue: generateOrderBarcodeValue(orderId),
               barcodeGeneratedAt: createdAt,
               createdBy: req.user.id,
@@ -473,7 +492,9 @@ router.post(
           });
         }
 
-        await createItemsForOrder(doc, itemPayloads, tx);
+        await createItemsForOrder(doc, itemPayloads, tx, {
+          partLabelMode: req.body.partLabelMode || "none"
+        });
         await logProduction(req.user.id, doc, "order_created", null, doc.productionStatus, "", tx);
         return doc;
       });
@@ -504,6 +525,9 @@ router.put(
   body("customerName").optional().trim().notEmpty(),
   body("customerPhone").optional().trim().notEmpty(),
   body("mensGarmentSet").optional().isIn(["shirt", "trouser", "both"]),
+  body("partLabelMode").optional().isIn(PartLabelMode),
+  body("notes").optional().isString(),
+  body("replaceItems").optional().isBoolean(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -546,11 +570,18 @@ router.put(
         if (req.body.depositPaid !== undefined) {
           data.depositPaid = Number(req.body.depositPaid);
         }
+        if (req.body.notes !== undefined) data.notes = String(req.body.notes);
+        if (req.body.partLabelMode) data.partLabelMode = req.body.partLabelMode;
         if (req.body.productionStatus) data.productionStatus = req.body.productionStatus;
 
         if (req.body.items) {
           const itemPayloads = req.body.items.map(normalizeItemPayload);
-          await replaceItemsForOrder(order, itemPayloads, tx);
+          const mode = req.body.partLabelMode || order.partLabelMode || "none";
+          if (req.body.replaceItems === true) {
+            await replaceItemsForOrder(order, itemPayloads, tx, { partLabelMode: mode });
+          } else {
+            await upsertItemsForOrder(order, itemPayloads, tx, { partLabelMode: mode });
+          }
           data.totalRevenue = itemPayloads.reduce((sum, i) => sum + i.lineTotal, 0);
           data.estimatedProductionCompletion = computeEstimatedCompletion(
             order.createdAt,

@@ -55,7 +55,7 @@ export function OrderDetailPage() {
   }
 
   const due = new Date(order.requiredCompletionDate);
-  const overdue = due.getTime() < Date.now() && !["completed", "delivered"].includes(order.productionStatus);
+  const overdue = due.getTime() < Date.now() && !["completed", "ready_to_pack", "delivered"].includes(order.productionStatus);
   const days = (due.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
   const canEdit = canWriteOrders(user?.role);
   const canLabels = canSee(user?.role, "labels");
@@ -152,9 +152,19 @@ export function OrderDetailPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-ink">Garments</h2>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold text-ink">Garments</h2>
+          <p className="text-xs text-ink-muted">
+            {order.completion
+              ? `${order.completion.completed}/${order.completion.total} complete`
+              : `${order.items.filter((it) => it.itemKind !== "part").length} items`}
+            {order.completion?.readyToPack || order.productionStatus === "ready_to_pack"
+              ? " · Ready to pack"
+              : ""}
+          </p>
+        </div>
         <ul className="space-y-3">
-          {order.items.map((it) => {
+          {order.items.filter((it) => it.itemKind !== "part").map((it) => {
             const stages = stageSequenceFor(it.clothingType, types);
             const current = it.currentStage || it.nextStage || stages[0];
             const thumb = it.images?.[0]?.imageUrl || it.imagePath;
@@ -197,6 +207,26 @@ export function OrderDetailPage() {
                     <div className="mt-4">
                       <SpecSheet item={it} />
                     </div>
+                    {it.offSiteStages?.length ? (
+                      <p className="mt-2 text-xs text-ink-muted">
+                        Off-site stages: {it.offSiteStages.map((s) => stageLabel(s)).join(" · ")}
+                      </p>
+                    ) : null}
+                    {it.readyForAssembly ? (
+                      <p className="mt-2 text-xs font-semibold text-accent">Ready for assembly</p>
+                    ) : null}
+                    {(it.parts || order.items.filter((p) => p.parentItemId === it._id)).length > 0 && (
+                      <ul className="mt-3 space-y-1 text-xs text-ink-muted">
+                        {(it.parts || order.items.filter((p) => p.parentItemId === it._id)).map((p) => (
+                          <li key={p._id} className="flex justify-between gap-2 font-mono">
+                            <span>
+                              {p.labelBarcode || p.barcodeValue} · {p.partCode}
+                            </span>
+                            <span className="font-sans capitalize">{stageLabel(p.currentStage || p.nextStage || "")}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     {it._id && (
                       <div className="mt-3">
                         <RowActions

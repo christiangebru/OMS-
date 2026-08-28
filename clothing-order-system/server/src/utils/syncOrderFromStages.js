@@ -1,9 +1,11 @@
 import { prisma } from "../db/prisma.js";
 import { deriveCurrentStage, resolveStageSequence } from "./stageSequence.js";
-import { furthestStageAcrossItems, orderStatusFromStage } from "./orderStatusSync.js";
+import { orderStatusFromItemStages } from "./orderStatusSync.js";
+import { isTopLevelItem } from "./productionModel.js";
 
 /**
- * Sync parent Order.productionStatus from furthest stage across its items.
+ * Sync parent Order.productionStatus from per-garment completion.
+ * An order stays incomplete until every garment is complete, then READY TO PACK.
  * Accepts an optional Prisma client so it can participate in a transaction.
  */
 export async function syncOrderStatusFromItems(orderId, userId = null, client = prisma) {
@@ -23,15 +25,18 @@ export async function syncOrderStatusFromItems(orderId, userId = null, client = 
     byItem.get(key).push(cp);
   }
 
-  const stages = [];
+  const garmentStates = [];
   for (const item of items) {
+    if (!isTopLevelItem(item)) continue;
     const cps = byItem.get(item.id) || [];
     const { stageSequence } = await resolveStageSequence(item.clothingType);
-    stages.push(deriveCurrentStage(cps, stageSequence));
+    garmentStates.push({
+      ...item,
+      stage: deriveCurrentStage(cps, stageSequence)
+    });
   }
 
-  const furthest = furthestStageAcrossItems(stages);
-  const nextStatus = orderStatusFromStage(furthest);
+  const nextStatus = orderStatusFromItemStages(garmentStates);
   const prev = order.productionStatus;
 
   if (prev !== nextStatus) {
@@ -39,6 +44,9 @@ export async function syncOrderStatusFromItems(orderId, userId = null, client = 
       where: { id: order.id },
       data: { productionStatus: nextStatus, ...(userId ? { lastUpdatedBy: userId } : {}) }
     });
+    const complete = garmentStates.filter((g) =>
+      ["SHOWROOM", "READY", "PACKAGING", "DELIVERED"].includes(g.stage)
+    ).length;
     await client.productionLog.create({
       data: {
         orderId: order.orderId,
@@ -47,9 +55,7 @@ export async function syncOrderStatusFromItems(orderId, userId = null, client = 
         action: "status_change",
         fromStatus: prev,
         toStatus: nextStatus,
-        notes: furthest
-          ? `Synced from furthest stage ${furthest}`
-          : "Synced from production stages"
+        notes: `Synced from garments ${complete}/${garmentStates.length} complete`
       }
     });
     return updated;

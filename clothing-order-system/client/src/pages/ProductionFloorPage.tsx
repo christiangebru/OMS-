@@ -54,7 +54,7 @@ export function ProductionFloorPage() {
   const chips = [
     { id: "ALL", label: "All" },
     ...visibleStages
-      .filter((s) => !["RECEIVED", "DELIVERED"].includes(s) || manager)
+      .filter((s) => !["RECEIVED", "DELIVERED", "PACKAGING"].includes(s) || manager)
       .map((s) => ({ id: s, label: stageLabel(s) })),
     { id: "overdue", label: "Overdue" }
   ];

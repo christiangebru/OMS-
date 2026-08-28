@@ -24,6 +24,8 @@ router.get("/resolve/:clothingType", async (req, res) => {
     label: req.params.clothingType || "Unknown",
     stageSequence: [...SKIP_EMBROIDERY_SEQUENCE],
     includesEmbroidery: false,
+    itemKind: "garment",
+    partCodes: [],
     fallback: true
   });
 });

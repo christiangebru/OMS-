@@ -42,6 +42,11 @@ export function ItemMeasurementFields({
 }) {
   const gender = (item.measurements?.gender || "female") as Gender;
   const fields = fieldsFor(gender, item.size);
+  if (item.itemKind === "accessory") {
+    return (
+      <p className="text-xs text-ink-muted">Accessories do not use garment measurement fields.</p>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-line p-4">

@@ -28,7 +28,9 @@ async function groupProgress(groupId) {
     include: { customer: true, items: true }
   });
   const total = orders.length;
-  const ready = orders.filter((o) => ["completed", "delivered"].includes(o.productionStatus)).length;
+  const ready = orders.filter((o) =>
+    ["completed", "ready_to_pack", "delivered"].includes(o.productionStatus)
+  ).length;
   const inProduction = orders.filter((o) =>
     ["cutting", "stitching", "finishing", "pending"].includes(o.productionStatus)
   ).length;

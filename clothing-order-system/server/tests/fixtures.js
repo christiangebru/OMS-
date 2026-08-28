@@ -17,7 +17,12 @@ export async function seedClothingTypes() {
       key: c.key,
       label: c.label,
       stageSequence: c.stageSequence,
-      includesEmbroidery: c.includesEmbroidery
+      includesEmbroidery: c.includesEmbroidery,
+      itemKind: c.itemKind || "garment",
+      partCodes: c.partCodes || [],
+      offSiteStages: c.offSiteStages || [],
+      compactLabel: Boolean(c.compactLabel),
+      measurementProfile: c.measurementProfile || ""
     }))
   });
 }
@@ -133,10 +138,13 @@ export async function seedOrderWithItem({
     "RECEIVED",
     "CUTTING",
     "SEWING",
+    "SEWING_CUTTING",
     "EMBROIDERY",
+    "FINAL_SEWING",
     "FINISHING",
     "PACKAGING",
     "READY",
+    "SHOWROOM",
     "DELIVERED"
   ];
   await prisma.staffSkill.createMany({
@@ -157,7 +165,7 @@ export async function createStaff({
   name,
   skillLevel = 3,
   status = "AVAILABLE",
-  stages = ["CUTTING"]
+  stages = ["SEWING_CUTTING"]
 }) {
   const staff = await prisma.staff.create({
     data: {

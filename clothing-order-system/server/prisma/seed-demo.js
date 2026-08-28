@@ -49,14 +49,14 @@ async function main() {
 
   // Staff + skills
   const staffSpecs = [
-    { name: "Cutter Sam", role: "CUTTER", skillLevel: 4, skills: ["RECEIVED", "CUTTING"] },
-    { name: "Tailor Tara", role: "TAILOR", skillLevel: 5, skills: ["SEWING", "FINISHING"] },
+    { name: "Cutter Sam", role: "CUTTER", skillLevel: 4, skills: ["RECEIVED", "CUTTING", "SEWING_CUTTING"] },
+    { name: "Tailor Tara", role: "TAILOR", skillLevel: 5, skills: ["SEWING", "SEWING_CUTTING", "FINAL_SEWING", "FINISHING"] },
     { name: "Embroider Emma", role: "EMBROIDERER", skillLevel: 4, skills: ["EMBROIDERY"] },
     {
       name: "Finisher Fadi",
       role: "FINISHER",
       skillLevel: 3,
-      skills: ["FINISHING", "PACKAGING", "READY", "DELIVERED"]
+      skills: ["FINISHING", "PACKAGING", "READY", "SHOWROOM", "DELIVERED"]
     }
   ];
   for (const spec of staffSpecs) {

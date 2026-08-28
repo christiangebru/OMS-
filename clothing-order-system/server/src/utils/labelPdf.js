@@ -35,13 +35,13 @@ export async function buildSingleLabelPdf(label) {
   const done = collectPdf(doc);
   const png = await renderBarcodePng(label.barcodeValue);
 
-  doc.fontSize(7).text(label.title || "", { width: w - mm(4), align: "center" });
+  const imgH = label.size === "compact" ? mm(8) : mm(12);
+  doc.fontSize(label.size === "compact" ? 6 : 7).text(label.title || "", { width: w - mm(4), align: "center" });
   if (label.subtitle) {
     doc.fontSize(6).fillColor("#444").text(label.subtitle, { width: w - mm(4), align: "center" });
     doc.fillColor("#000");
   }
   const imgW = w - mm(6);
-  const imgH = mm(12);
   doc.image(png, mm(3), doc.y + 2, { width: imgW, height: imgH, fit: [imgW, imgH] });
   doc.end();
   return done;
@@ -75,7 +75,7 @@ export async function buildBatchLabelPdf(labels) {
     const png = await renderBarcodePng(label.barcodeValue);
 
     doc.rect(x, y, cellW, cellH).stroke("#ccc");
-    doc.fontSize(8).fillColor("#000").text(label.title || "", x + 4, y + 4, {
+    doc.fontSize(label.size === "compact" ? 6 : 8).fillColor("#000").text(label.title || "", x + 4, y + 4, {
       width: cellW - 8,
       align: "center",
       lineBreak: false

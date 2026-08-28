@@ -7,6 +7,7 @@ import { seedClothingTypes } from "./fixtures.js";
 import authRoutes from "../src/routes/auth.js";
 import orderRoutes from "../src/routes/orders.js";
 import customerRoutes from "../src/routes/customers.js";
+import { prisma } from "../src/db/prisma.js";
 
 function buildApp() {
   const app = express();
@@ -293,5 +294,125 @@ describe("Orders API (PostgreSQL/Prisma)", () => {
         items: [shirt, trouser]
       });
     expect(bad.status).toBe(400);
+  });
+
+  it("updates header fields without replacing garments or wiping production history", async () => {
+    const created = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Header Edit",
+        customerPhone: "5559990001",
+        requiredCompletionDate: "2027-07-01",
+        depositPaid: 10,
+        items: [validItem]
+      });
+    expect(created.status).toBe(201);
+    const itemId = created.body.items[0]._id;
+    await prisma.stageCheckpoint.create({
+      data: {
+        orderItemId: itemId,
+        stage: "SEWING_CUTTING",
+        checkedInAt: new Date()
+      }
+    });
+
+    const headerOnly = await request(app)
+      .put(`/api/orders/${created.body.orderId}`)
+      .set(auth(token))
+      .send({
+        requiredCompletionDate: "2027-08-15",
+        depositPaid: 40,
+        notes: "Rush for wedding",
+        totalAgreedPrice: 120
+      });
+    expect(headerOnly.status).toBe(200);
+    expect(headerOnly.body.items).toHaveLength(1);
+    expect(headerOnly.body.items[0]._id).toBe(itemId);
+    expect(headerOnly.body.depositPaid).toBe(40);
+    expect(headerOnly.body.notes).toBe("Rush for wedding");
+    const cp = await prisma.stageCheckpoint.findMany({ where: { orderItemId: itemId } });
+    expect(cp).toHaveLength(1);
+
+    const replace = await request(app)
+      .put(`/api/orders/${created.body.orderId}`)
+      .set(auth(token))
+      .send({
+        replaceItems: true,
+        items: [{ ...validItem, clothingCode: "NEW" }]
+      });
+    expect(replace.status).toBe(409);
+    expect(replace.body.message).toMatch(/production history/i);
+  });
+
+  it("upserts existing garments by id without cascade-deleting checkpoints", async () => {
+    const created = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Upsert Edit",
+        customerPhone: "5559990002",
+        requiredCompletionDate: "2027-07-01",
+        items: [validItem]
+      });
+    const itemId = created.body.items[0]._id;
+    await prisma.stageCheckpoint.create({
+      data: {
+        orderItemId: itemId,
+        stage: "SEWING_CUTTING",
+        checkedInAt: new Date(),
+        checkedOutAt: new Date()
+      }
+    });
+
+    const updated = await request(app)
+      .put(`/api/orders/${created.body.orderId}`)
+      .set(auth(token))
+      .send({
+        items: [
+          {
+            _id: itemId,
+            ...validItem,
+            unitPrice: 80,
+            notes: "Hem shorter"
+          }
+        ]
+      });
+    expect(updated.status).toBe(200);
+    expect(updated.body.items[0]._id).toBe(itemId);
+    expect(updated.body.items[0].unitPrice).toBe(80);
+    expect(updated.body.items[0].notes).toBe("Hem shorter");
+    const cp = await prisma.stageCheckpoint.count({ where: { orderItemId: itemId } });
+    expect(cp).toBe(1);
+  });
+
+  it("creates optional part labels ORD-n-i-XX when requested at order create", async () => {
+    const res = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Part Labels",
+        customerPhone: "5559990003",
+        requiredCompletionDate: "2027-09-01",
+        partLabelMode: "all",
+        items: [
+          {
+            ...validItem,
+            clothingType: "Women's dress",
+            clothingCode: "WD-1",
+            measurements: { gender: "female" }
+          }
+        ]
+      });
+    expect(res.status).toBe(201);
+    const garments = res.body.items.filter((it) => it.itemKind !== "part");
+    const parts = res.body.items.filter((it) => it.itemKind === "part");
+    expect(garments).toHaveLength(1);
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+    expect(garments[0].barcodeValue).toMatch(/^ORD-\d+-1$/);
+    parts.forEach((p) => {
+      expect(p.barcodeValue).toMatch(/^ORD-\d+-1-[A-Z]{2}$/);
+      expect(p.parentItemId).toBe(garments[0]._id);
+    });
   });
 });
