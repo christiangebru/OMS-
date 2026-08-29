@@ -8,6 +8,7 @@ import authRoutes from "../src/routes/auth.js";
 import orderRoutes from "../src/routes/orders.js";
 import customerRoutes from "../src/routes/customers.js";
 import { prisma } from "../src/db/prisma.js";
+import { findClothingTypeConfig } from "../src/utils/clothingTypeConfig.js";
 
 function buildApp() {
   const app = express();
@@ -414,5 +415,132 @@ describe("Orders API (PostgreSQL/Prisma)", () => {
       expect(p.barcodeValue).toMatch(/^ORD-\d+-1-[A-Z]{2}$/);
       expect(p.parentItemId).toBe(garments[0]._id);
     });
+  });
+
+  it("persists audience and setChoice and allows mixed categories on one order", async () => {
+    const res = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Mixed Category",
+        customerPhone: "5558881001",
+        requiredCompletionDate: "2027-10-01",
+        items: [
+          {
+            ...validItem,
+            clothingCode: "KEMIS",
+            clothingType: "kemis",
+            audience: "women",
+            setChoice: "garment",
+            measurements: { gender: "female" }
+          },
+          {
+            ...validItem,
+            clothingCode: "SHIRT",
+            clothingType: "Men's shirt",
+            audience: "men",
+            setChoice: "shirt",
+            measurements: { gender: "male", chest: "98" }
+          },
+          {
+            ...validItem,
+            clothingCode: "BELT",
+            clothingType: "Belt",
+            itemKind: "accessory",
+            audience: "women",
+            setChoice: "belt"
+          }
+        ]
+      });
+    expect(res.status).toBe(201);
+    const top = res.body.items.filter((it) => it.itemKind !== "part");
+    expect(top).toHaveLength(3);
+    const kemis = top.find((it) => it.clothingType === "kemis");
+    const shirt = top.find((it) => /shirt/i.test(it.clothingType));
+    const belt = top.find((it) => it.clothingType === "Belt");
+    expect(kemis.audience).toBe("women");
+    expect(kemis.setChoice).toBe("garment");
+    expect(kemis.itemKind).toBe("garment");
+    expect(shirt.audience).toBe("men");
+    expect(shirt.setChoice).toBe("shirt");
+    expect(shirt.offSiteStages).toEqual(expect.arrayContaining(["SEWING_CUTTING", "FINAL_SEWING"]));
+    expect(belt.itemKind).toBe("accessory");
+    expect(belt.audience).toBe("women");
+    expect(belt.setChoice).toBe("belt");
+    expect(res.body.items.filter((it) => it.parentItemId === belt._id)).toHaveLength(0);
+    expect(kemis.barcodeValue).toMatch(/^ORD-\d+-1$/);
+    expect(shirt.barcodeValue).toMatch(/^ORD-\d+-2$/);
+    expect(belt.barcodeValue).toMatch(/^ORD-\d+-3$/);
+  });
+
+  it("stores kids boy/girl as kids size with an explicit audience", async () => {
+    const res = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Kids Mix",
+        customerPhone: "5558881002",
+        requiredCompletionDate: "2027-10-02",
+        items: [
+          {
+            ...validItem,
+            clothingCode: "SHIRT",
+            clothingType: "Men's shirt",
+            size: "kids",
+            audience: "kids_boy",
+            setChoice: "both",
+            measurements: { gender: "kids", chest: "60" }
+          },
+          {
+            ...validItem,
+            clothingCode: "PANT",
+            clothingType: "Men's trouser",
+            size: "kids",
+            audience: "kids_boy",
+            setChoice: "both",
+            measurements: { gender: "kids", waist: "50" }
+          },
+          {
+            ...validItem,
+            clothingCode: "NETELA",
+            clothingType: "Netela",
+            itemKind: "accessory",
+            size: "kids",
+            audience: "kids_girl",
+            setChoice: "netela"
+          }
+        ]
+      });
+    expect(res.status).toBe(201);
+    const top = res.body.items.filter((it) => it.itemKind !== "part");
+    const boyShirt = top.find((it) => it.setChoice === "both" && /shirt/i.test(it.clothingType));
+    const girlAcc = top.find((it) => it.clothingType === "Netela");
+    expect(boyShirt.size).toBe("kids");
+    expect(boyShirt.audience).toBe("kids_boy");
+    expect(boyShirt.measurements.gender).toBe("kids");
+    expect(girlAcc.audience).toBe("kids_girl");
+    expect(girlAcc.itemKind).toBe("accessory");
+    expect(girlAcc.size).toBe("kids");
+  });
+
+  it("resolves Men's shirt / Men's trouser labels to clothing type configs", async () => {
+    const shirt = await findClothingTypeConfig(prisma, "Men's shirt", "SHIRT");
+    const trouser = await findClothingTypeConfig(prisma, "Men's trouser", "PANTS");
+    expect(shirt?.key).toBe("shirt");
+    expect(trouser?.key).toBe("pants");
+  });
+
+  it("rejects unknown audience values", async () => {
+    const res = await request(app)
+      .post("/api/orders")
+      .set(auth(token))
+      .send({
+        customerName: "Bad Audience",
+        customerPhone: "5558881003",
+        requiredCompletionDate: "2027-10-03",
+        items: [{ ...validItem, audience: "toddler" }]
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/audience/i);
   });
 });

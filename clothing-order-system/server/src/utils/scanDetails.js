@@ -200,7 +200,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       where: { orderItemId: item.id },
       orderBy: { checkedInAt: "asc" }
     }),
-    resolveStageSequence(item.clothingType),
+    resolveStageSequence(item.clothingType, item.clothingCode),
     order.groupId ? prisma.orderGroup.findUnique({ where: { id: order.groupId } }) : null
   ]);
 
@@ -363,6 +363,8 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       fabricType: item.fabricType,
       color: item.color,
       size: item.size,
+      audience: item.audience || "",
+      setChoice: item.setChoice || "",
       neckType: item.neckType,
       handType: item.handType,
       notes: item.notes,

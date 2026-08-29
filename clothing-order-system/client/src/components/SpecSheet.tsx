@@ -1,5 +1,6 @@
 import { Children } from "react";
 import type { OrderItem } from "@/lib/types";
+import { audienceShortLabel } from "@/lib/clothingAudience";
 
 type SpecItem = Partial<OrderItem> & {
   clothingType?: string;
@@ -10,6 +11,8 @@ type SpecItem = Partial<OrderItem> & {
   neckType?: string;
   handType?: string;
   size?: string;
+  audience?: string;
+  itemKind?: string;
   quantity?: number;
   measurements?: OrderItem["measurements"];
 };
@@ -51,14 +54,16 @@ function isShirt(type?: string) {
 
 export function SpecSheet({ item }: { item: SpecItem }) {
   const m = item.measurements || {};
-  const trouser = isTrouser(item.clothingType);
-  const shirt = isShirt(item.clothingType);
+  const accessory = item.itemKind === "accessory";
+  const trouser = !accessory && isTrouser(item.clothingType);
+  const shirt = !accessory && isShirt(item.clothingType);
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <Block title="Garment">
         <Row k="Type" v={item.clothingType} />
         <Row k="Code" v={item.clothingCode} />
+        <Row k="Category" v={audienceShortLabel(item.audience)} />
         <Row k="Quantity" v={item.quantity ? String(item.quantity) : ""} />
         <Row k="Size" v={val(item.size)} />
       </Block>
@@ -66,7 +71,7 @@ export function SpecSheet({ item }: { item: SpecItem }) {
         <Row k="Fabric" v={val(item.fabricType)} />
         <Row k="Color" v={val(item.color)} />
       </Block>
-      {!trouser ? (
+      {accessory ? null : !trouser ? (
         <Block title={shirt ? "Shirt" : "Measurements"}>
           <Row k="Chest" v={val(m.chest || m.breast)} />
           <Row k="Shoulder" v={val(m.shoulder)} />

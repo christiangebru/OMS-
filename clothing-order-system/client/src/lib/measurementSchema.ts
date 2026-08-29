@@ -95,6 +95,17 @@ export const MEASUREMENT_SCHEMAS: Record<MeasurementCategory, MeasurementGroup[]
   ]
 };
 
+export type MeasureScope = "upper" | "lower" | "all" | "none";
+
+export function groupsForScope(category: MeasurementCategory, scope: MeasureScope = "all") {
+  const groups = MEASUREMENT_SCHEMAS[category] || [];
+  if (scope === "all") return groups;
+  if (scope === "none") return [];
+  if (scope === "upper") return groups.filter((g) => g.id === "upper" || g.id === "sleeves");
+  if (scope === "lower") return groups.filter((g) => g.id === "lower");
+  return groups;
+}
+
 export function categoryToItemGender(category: MeasurementCategory): "male" | "female" | "kids" {
   if (category === "male") return "male";
   if (category === "female") return "female";

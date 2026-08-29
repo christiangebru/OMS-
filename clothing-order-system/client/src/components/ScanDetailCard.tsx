@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 import { imageUrlFromPath } from "@/lib/api";
 import type { ScanDetails } from "@/lib/types";
 import { daysLabel, formatDate, formatMoney, stageLabel, shortOrderId } from "@/lib/format";
+import { audienceShortLabel } from "@/lib/clothingAudience";
 import { ProductionTimeline } from "@/components/ProductionTimeline";
 import { Badge } from "@/components/ui/PageHeader";
 import { garmentPath } from "@/components/GarmentCard";
@@ -59,7 +60,9 @@ export function ScanDetailCard({ details }: { details: ScanDetails }) {
 
         <div className="mt-5 grid gap-4 border-t border-line pt-4 sm:grid-cols-2 lg:grid-cols-4">
           <Fact label="Garment" value={details.item.clothingType}>
-            {details.item.fabricType} · {details.item.color} · {details.item.size}
+            {[audienceShortLabel(details.item.audience), details.item.fabricType, details.item.color, details.item.size]
+              .filter(Boolean)
+              .join(" · ")}
             <span className="mt-1 block font-mono text-[11px] text-ink-faint">{details.item.barcodeValue}</span>
           </Fact>
           <Fact label="Now" value={details.production?.offSite ? "Off-site" : stageLabel(details.timing.currentStage || "unstarted")} capitalize>

@@ -154,7 +154,7 @@ async function itemPresence(items, checkpoints, assignments) {
   const asgByItem = groupBy(assignments, (a) => a.orderItemId);
   const map = new Map();
   for (const it of items) {
-    const { stageSequence, offSiteStages } = await resolveStageSequence(it.clothingType);
+    const { stageSequence, offSiteStages } = await resolveStageSequence(it.clothingType, it.clothingCode);
     const itemOff = it.offSiteStages?.length ? it.offSiteStages : offSiteStages;
     const cps = cpsByItem.get(it.id) || [];
     const nextStage = nextExpectedStage(cps, stageSequence, itemOff);

@@ -5,6 +5,7 @@ import {
   ProductionStage,
   CANONICAL_GARMENT_SEQUENCE
 } from "../constants/production.js";
+import { findClothingTypeConfig } from "./clothingTypeConfig.js";
 import { canonicalStage, aliasesForStage } from "./productionModel.js";
 import {
   OFF_SITE_STAGE,
@@ -17,26 +18,24 @@ import {
   stageIsOffSiteWork
 } from "./offSite.js";
 
-export async function resolveStageSequence(clothingType) {
-  const key = clothingTypeToKey(clothingType);
-  if (key) {
-    const config = await prisma.clothingTypeConfig.findUnique({ where: { key } });
-    if (config?.stageSequence?.length) {
-      const stageSequence = normalizeStoredSequence(config.stageSequence);
-      return {
-        key: config.key,
-        label: config.label,
-        stageSequence,
-        includesEmbroidery: config.includesEmbroidery,
-        itemKind: config.itemKind || "garment",
-        partCodes: config.partCodes || [],
-        offSiteStages: config.offSiteStages || [],
-        compactLabel: Boolean(config.compactLabel),
-        measurementProfile: config.measurementProfile || "",
-        fallback: false
-      };
-    }
+export async function resolveStageSequence(clothingType, clothingCode) {
+  const config = await findClothingTypeConfig(prisma, clothingType, clothingCode);
+  if (config?.stageSequence?.length) {
+    const stageSequence = normalizeStoredSequence(config.stageSequence);
+    return {
+      key: config.key,
+      label: config.label,
+      stageSequence,
+      includesEmbroidery: config.includesEmbroidery,
+      itemKind: config.itemKind || "garment",
+      partCodes: config.partCodes || [],
+      offSiteStages: config.offSiteStages || [],
+      compactLabel: Boolean(config.compactLabel),
+      measurementProfile: config.measurementProfile || "",
+      fallback: false
+    };
   }
+  const key = clothingTypeToKey(clothingType);
   return {
     key: key || "unknown",
     label: clothingType || "Unknown",

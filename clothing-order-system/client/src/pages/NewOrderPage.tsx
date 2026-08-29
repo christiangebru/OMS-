@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiJson, ApiError, balanceRemaining } from "@/lib/api";
 import type {
+  ClothingAudience,
   ClothingTypeConfig,
   Customer,
   HandType,
+  ItemKind,
+  ItemSetChoice,
   NeckType,
   Order,
   OrderGroup,
@@ -20,18 +23,33 @@ import { SpecSheet } from "@/components/SpecSheet";
 import { PageHeader, ErrorState, EmptyState } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import {
-  MEASUREMENT_SCHEMAS,
+  groupsForScope,
   itemGenderToCategory,
   valuesToCustomerMeasurementBody,
   valuesToItemMeasurements,
-  type MeasurementCategory
+  type MeasurementCategory,
+  type MeasureScope
 } from "@/lib/measurementSchema";
+import {
+  CLOTHING_AUDIENCE_OPTIONS,
+  FEMALE_ACCESSORY_OPTIONS,
+  MALE_SET_OPTIONS,
+  audienceItemGender,
+  audienceMeasureCategory,
+  audienceShortLabel,
+  audienceSize,
+  isFemaleAudience,
+  isMaleAudience,
+  maleSetHelper,
+  measureScopeForSet
+} from "@/lib/clothingAudience";
 import { formatMoney } from "@/lib/format";
 import { useToast } from "@/context/ToastContext";
 import clsx from "clsx";
 
 type Phase = "customer" | "garments" | "edit" | "schedule" | "review";
 type EditStep = 0 | 1 | 2 | 3 | 4 | 5;
+type GarmentWizard = "list" | "category" | "options";
 
 type Draft = {
   key: string;
@@ -50,8 +68,11 @@ type Draft = {
   category: MeasurementCategory;
   measureValues: Record<string, string>;
   copiedFromPrevious?: boolean;
-  fromMensSet?: boolean;
   selectedPartCodes?: string[];
+  audience?: ClothingAudience;
+  setChoice?: ItemSetChoice;
+  measureScope?: MeasureScope;
+  itemKind?: ItemKind;
 };
 
 const EDIT_LABELS = ["Type", "Reuse", "Fit", "Specs", "Images", "Price"];
@@ -76,24 +97,48 @@ function emptyDraft(): Draft {
     unitPrice: 0,
     difficultyLevel: 3,
     category: "male",
-    measureValues: {}
+    measureValues: {},
+    measureScope: "all",
+    itemKind: "garment"
   };
 }
 
-function draftFromType(types: ClothingTypeConfig[], key: "shirt" | "pants"): Draft {
+function draftFromType(
+  types: ClothingTypeConfig[],
+  key: "shirt" | "pants" | "belt" | "netela",
+  audience: ClothingAudience,
+  setChoice: ItemSetChoice
+): Draft {
   const t = types.find((c) => c.key === key);
-  const label = t?.label || (key === "shirt" ? "Shirt" : "Pants");
+  const fallback =
+    key === "shirt" ? "Shirt" : key === "pants" ? "Trouser" : key === "belt" ? "Belt" : "Netela";
+  const accessory = t?.itemKind === "accessory" || key === "belt" || key === "netela";
+  const scope = accessory
+    ? "none"
+    : setChoice === "both"
+      ? key === "shirt"
+        ? "upper"
+        : "lower"
+      : measureScopeForSet(setChoice);
   return {
     ...emptyDraft(),
-    clothingType: label,
+    clothingType: t?.label || fallback,
     clothingCode: (t?.key || key).toUpperCase(),
-    category: "male",
-    fromMensSet: true
+    category: audienceMeasureCategory(audience),
+    size: audienceSize(audience),
+    audience,
+    setChoice,
+    measureScope: scope,
+    itemKind: accessory ? "accessory" : "garment"
   };
 }
 
 function draftFromItem(src: OrderItem, category?: MeasurementCategory): Draft {
-  const cat = category || itemGenderToCategory(src.measurements?.gender, src.size);
+  const audience = (src.audience || undefined) as ClothingAudience | undefined;
+  const cat =
+    category ||
+    (audience ? audienceMeasureCategory(audience) : itemGenderToCategory(src.measurements?.gender, src.size));
+  const setChoice = (src.setChoice || undefined) as ItemSetChoice | undefined;
   return {
     key: newKey(),
     clothingType: src.clothingType,
@@ -118,13 +163,30 @@ function draftFromItem(src: OrderItem, category?: MeasurementCategory): Draft {
       sleeveLength: src.measurements?.arm || "",
       height: src.measurements?.height || "",
       dressLength: src.measurements?.height || ""
-    }
+    },
+    audience,
+    setChoice,
+    measureScope: src.itemKind === "accessory" ? "none" : measureScopeForSet(setChoice),
+    itemKind: src.itemKind === "accessory" ? "accessory" : "garment"
   };
 }
 
 function toPayloadItem(d: Draft) {
-  const measurements = valuesToItemMeasurements(d.category, d.measureValues);
-  const size = d.category === "baby" ? "baby" : d.category === "child" ? "kids" : d.size || "adult";
+  const accessory = d.itemKind === "accessory";
+  const measurements =
+    accessory || d.measureScope === "none"
+      ? undefined
+      : {
+          ...valuesToItemMeasurements(d.category, d.measureValues),
+          ...(d.audience ? { gender: audienceItemGender(d.audience) } : {})
+        };
+  const size = d.audience
+    ? audienceSize(d.audience)
+    : d.category === "baby"
+      ? "baby"
+      : d.category === "child"
+        ? "kids"
+        : d.size || "adult";
   return {
     clothingCode: d.clothingCode || d.clothingType.slice(0, 8).toUpperCase(),
     clothingType: d.clothingType,
@@ -139,12 +201,37 @@ function toPayloadItem(d: Draft) {
     productionDays: d.productionDays,
     unitPrice: Number(d.unitPrice) || 0,
     difficultyLevel: d.difficultyLevel,
+    audience: d.audience || undefined,
+    setChoice: d.setChoice || undefined,
+    itemKind: d.itemKind || "garment",
     images: (d.images || []).map((img) => ({
       imageUrl: img.imageUrl,
       caption: img.caption || "",
       category: img.category || "other"
     }))
   };
+}
+
+function firstEditStep(d: Draft): EditStep {
+  if (d.itemKind === "accessory") return 3;
+  if (d.clothingType.trim()) return 1;
+  return 0;
+}
+
+function nextEditStep(d: Draft, step: EditStep): EditStep {
+  let n = Math.min(5, step + 1) as EditStep;
+  if (n === 2 && (d.itemKind === "accessory" || d.measureScope === "none")) n = 3;
+  return n;
+}
+
+function prevEditStep(d: Draft, step: EditStep): EditStep | "cancel" {
+  const first = firstEditStep(d);
+  if (step <= first) return "cancel";
+  let p = (step - 1) as EditStep;
+  if (p === 2 && (d.itemKind === "accessory" || d.measureScope === "none")) {
+    p = (first < 2 ? first : 1) as EditStep;
+  }
+  return p < first ? "cancel" : p;
 }
 
 export function NewOrderPage() {
@@ -176,7 +263,11 @@ export function NewOrderPage() {
   const [newGroupNotes, setNewGroupNotes] = useState("");
   const [useGroupDue, setUseGroupDue] = useState(false);
   const [useGroupPriority, setUseGroupPriority] = useState(false);
-  const [mensSet, setMensSet] = useState<"" | "shirt" | "trouser" | "both">("");
+  const [garmentWizard, setGarmentWizard] = useState<GarmentWizard>("category");
+  const [pendingAudience, setPendingAudience] = useState<ClothingAudience | null>(null);
+  const [pendingMaleSet, setPendingMaleSet] = useState<"" | "shirt" | "trouser" | "both">("");
+  const [pendingAccessories, setPendingAccessories] = useState<Array<"belt" | "netela">>([]);
+  const [collectQueue, setCollectQueue] = useState<Draft[]>([]);
   const [partLabelMode, setPartLabelMode] = useState<"none" | "all" | "selected">("none");
 
   useEffect(() => {
@@ -208,6 +299,7 @@ export function NewOrderPage() {
           const found = c.orders?.flatMap((o) => o.items || []).find((it) => it._id === reuseId);
           if (found) {
             setDrafts([{ ...draftFromItem(found), copiedFromPrevious: true }]);
+            setGarmentWizard("list");
             setPhase("garments");
           }
         }
@@ -226,24 +318,82 @@ export function NewOrderPage() {
   const agreed = drafts.reduce((s, d) => s + (Number(d.unitPrice) || 0), 0);
   const balance = balanceRemaining(agreed, deposit);
 
-  function applyMensSet(choice: "shirt" | "trouser" | "both") {
-    setMensSet(choice);
-    const wanted: Array<"shirt" | "pants"> =
-      choice === "both" ? ["shirt", "pants"] : choice === "shirt" ? ["shirt"] : ["pants"];
-    setDrafts((prev) => {
-      const keep = prev.filter((d) => !d.fromMensSet);
-      return [...keep, ...wanted.map((k) => draftFromType(types, k))];
-    });
+  function resetAddSession() {
+    setPendingAudience(null);
+    setPendingMaleSet("");
+    setPendingAccessories([]);
+    setCollectQueue([]);
   }
 
   function beginAdd() {
-    setEditing(emptyDraft());
-    setEditStep(0);
+    resetAddSession();
+    setGarmentWizard("category");
+    setPhase("garments");
+  }
+
+  function pickAudience(id: ClothingAudience) {
+    setPendingAudience(id);
+    setPendingMaleSet("");
+    setPendingAccessories([]);
+    setGarmentWizard("options");
+  }
+
+  function draftsForCurrentSelection(): Draft[] | null {
+    if (!pendingAudience) return null;
+    if (isMaleAudience(pendingAudience)) {
+      if (!pendingMaleSet) return null;
+      if (pendingMaleSet === "both") {
+        return [
+          draftFromType(types, "shirt", pendingAudience, "both"),
+          draftFromType(types, "pants", pendingAudience, "both")
+        ];
+      }
+      return [
+        draftFromType(
+          types,
+          pendingMaleSet === "shirt" ? "shirt" : "pants",
+          pendingAudience,
+          pendingMaleSet
+        )
+      ];
+    }
+    const main: Draft = {
+      ...emptyDraft(),
+      category: audienceMeasureCategory(pendingAudience),
+      size: audienceSize(pendingAudience),
+      audience: pendingAudience,
+      setChoice: "garment",
+      measureScope: "all",
+      itemKind: "garment"
+    };
+    const extras = pendingAccessories.map((key) => draftFromType(types, key, pendingAudience, key));
+    return [main, ...extras];
+  }
+
+  function startCollect(items: Draft[]) {
+    const [first, ...rest] = items;
+    if (!first) return;
+    setCollectQueue(rest);
+    setEditing(first);
+    setEditStep(firstEditStep(first));
     setReuseMode("scratch");
     setPhase("edit");
   }
 
+  function continueFromOptions() {
+    const items = draftsForCurrentSelection();
+    if (!items?.length) return;
+    startCollect(items);
+  }
+
+  function optionsReady() {
+    if (!pendingAudience) return false;
+    if (isMaleAudience(pendingAudience)) return Boolean(pendingMaleSet);
+    return true;
+  }
+
   function beginEdit(d: Draft) {
+    setCollectQueue([]);
     setEditing({ ...d, measureValues: { ...d.measureValues }, images: [...(d.images || [])] });
     setEditStep(0);
     setReuseMode("scratch");
@@ -253,7 +403,17 @@ export function NewOrderPage() {
   function applyPreviousToEdit(src: OrderItem) {
     if (!editing) return;
     const next = draftFromItem(src);
-    setEditing({ ...next, key: editing.key, copiedFromPrevious: true });
+    setEditing({
+      ...next,
+      key: editing.key,
+      copiedFromPrevious: true,
+      audience: editing.audience,
+      setChoice: editing.setChoice,
+      measureScope: editing.measureScope,
+      itemKind: editing.itemKind,
+      size: editing.audience ? audienceSize(editing.audience) : next.size,
+      category: editing.audience ? audienceMeasureCategory(editing.audience) : next.category
+    });
     setReuseMode("previous");
     setEditStep(2);
   }
@@ -267,12 +427,33 @@ export function NewOrderPage() {
       copy[idx] = editing;
       return copy;
     });
+    if (collectQueue.length) {
+      const [next, ...rest] = collectQueue;
+      setCollectQueue(rest);
+      setEditing(next);
+      setEditStep(firstEditStep(next));
+      setReuseMode("scratch");
+      return;
+    }
     setEditing(null);
+    resetAddSession();
+    setGarmentWizard("list");
+    setPhase("garments");
+  }
+
+  function cancelEditing() {
+    setEditing(null);
+    setCollectQueue([]);
+    setGarmentWizard(drafts.length ? "list" : "category");
     setPhase("garments");
   }
 
   function removeDraft(key: string) {
-    setDrafts((list) => list.filter((d) => d.key !== key));
+    setDrafts((list) => {
+      const next = list.filter((d) => d.key !== key);
+      if (!next.length) setGarmentWizard("category");
+      return next;
+    });
   }
 
   function canEditNext() {
@@ -283,6 +464,11 @@ export function NewOrderPage() {
 
   async function create() {
     if (!drafts.length || !due) return;
+    const dueDate = new Date(due);
+    if (Number.isNaN(dueDate.getTime())) {
+      setErr("Enter a valid due date");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
@@ -312,7 +498,7 @@ export function NewOrderPage() {
           customerId: customerId || undefined,
           customerName: customerId ? undefined : customerName,
           customerPhone: customerId ? undefined : customerPhone,
-          requiredCompletionDate: new Date(due).toISOString(),
+          requiredCompletionDate: dueDate.toISOString(),
           priority,
           totalAgreedPrice: Number(agreed),
           depositPaid: Number(deposit),
@@ -322,11 +508,10 @@ export function NewOrderPage() {
             );
             return {
               ...toPayloadItem(d),
-              itemKind: cfg?.itemKind === "accessory" ? "accessory" : "garment",
+              itemKind: d.itemKind || (cfg?.itemKind === "accessory" ? "accessory" : "garment"),
               selectedPartCodes: d.selectedPartCodes || []
             };
           }),
-          mensGarmentSet: mensSet || undefined,
           partLabelMode,
           groupId: orderKind === "group" ? resolvedGroupId : undefined,
           useGroupDueDate: orderKind === "group" && useGroupDue,
@@ -380,7 +565,10 @@ export function NewOrderPage() {
                 type="button"
                 onClick={() => {
                   if (s.id === "customer") setPhase("customer");
-                  if (s.id === "garments" && (customerId || customerName)) setPhase("garments");
+                  if (s.id === "garments" && (customerId || customerName)) {
+                    setGarmentWizard(drafts.length ? "list" : "category");
+                    setPhase("garments");
+                  }
                   if (s.id === "schedule" && drafts.length) setPhase("schedule");
                   if (s.id === "review" && drafts.length && due) setPhase("review");
                 }}
@@ -517,54 +705,7 @@ export function NewOrderPage() {
 
         {phase === "garments" && (
           <div className="space-y-4">
-            <fieldset>
-              <legend className="ui-label">Men&apos;s order</legend>
-              <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                {(
-                  [
-                    ["shirt", "Top shirt only"],
-                    ["trouser", "Trouser only"],
-                    ["both", "Both shirt + trouser"]
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={clsx(
-                      "min-h-11 rounded-control px-3 text-left text-sm",
-                      mensSet === id ? "bg-accent text-white" : "bg-canvas text-ink-muted"
-                    )}
-                    onClick={() => applyMensSet(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {mensSet ? (
-                <p className="mt-2 text-xs text-ink-muted">
-                  {mensSet === "shirt"
-                    ? "This order will create a shirt item only."
-                    : mensSet === "trouser"
-                      ? "This order will create a trouser item only."
-                      : "This order will create a shirt item and a trouser item."}
-                </p>
-              ) : (
-                <p className="mt-2 text-xs text-ink-muted">
-                  Choose a men&apos;s set, or add any other garment below.
-                </p>
-              )}
-            </fieldset>
-            {drafts.length === 0 ? (
-              <EmptyState
-                title="No garments yet"
-                body="Add the first piece. You can add a suit, shirt, and trousers on the same order."
-                action={
-                  <Button type="button" onClick={beginAdd}>
-                    Add garment
-                  </Button>
-                }
-              />
-            ) : (
+            {drafts.length > 0 && (
               <ul className="space-y-2">
                 {drafts.map((d, i) => (
                   <li
@@ -574,12 +715,19 @@ export function NewOrderPage() {
                     <div>
                       <p className="text-sm font-medium text-ink">
                         {i + 1}. {d.clothingType || "Untitled garment"}
+                        {d.itemKind === "accessory" ? (
+                          <span className="ml-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
+                            accessory
+                          </span>
+                        ) : null}
                         {d.copiedFromPrevious ? (
                           <span className="ml-2 text-[11px] font-medium text-accent">Copied · still editable</span>
                         ) : null}
                       </p>
                       <p className="text-xs text-ink-muted">
-                        {d.fabricType || "Fabric TBD"} · {d.color || "Color TBD"} · {formatMoney(d.unitPrice)}
+                        {[audienceShortLabel(d.audience), d.fabricType || "Fabric TBD", d.color || "Color TBD", formatMoney(d.unitPrice)]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -594,10 +742,122 @@ export function NewOrderPage() {
                 ))}
               </ul>
             )}
-            {drafts.length > 0 && (
+
+            {garmentWizard === "list" && drafts.length > 0 && (
               <Button type="button" variant="secondary" onClick={beginAdd}>
                 Add another garment
               </Button>
+            )}
+
+            {garmentWizard === "category" && (
+              <fieldset>
+                <legend className="ui-label">What kind of clothing?</legend>
+                <p className="mt-1 text-xs text-ink-muted">
+                  Choose a category first. Options come on the next screen.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {CLOTHING_AUDIENCE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={clsx(
+                        "min-h-16 rounded-control px-4 py-3 text-left transition",
+                        pendingAudience === opt.id ? "bg-accent text-white" : "bg-canvas text-ink hover:bg-accent-soft"
+                      )}
+                      onClick={() => pickAudience(opt.id)}
+                    >
+                      <span className="block text-sm font-semibold">{opt.label}</span>
+                      <span
+                        className={clsx(
+                          "mt-1 block text-xs",
+                          pendingAudience === opt.id ? "text-white/80" : "text-ink-muted"
+                        )}
+                      >
+                        {opt.hint}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+
+            {garmentWizard === "options" && pendingAudience && (
+              <fieldset>
+                <legend className="ui-label">
+                  {isMaleAudience(pendingAudience) ? "Shirt, trouser, or both" : "Belt and netela"}
+                </legend>
+                {isMaleAudience(pendingAudience) ? (
+                  <>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      {MALE_SET_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={clsx(
+                            "min-h-14 rounded-control px-3 text-left text-sm font-medium",
+                            pendingMaleSet === opt.id ? "bg-accent text-white" : "bg-canvas text-ink-muted"
+                          )}
+                          onClick={() => setPendingMaleSet(opt.id)}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    {pendingMaleSet ? (
+                      <p className="mt-2 text-xs text-ink-muted">{maleSetHelper(pendingMaleSet)}</p>
+                    ) : (
+                      <p className="mt-2 text-xs text-ink-muted">Pick one option, then continue to measurements.</p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      Accessories are independent items. You will still add the main garment (for example kemis).
+                    </p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {FEMALE_ACCESSORY_OPTIONS.map((opt) => {
+                        const on = pendingAccessories.includes(opt.id);
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            className={clsx(
+                              "min-h-14 rounded-control px-3 text-left text-sm font-medium",
+                              on ? "bg-accent text-white" : "bg-canvas text-ink-muted"
+                            )}
+                            onClick={() =>
+                              setPendingAccessories((list) =>
+                                on ? list.filter((id) => id !== opt.id) : [...list, opt.id]
+                              )
+                            }
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-2 text-xs text-ink-muted">
+                      {pendingAccessories.length
+                        ? `Selected accessories will be added as separate items${
+                            pendingAccessories.length === 2 ? " (belt and netela)." : "."
+                          }`
+                        : "You can continue with a named garment only."}
+                    </p>
+                  </>
+                )}
+              </fieldset>
+            )}
+
+            {garmentWizard === "list" && drafts.length === 0 && (
+              <EmptyState
+                title="No garments yet"
+                body="Add the first piece. You can mix categories on the same order."
+                action={
+                  <Button type="button" onClick={beginAdd}>
+                    Add garment
+                  </Button>
+                }
+              />
             )}
           </div>
         )}
@@ -620,21 +880,36 @@ export function NewOrderPage() {
             </ol>
 
             {editStep === 0 && (
-              <ClothingTypePicker
-                types={types}
-                value={editing.clothingType}
+              <div className="space-y-2">
+                {editing.audience && isFemaleAudience(editing.audience) ? (
+                  <p className="text-xs text-ink-muted">
+                    Name the main garment (kemis, dress, abaya). Belt and netela were chosen on the previous screen.
+                  </p>
+                ) : null}
+                <ClothingTypePicker
+                  types={
+                    editing.audience && isFemaleAudience(editing.audience) && editing.itemKind !== "accessory"
+                      ? types.filter((t) => t.itemKind !== "accessory")
+                      : types
+                  }
+                  value={editing.clothingType}
                 onChange={(t) =>
                   setEditing((d) =>
                     d
                       ? {
                           ...d,
                           clothingType: t.label,
-                          clothingCode: d.clothingCode || t.key.toUpperCase()
+                          clothingCode: String(t.key || t.label)
+                            .trim()
+                            .replace(/\s+/g, "_")
+                            .toUpperCase()
+                            .slice(0, 12)
                         }
                       : d
                   )
                 }
-              />
+                />
+              </div>
             )}
 
             {editStep === 1 && (
@@ -687,19 +962,36 @@ export function NewOrderPage() {
 
             {editStep === 2 && (
               <div className="space-y-4">
-                <select
-                  className="ui-input"
-                  value={editing.category}
-                  onChange={(e) =>
-                    setEditing((d) => (d ? { ...d, category: e.target.value as MeasurementCategory } : d))
-                  }
-                >
-                  <option value="male">Adult male</option>
-                  <option value="female">Adult female</option>
-                  <option value="child">Child</option>
-                  <option value="baby">Baby</option>
-                </select>
-                {MEASUREMENT_SCHEMAS[editing.category].map((group) => (
+                {editing.audience ? (
+                  <p className="text-sm text-ink-muted">
+                    {audienceShortLabel(editing.audience)}
+                    {editing.setChoice === "shirt"
+                      ? " · shirt measurements (upper body)"
+                      : editing.setChoice === "trouser"
+                        ? " · trouser measurements (lower body)"
+                        : editing.setChoice === "both"
+                          ? editing.measureScope === "upper"
+                            ? " · shirt measurements (upper body)"
+                            : editing.measureScope === "lower"
+                              ? " · trouser measurements (lower body)"
+                              : " · shirt and trouser measurements"
+                          : " · measurements"}
+                  </p>
+                ) : (
+                  <select
+                    className="ui-input"
+                    value={editing.category}
+                    onChange={(e) =>
+                      setEditing((d) => (d ? { ...d, category: e.target.value as MeasurementCategory } : d))
+                    }
+                  >
+                    <option value="male">Adult male</option>
+                    <option value="female">Adult female</option>
+                    <option value="child">Child</option>
+                    <option value="baby">Baby</option>
+                  </select>
+                )}
+                {groupsForScope(editing.category, editing.measureScope || "all").map((group) => (
                   <div key={group.id}>
                     <p className="ui-label mb-2">{group.label}</p>
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -754,6 +1046,8 @@ export function NewOrderPage() {
                     placeholder="Or type a color"
                   />
                 </Labeled>
+                {editing.itemKind === "accessory" || editing.measureScope === "lower" ? null : (
+                  <>
                 <Labeled label="Collar / neck">
                   <select
                     className="ui-input"
@@ -775,6 +1069,8 @@ export function NewOrderPage() {
                     <option value="wide">Wide</option>
                   </select>
                 </Labeled>
+                  </>
+                )}
                 <div className="sm:col-span-2">
                   <Labeled label="Special instructions">
                     <textarea
@@ -860,16 +1156,10 @@ export function NewOrderPage() {
             <Row k="Customer" v={customerName || customer?.name || "—"} />
             <Row k="Due" v={`${due || "—"} · ${priority}`} />
             <Row k="Deposit / balance" v={`${formatMoney(deposit)} / ${formatMoney(balance)}`} />
-            {mensSet ? (
+            {drafts.some((d) => d.audience) ? (
               <Row
-                k="Men's set"
-                v={
-                  mensSet === "shirt"
-                    ? "Top shirt only"
-                    : mensSet === "trouser"
-                      ? "Trouser only"
-                      : "Both shirt + trouser"
-                }
+                k="Categories"
+                v={[...new Set(drafts.map((d) => audienceShortLabel(d.audience)).filter(Boolean))].join(", ")}
               />
             ) : null}
             <ul className="space-y-3">
@@ -975,13 +1265,16 @@ export function NewOrderPage() {
             <Button
               type="button"
               disabled={!customerId && !(customerName.trim() && customerPhone.trim())}
-              onClick={() => setPhase("garments")}
+              onClick={() => {
+                setGarmentWizard(drafts.length ? "list" : "category");
+                setPhase("garments");
+              }}
             >
               Continue
             </Button>
           </>
         )}
-        {phase === "garments" && (
+        {phase === "garments" && garmentWizard === "list" && (
           <>
             <Button type="button" variant="secondary" onClick={() => setPhase("customer")}>
               Back
@@ -991,34 +1284,75 @@ export function NewOrderPage() {
             </Button>
           </>
         )}
-        {phase === "edit" && (
+        {phase === "garments" && garmentWizard === "category" && (
           <>
             <Button
               type="button"
               variant="secondary"
               onClick={() => {
-                if (editStep === 0) {
-                  setEditing(null);
-                  setPhase("garments");
-                } else setEditStep((s) => (s - 1) as EditStep);
+                if (drafts.length) setGarmentWizard("list");
+                else setPhase("customer");
+              }}
+            >
+              Back
+            </Button>
+            <span />
+          </>
+        )}
+        {phase === "garments" && garmentWizard === "options" && (
+          <>
+            <Button type="button" variant="secondary" onClick={() => setGarmentWizard("category")}>
+              Back
+            </Button>
+            <Button type="button" disabled={!optionsReady()} onClick={continueFromOptions}>
+              Continue
+            </Button>
+          </>
+        )}
+        {phase === "edit" && editing && (
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                const prev = prevEditStep(editing, editStep);
+                if (prev === "cancel") cancelEditing();
+                else setEditStep(prev);
               }}
             >
               Back
             </Button>
             {editStep < 5 ? (
-              <Button type="button" disabled={!canEditNext()} onClick={() => setEditStep((s) => (s + 1) as EditStep)}>
+              <Button
+                type="button"
+                disabled={!canEditNext()}
+                onClick={() => setEditStep(nextEditStep(editing, editStep))}
+              >
                 Continue
               </Button>
             ) : (
               <Button type="button" onClick={saveEditing}>
-                Save garment
+                {collectQueue.length
+                  ? editing.itemKind === "accessory"
+                    ? "Save accessory"
+                    : "Save and next"
+                  : editing.itemKind === "accessory"
+                    ? "Save accessory"
+                    : "Save garment"}
               </Button>
             )}
           </>
         )}
         {phase === "schedule" && (
           <>
-            <Button type="button" variant="secondary" onClick={() => setPhase("garments")}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setGarmentWizard("list");
+                setPhase("garments");
+              }}
+            >
               Back
             </Button>
             <Button type="button" disabled={!due} onClick={() => setPhase("review")}>
