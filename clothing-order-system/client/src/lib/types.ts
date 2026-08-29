@@ -100,7 +100,7 @@ export interface OrderItem {
   };
   currentStage?: ProductionStage | null;
   nextStage?: ProductionStage | null;
-  boardStatus?: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | "unassigned" | null;
+  boardStatus?: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | "off_site" | "unassigned" | null;
   workerName?: string | null;
   itemKind?: ItemKind;
   parentItemId?: string | null;

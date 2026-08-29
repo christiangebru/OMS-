@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiJson, describeApiError } from "@/lib/api";
 import type { Order, OrderGroup } from "@/lib/types";
-import { formatDate, formatMoney, shortOrderId } from "@/lib/format";
+import { formatDate, formatMoney, productionStatusLabel, shortOrderId } from "@/lib/format";
 import { PageHeader, EmptyState, ErrorState, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/context/AuthContext";
@@ -241,7 +241,7 @@ export function OrdersPage() {
                 </div>
                 <div className="mt-2 text-xs">
                   <Badge tone={o.productionStatus === "completed" || o.productionStatus === "ready_to_pack" || o.productionStatus === "ready_for_pickup" || o.productionStatus === "delivered" ? "ok" : "progress"}>
-                    {o.productionStatus}
+                    {productionStatusLabel(o.productionStatus)}
                   </Badge>
                   <p className={clsx("mt-2", overdue && "font-semibold text-red-700")}>{formatDate(o.requiredCompletionDate)}</p>
                   <p className="mt-1 text-ink-muted">{balance > 0 ? `${formatMoney(balance)} due` : "Paid"}</p>

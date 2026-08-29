@@ -228,7 +228,7 @@ export function ScanPage() {
 
           {!details ? (
             <div className="border border-line bg-surface px-4 py-10 text-center text-sm text-ink-muted">
-              Scan or look up a garment to see where it is, who has it, and what to do next.
+              Scan a garment barcode, or the order barcode (ORD-n) when packing.
             </div>
           ) : (
             <div className="space-y-3">
@@ -385,20 +385,22 @@ export function ScanPage() {
                 </div>
               )}
 
-              <div className="border border-line bg-surface p-4">
-                <p className="text-sm font-semibold text-ink">Production path</p>
-                <ol className="mt-3 space-y-1.5 text-sm">
-                  {(details.production?.assignmentChain || []).map((step, i) => (
-                    <li key={`${step.stage}-${i}`} className="flex justify-between gap-2">
-                      <span className="capitalize text-ink">
-                        {step.status === "completed" ? "✓" : step.status === "in_progress" ? "●" : "○"}{" "}
-                        {stageLabel(step.stage)}
-                      </span>
-                      <span className="text-ink-muted">{step.staff?.name || "—"}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
+              {(details.production?.assignmentChain || []).length > 0 && (
+                <div className="border border-line bg-surface p-4">
+                  <p className="text-sm font-semibold text-ink">Production path</p>
+                  <ol className="mt-3 space-y-1.5 text-sm">
+                    {(details.production?.assignmentChain || []).map((step, i) => (
+                      <li key={`${step.stage}-${i}`} className="flex justify-between gap-2">
+                        <span className="capitalize text-ink">
+                          {step.status === "completed" ? "✓" : step.status === "in_progress" ? "●" : "○"}{" "}
+                          {stageLabel(step.stage)}
+                        </span>
+                        <span className="text-ink-muted">{step.staff?.name || "—"}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
 
               {canOverride && details.item?._id && (
                 <AssignmentChain

@@ -3,8 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ClothingTypeConfig, Order } from "@/lib/types";
 import { SpecSheet } from "@/components/SpecSheet";
-import { daysLabel, formatDate, formatMoney, labelBarcode, shortOrderId, stageLabel, boardStatusLabel } from "@/lib/format";
-import { stageSequenceFor } from "@/lib/stages";
+import { daysLabel, formatDate, formatMoney, labelBarcode, productionStatusLabel, shortOrderId, stageLabel, boardStatusLabel } from "@/lib/format";
+import { effectiveScanSequence, stageSequenceFor } from "@/lib/stages";
 import { PageHeader, ErrorState, Skeleton, Badge } from "@/components/ui/PageHeader";
 import { StageStrip } from "@/components/StageStrip";
 import { SmartImage } from "@/components/SmartImage";
@@ -142,7 +142,7 @@ export function OrderDetailPage() {
         <Fact
           label="Priority / status"
           value={order.priority && order.priority !== "NORMAL" ? order.priority : "Normal"}
-          hint={order.productionStatus}
+          hint={productionStatusLabel(order.productionStatus)}
         />
         <Fact
           label="Balance"
@@ -169,8 +169,17 @@ export function OrderDetailPage() {
         </div>
         <ul className="space-y-3">
           {order.items.filter((it) => it.itemKind !== "part").map((it) => {
-            const stages = stageSequenceFor(it.clothingType, types);
-            const current = it.currentStage || it.nextStage || stages[0];
+            const stages = effectiveScanSequence(
+              stageSequenceFor(it.clothingType, types),
+              it.offSiteStages || []
+            );
+            const away = it.boardStatus === "off_site";
+            const current = away ? "OFF_SITE" : it.currentStage || it.nextStage || stages[0];
+            const locationLabel = away
+              ? "Off-site"
+              : it.nextStage === "OFF_SITE"
+                ? "In shop — send off-site"
+                : stageLabel(current);
             const thumb = it.images?.[0]?.imageUrl || it.imagePath;
             return (
               <li key={it._id || it.barcodeValue} className="border border-line bg-surface p-4">
@@ -197,16 +206,12 @@ export function OrderDetailPage() {
                       </div>
                       <div className="text-right">
                         {it.boardStatus && (
-                          <Badge tone={it.boardStatus === "waiting" ? "warn" : it.boardStatus === "in_progress" ? "progress" : "ok"}>
+                          <Badge tone={it.boardStatus === "waiting" ? "warn" : it.boardStatus === "in_progress" || it.boardStatus === "off_site" ? "progress" : "ok"}>
                             {boardStatusLabel(it.boardStatus)}
                           </Badge>
                         )}
                         <p className="mt-1 text-xs text-ink-muted">{it.workerName || "Unassigned"}</p>
-                        <p className="text-xs capitalize text-ink-muted">
-                          {it.boardStatus === "off_site" || it.currentStage === "OFF_SITE"
-                            ? "Off-site"
-                            : stageLabel(current)}
-                        </p>
+                        <p className="text-xs capitalize text-ink-muted">{locationLabel}</p>
                       </div>
                     </div>
                     <div className="mt-3">

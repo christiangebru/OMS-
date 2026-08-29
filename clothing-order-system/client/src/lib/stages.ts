@@ -18,6 +18,28 @@ export function stageSequenceFor(type: string, configs: ClothingTypeConfig[] = [
   return PRODUCTION_STAGES.filter((s) => s !== "EMBROIDERY");
 }
 
+/** Consecutive off-site work stages become one OFF_SITE scan location (matches server). */
+export function effectiveScanSequence(
+  stageSequence: ProductionStage[] = [],
+  offSiteStages: string[] = []
+): ProductionStage[] {
+  const set = new Set(offSiteStages);
+  if (!set.size) return [...stageSequence];
+  const seq = stageSequence.filter((s) => s !== "RECEIVED");
+  const out: ProductionStage[] = [];
+  let i = 0;
+  while (i < seq.length) {
+    if (set.has(seq[i])) {
+      out.push("OFF_SITE");
+      while (i < seq.length && set.has(seq[i])) i += 1;
+    } else {
+      out.push(seq[i]);
+      i += 1;
+    }
+  }
+  return out;
+}
+
 export function measureSummary(m?: {
   gender?: string;
   vest?: string;

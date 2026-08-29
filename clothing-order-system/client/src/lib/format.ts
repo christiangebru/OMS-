@@ -73,6 +73,27 @@ export function boardStatusLabel(status?: string | null) {
   }
 }
 
+export function productionStatusLabel(status?: string | null) {
+  switch (status) {
+    case "pending":
+      return "Pending";
+    case "cutting":
+    case "stitching":
+    case "finishing":
+      return status.charAt(0).toUpperCase() + status.slice(1);
+    case "completed":
+      return "Complete";
+    case "ready_to_pack":
+      return "Ready to pack";
+    case "ready_for_pickup":
+      return "Ready for pickup";
+    case "delivered":
+      return "Delivered";
+    default:
+      return status ? String(status).replace(/_/g, " ") : "—";
+  }
+}
+
 export function stageLabel(stage: string) {
   const map: Record<string, string> = {
     RECEIVED: "Received",
