@@ -46,7 +46,7 @@ Open `http://localhost:5173`.
 3. Start: `npm start` (starts Express immediately, then runs `prisma migrate deploy` in the background with a timeout). Render's Pre-Deploy Command is **not available on the free instance type**, so migrations cannot be a separate pre-deploy step on this plan. Prefer a Neon **unpooled** `DIRECT_URL` for migrations; the pooled `DATABASE_URL` is for app queries. `GET /health` is liveness (always 200 once listening); `GET /ready` reports the database.
 4. Set env: `DATABASE_URL` (Neon pooled connection string, `?sslmode=require`), optional `DIRECT_URL` (Neon unpooled), `JWT_SECRET`, `API_PUBLIC_URL` (your `https://…onrender.com`), `CORS_ORIGIN` (your Vercel URL, comma-separated if multiple).
 
-**Note:** Uploaded images live on the service filesystem. For durable storage in production, swap Multer disk storage for S3 / Cloudinary.
+**Images:** Set Cloudinary (`CLOUDINARY_CLOUD_NAME` + `CLOUDINARY_UPLOAD_PRESET`) and/or S3-compatible vars (`S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, optional `S3_ENDPOINT` / `S3_PUBLIC_BASE_URL`). Local `server/uploads/` is the dev fallback when those are unset. Existing relative `uploads/…` paths still resolve.
 
 ### Frontend — Vercel
 

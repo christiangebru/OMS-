@@ -69,7 +69,8 @@ export const DEFAULT_CLOTHING_TYPE_SEEDS = [
     includesEmbroidery: true,
     itemKind: "garment",
     partCodes: ["WR", "BD"],
-    offSiteStages: ["EMBROIDERY", "FINAL_SEWING"],
+    // Cut/prepare off-site → back for embroidery → out again to finish → re-enter at finishing.
+    offSiteStages: ["SEWING_CUTTING", "FINAL_SEWING"],
     compactLabel: false,
     measurementProfile: "male"
   },

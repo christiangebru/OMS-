@@ -10,6 +10,7 @@ import staffRoutes from "../src/routes/staff.js";
 import dashboardRoutes from "../src/routes/dashboard.js";
 import orderGroupRoutes from "../src/routes/orderGroups.js";
 import orderRoutes from "../src/routes/orders.js";
+import uploadRoutes from "../src/routes/upload.js";
 
 export { prisma };
 
@@ -42,6 +43,7 @@ export function createTestApp() {
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/order-groups", orderGroupRoutes);
   app.use("/api/orders", orderRoutes);
+  app.use("/api/upload", uploadRoutes);
   app.use((err, _req, res, _next) => {
     console.error("[test-error]", err);
     res.status(err.status || 500).json({ message: err.message || "Internal Server Error" });

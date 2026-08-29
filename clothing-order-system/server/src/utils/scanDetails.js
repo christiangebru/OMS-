@@ -1,6 +1,6 @@
 import { prisma } from "../db/prisma.js";
 import { s } from "./serialize.js";
-import { balanceRemaining } from "./orderHydrate.js";
+import { balanceRemaining, hydrateOrder } from "./orderHydrate.js";
 import {
   deriveCurrentStage,
   nextExpectedStage,
@@ -8,8 +8,17 @@ import {
 } from "./stageSequence.js";
 import { buildStageStates, inferScanAction, inferNextAction, boardStatusFrom } from "./stageTimeline.js";
 import { WORKSTATION_STAGES } from "../constants/production.js";
-import { operationalItemBarcode, operationalPartBarcode } from "./barcode.js";
+import { operationalItemBarcode, operationalPartBarcode, parseOperationalBarcode } from "./barcode.js";
 import { storedImagePath } from "./publicImage.js";
+import {
+  OFF_SITE_STAGE,
+  effectiveScanSequence,
+  garmentLocation,
+  locationLabel,
+  openOffSiteCheckpoint,
+  pendingOffSiteWindow
+} from "./offSite.js";
+import { isGarmentCompleteStage, isTopLevelItem } from "./productionModel.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -48,8 +57,15 @@ export function managerCommandFor({
   nextStage,
   currentWorker,
   nextWorker,
-  assignment
+  assignment,
+  location
 }) {
+  if (location === "off_site" || open?.stage === OFF_SITE_STAGE) {
+    return "Garment is off-site. Scan in when it returns.";
+  }
+  if (nextStage === OFF_SITE_STAGE) {
+    return "Scan out to off-site.";
+  }
   if (open && currentWorker) {
     const nextBit = nextWorker
       ? ` After completion, send to ${titleStage(nextStage)} — ${nextWorker.name}.`
@@ -87,18 +103,35 @@ export function allowedActionsFor({
   currentStage,
   assignment,
   nextAssignment,
-  canLabels = true
+  canLabels = true,
+  location,
+  returnStage
 }) {
   const actions = [];
   const open = checkpoints.find((c) => c.checkedInAt && !c.checkedOutAt);
   const hasAny = checkpoints.length > 0;
-  const readyDone = checkpoints.some((c) => c.stage === "READY" && c.checkedOutAt);
   const deliveredDone = checkpoints.some((c) => c.stage === "DELIVERED" && c.checkedOutAt);
 
   if (canLabels) actions.push({ code: "print_label", label: "Print / reprint label" });
 
   if (deliveredDone) {
     actions.push({ code: "view_history", label: "View history" });
+    return actions;
+  }
+
+  if (open?.stage === OFF_SITE_STAGE || location === "off_site") {
+    actions.push({ code: "check_out", label: "Scan in from off-site" });
+    actions.push({
+      code: "assign",
+      label: `Assign ${titleStage(returnStage || nextStage || "return stage")}`
+    });
+    return actions;
+  }
+
+  if (nextStage === OFF_SITE_STAGE) {
+    actions.push({ code: "check_in", label: "Scan out to off-site" });
+    actions.push({ code: "assign", label: "Assign / view assignment" });
+    if (currentStage) actions.push({ code: "view_history", label: "View history" });
     return actions;
   }
 
@@ -189,7 +222,8 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   const siblingDetails = await Promise.all(
     siblingSource.map(async (sib) => {
       const cps = cpByItem.get(sib.id) || [];
-      const { stageSequence } = await resolveStageSequence(sib.clothingType);
+      const seq = await resolveStageSequence(sib.clothingType);
+      const off = sib.offSiteStages?.length ? sib.offSiteStages : seq.offSiteStages;
       const idx = sib.itemIndex || 1;
       return {
         _id: sib.id,
@@ -201,7 +235,8 @@ export async function buildScanDetails(orderItemIdOrDoc) {
           sib.itemKind === "part"
             ? operationalPartBarcode(order.orderId, idx, sib.partCode, sib.barcodeValue)
             : operationalItemBarcode(order.orderId, idx, sib.barcodeValue),
-        currentStage: deriveCurrentStage(cps, stageSequence),
+        currentStage: deriveCurrentStage(cps, seq.stageSequence, off),
+        location: garmentLocation(cps),
         isCurrent: sib.id === item.id || (item.parentItemId && sib.id === item.parentItemId)
       };
     })
@@ -224,8 +259,12 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     }
   }
 
-  const currentStage = deriveCurrentStage(checkpoints, seqInfo.stageSequence);
-  const nextStage = nextExpectedStage(checkpoints, seqInfo.stageSequence);
+  const offSiteStages = item.offSiteStages?.length ? item.offSiteStages : seqInfo.offSiteStages || [];
+  const currentStage = deriveCurrentStage(checkpoints, seqInfo.stageSequence, offSiteStages);
+  const nextStage = nextExpectedStage(checkpoints, seqInfo.stageSequence, offSiteStages);
+  const loc = garmentLocation(checkpoints);
+  const pendingWindow = pendingOffSiteWindow(checkpoints, seqInfo.stageSequence, offSiteStages);
+  const offSiteLabel = locationLabel(checkpoints, nextStage);
   const days = daysUntil(order.requiredCompletionDate);
   const actionHint = inferScanAction(checkpoints, nextStage);
   const open = checkpoints.find((c) => c.checkedInAt && !c.checkedOutAt);
@@ -262,7 +301,8 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   const stageStates = buildStageStates(checkpoints, seqInfo.stageSequence, {
     dueDate: order.requiredCompletionDate,
     assignment: openAssignment,
-    assignments: allAssignments
+    assignments: allAssignments,
+    offSiteStages
   });
 
   const workstationStage = open?.stage || nextStage;
@@ -291,16 +331,22 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     nextStage,
     currentStage,
     assignment: openAssignment,
-    nextAssignment
+    nextAssignment,
+    location: loc,
+    returnStage: pendingWindow?.returnStage
   });
 
-  const locationLabel = open
-    ? `${titleStage(open.stage)} workstation`
-    : currentStage
-      ? `${titleStage(currentStage)} complete — waiting ${titleStage(nextStage)}`
-      : "Not yet received";
+  const locationFromOffSite = offSiteLabel;
+  const locationLabelResolved =
+    locationFromOffSite ||
+    (open
+      ? `${titleStage(open.stage)} workstation`
+      : currentStage
+        ? `${titleStage(currentStage)} complete — waiting ${titleStage(nextStage)}`
+        : "Not yet received");
 
   return {
+    scanKind: "item",
     customer: customer
       ? {
           _id: customer.id,
@@ -369,20 +415,29 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     production: {
       action: actionHint.action,
       actionStage: actionHint.stage,
-      boardStatus: boardStatusFrom({ checkpoints, assignment: openAssignment }),
+      boardStatus: boardStatusFrom({ checkpoints, assignment: openAssignment, location: loc }),
       nextAction: inferNextAction({
         checkpoints,
         assignment: openAssignment,
         nextStage,
-        currentStage
+        currentStage,
+        location: loc,
+        returnStage: pendingWindow?.returnStage
       }),
       stageStates,
       assignment: assignmentSummary(openAssignment),
-      assignmentChain: seqInfo.stageSequence.map((stage) => {
+      assignmentChain: effectiveScanSequence(seqInfo.stageSequence, offSiteStages).map((stage) => {
         const asg = allAssignments.find((a) => a.stage === stage) || null;
-        const cp = checkpoints.find((c) => c.stage === stage);
+        const cp =
+          stage === OFF_SITE_STAGE
+            ? openOffSiteCheckpoint(checkpoints) ||
+              checkpoints.filter((c) => c.stage === OFF_SITE_STAGE).at(-1)
+            : checkpoints.find((c) => c.stage === stage);
         let status = "waiting";
-        if (cp?.checkedOutAt) status = "completed";
+        if (stage === OFF_SITE_STAGE) {
+          if (openOffSiteCheckpoint(checkpoints)) status = "in_progress";
+          else if (cp?.checkedOutAt) status = "completed";
+        } else if (cp?.checkedOutAt) status = "completed";
         else if (cp && !cp.checkedOutAt) status = "in_progress";
         else if (asg && !asg.completedAt) status = "assigned";
         return {
@@ -402,14 +457,18 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       currentWorker: staffSummary(currentWorkerStaff),
       nextWorker: staffSummary(nextWorkerStaff),
       nextStage,
-      location: locationLabel,
+      location: locationLabelResolved,
+      locationKind: loc,
+      offSite: loc === "off_site",
+      returnStage: pendingWindow?.returnStage || null,
       managerCommand: managerCommandFor({
         open,
         currentStage: open?.stage || currentStage,
         nextStage,
         currentWorker: currentWorkerStaff,
         nextWorker: nextWorkerStaff,
-        assignment: openAssignment
+        assignment: openAssignment,
+        location: loc
       }),
       allowedActions,
       history
@@ -439,6 +498,172 @@ async function findGarmentByOperationalIndex(orderId, itemIndex, orderPk = null)
     orderBy: { createdAt: "asc" }
   });
   return top[idx - 1] || (top.length === 1 ? top[0] : null);
+}
+
+export async function resolveScanTarget(barcodeValue) {
+  const value = String(barcodeValue || "").trim();
+  if (!value) {
+    throw Object.assign(new Error("Barcode value is required"), { status: 400 });
+  }
+
+  const parsed = parseOperationalBarcode(value);
+  if (parsed?.kind === "order") {
+    const order = await prisma.order.findFirst({
+      where: {
+        OR: [
+          { barcodeValue: { equals: value, mode: "insensitive" } },
+          { orderId: { equals: `ORD-${parsed.orderNumber}`, mode: "insensitive" } }
+        ]
+      }
+    });
+    if (!order) {
+      throw Object.assign(new Error("Barcode not found"), { status: 404 });
+    }
+    return { kind: "order", order };
+  }
+
+  const itemHit = await prisma.orderItem.findFirst({
+    where: { barcodeValue: { equals: value, mode: "insensitive" } }
+  });
+  if (!itemHit) {
+    const orderHit = await prisma.order.findFirst({
+      where: {
+        OR: [
+          { barcodeValue: { equals: value, mode: "insensitive" } },
+          { orderId: { equals: value, mode: "insensitive" } }
+        ]
+      }
+    });
+    if (orderHit && parsed?.kind !== "item" && parsed?.kind !== "part") {
+      return { kind: "order", order: orderHit };
+    }
+  }
+
+  const item = await resolveItemByBarcode(value);
+  return { kind: "item", item };
+}
+
+export async function buildOrderScanDetails(orderOrDoc) {
+  const order =
+    typeof orderOrDoc === "object" && orderOrDoc?.id
+      ? orderOrDoc
+      : await prisma.order.findUnique({ where: { id: orderOrDoc } });
+  if (!order) return null;
+
+  const hydrated = await hydrateOrder(order, { includeCheckpoints: true });
+  const garments = (hydrated.items || []).filter((it) => isTopLevelItem(it));
+  const incomplete = garments.filter((g) => !isGarmentCompleteStage(g.currentStage));
+  const packed = Boolean(order.packedAt) || order.productionStatus === "ready_for_pickup";
+  const delivered = order.productionStatus === "delivered";
+  const readyToPack = !packed && !delivered && garments.length > 0 && incomplete.length === 0;
+
+  let action = "blocked";
+  let actionStage = "PACKAGING";
+  let location = "In production";
+  let managerCommand = `Cannot pack: ${incomplete.length} garment(s) are not complete. Scan each garment barcode until every piece is in showroom.`;
+  const allowedActions = [{ code: "print_label", label: "Print / reprint order label" }];
+
+  if (delivered) {
+    action = "done";
+    actionStage = "DELIVERED";
+    location = "Delivered";
+    managerCommand = "This order is delivered.";
+    allowedActions.push({ code: "view_history", label: "View history" });
+  } else if (packed) {
+    action = "check_in";
+    actionStage = "DELIVERED";
+    location = "Ready for pickup / delivery";
+    managerCommand = "Packed. Scan this order barcode to mark pickup / delivery.";
+    allowedActions.push({ code: "check_in", label: "Mark pickup / delivery" });
+  } else if (readyToPack) {
+    action = "check_in";
+    actionStage = "PACKAGING";
+    location = "Ready to pack";
+    managerCommand = "All garments are complete. Scan this order barcode to pack.";
+    allowedActions.push({ code: "check_in", label: "Pack order" });
+  }
+
+  return {
+    scanKind: "order",
+    customer: hydrated.customer,
+    item: null,
+    group: {
+      groupCode: order.groupCode || "",
+      groupId: order.groupId || null,
+      name: hydrated.group?.name || order.groupCode || "",
+      responsibleName: hydrated.group?.responsibleName || "",
+      responsiblePhone: hydrated.group?.responsiblePhone || "",
+      otherOrdersSharingGroup: 0,
+      otherItemsSharingGroup: 0
+    },
+    order: {
+      orderId: order.orderId,
+      _id: order.id,
+      productionStatus: order.productionStatus,
+      priority: order.priority,
+      createdAt: order.createdAt,
+      barcodeValue: order.barcodeValue,
+      packedAt: order.packedAt || null,
+      siblingItems: garments.map((g) => ({
+        _id: g._id,
+        clothingType: g.clothingType,
+        clothingCode: g.clothingCode,
+        itemKind: g.itemKind || "garment",
+        barcodeValue: g.barcodeValue,
+        labelBarcode: g.labelBarcode,
+        currentStage: g.currentStage || null,
+        isCurrent: false
+      }))
+    },
+    pricing: {
+      totalAgreedPrice: order.totalAgreedPrice || 0,
+      depositPaid: order.depositPaid || 0,
+      balanceRemaining: hydrated.balanceRemaining
+    },
+    timing: {
+      requiredCompletionDate: order.requiredCompletionDate,
+      daysRemaining: null,
+      overdue: false,
+      currentStage: packed ? "PACKAGING" : readyToPack ? "SHOWROOM" : null,
+      nextExpectedStage: delivered ? "DELIVERED" : packed ? "DELIVERED" : "PACKAGING",
+      stageSequence: ["PACKAGING", "DELIVERED"]
+    },
+    production: {
+      action,
+      actionStage,
+      boardStatus: delivered ? "in_progress" : packed ? "received" : readyToPack ? "waiting" : "waiting",
+      nextAction: {
+        code: delivered ? "done" : action === "blocked" ? "blocked" : "check_in",
+        label: delivered
+          ? "Delivered"
+          : packed
+            ? "Mark pickup / delivery"
+            : readyToPack
+              ? "Pack order"
+              : "Cannot pack yet",
+        stage: actionStage
+      },
+      stageStates: [],
+      assignment: null,
+      assignmentChain: [],
+      workstation: { stage: actionStage, label: "Order packing", workers: [] },
+      currentWorker: null,
+      nextWorker: null,
+      nextStage: actionStage,
+      location,
+      locationKind: "order",
+      offSite: false,
+      managerCommand,
+      allowedActions,
+      incompleteItems: incomplete.map((g) => ({
+        _id: g._id,
+        clothingType: g.clothingType,
+        barcodeValue: g.barcodeValue,
+        currentStage: g.currentStage || null
+      })),
+      history: []
+    }
+  };
 }
 
 /**

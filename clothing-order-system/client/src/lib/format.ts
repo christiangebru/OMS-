@@ -62,6 +62,8 @@ export function boardStatusLabel(status?: string | null) {
     case "distributed":
     case "handed_over":
       return "Received";
+    case "off_site":
+      return "Off-site";
     case "in_progress":
       return "Checked in";
     case "idle":
@@ -80,9 +82,10 @@ export function stageLabel(stage: string) {
     EMBROIDERY: "Embroidery",
     FINAL_SEWING: "Final sewing",
     FINISHING: "Finishing",
+    OFF_SITE: "Off-site",
     SHOWROOM: "Showroom",
     READY: "Showroom",
-    PACKAGING: "Ready to pack",
+    PACKAGING: "Packing",
     DELIVERED: "Pickup / delivery"
   };
   if (map[stage]) return map[stage];

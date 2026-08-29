@@ -62,7 +62,7 @@ export function ScanDetailCard({ details }: { details: ScanDetails }) {
             {details.item.fabricType} · {details.item.color} · {details.item.size}
             <span className="mt-1 block font-mono text-[11px] text-ink-faint">{details.item.barcodeValue}</span>
           </Fact>
-          <Fact label="Now" value={stageLabel(details.timing.currentStage || "unstarted")} capitalize>
+          <Fact label="Now" value={details.production?.offSite ? "Off-site" : stageLabel(details.timing.currentStage || "unstarted")} capitalize>
             Next: {stageLabel(details.timing.nextExpectedStage)}
           </Fact>
           <Fact label="Worker" value={worker?.name || "Unassigned"}>

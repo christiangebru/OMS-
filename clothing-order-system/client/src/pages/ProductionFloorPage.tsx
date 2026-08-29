@@ -54,7 +54,7 @@ export function ProductionFloorPage() {
   const chips = [
     { id: "ALL", label: "All" },
     ...visibleStages
-      .filter((s) => !["RECEIVED", "DELIVERED", "PACKAGING"].includes(s) || manager)
+            .filter((s) => !["RECEIVED", "DELIVERED", "PACKAGING"].includes(s) || manager || s === "OFF_SITE")
       .map((s) => ({ id: s, label: stageLabel(s) })),
     { id: "overdue", label: "Overdue" }
   ];
@@ -145,7 +145,7 @@ function FloorCard({ g }: { g: QueueItem }) {
       <div className="mt-1.5 flex flex-wrap items-center gap-1">
         <Badge
           tone={
-            g.overdue ? "urgent" : g.boardStatus === "in_progress" ? "progress" : g.boardStatus === "waiting" ? "warn" : "ok"
+            g.overdue ? "urgent" : g.boardStatus === "off_site" ? "warn" : g.boardStatus === "in_progress" ? "progress" : g.boardStatus === "waiting" ? "warn" : "ok"
           }
         >
           {boardStatusLabel(g.boardStatus)}

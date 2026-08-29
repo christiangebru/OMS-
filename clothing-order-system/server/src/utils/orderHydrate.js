@@ -131,7 +131,7 @@ export async function hydrateOrders(orders) {
     const completed = garments.filter((g) => completeSet.has(g._id)).length;
     const ready =
       (garments.length > 0 && completed === garments.length) ||
-      ["ready_to_pack", "completed", "delivered"].includes(order.productionStatus);
+      ["ready_to_pack", "ready_for_pickup", "completed", "delivered"].includes(order.productionStatus);
     return {
       ...hydrated,
       completion: {
@@ -154,18 +154,25 @@ async function itemPresence(items, checkpoints, assignments) {
   const asgByItem = groupBy(assignments, (a) => a.orderItemId);
   const map = new Map();
   for (const it of items) {
-    const { stageSequence } = await resolveStageSequence(it.clothingType);
+    const { stageSequence, offSiteStages } = await resolveStageSequence(it.clothingType);
+    const itemOff = it.offSiteStages?.length ? it.offSiteStages : offSiteStages;
     const cps = cpsByItem.get(it.id) || [];
-    const nextStage = nextExpectedStage(cps, stageSequence);
+    const nextStage = nextExpectedStage(cps, stageSequence, itemOff);
     const assignment =
       (asgByItem.get(it.id) || []).find((a) => a.stage === nextStage) ||
       (asgByItem.get(it.id) || [])[0] ||
       null;
     const parts = items.filter((p) => p.parentItemId === it.id);
     map.set(it.id, {
-      currentStage: deriveCurrentStage(cps, stageSequence),
+      currentStage: deriveCurrentStage(cps, stageSequence, itemOff),
       nextStage,
-      boardStatus: boardStatusFrom({ checkpoints: cps, assignment }),
+      boardStatus: boardStatusFrom({
+        checkpoints: cps,
+        assignment,
+        location: cps.some((c) => c.stage === "OFF_SITE" && c.checkedInAt && !c.checkedOutAt)
+          ? "off_site"
+          : "in_shop"
+      }),
       workerName: assignment?.staff?.name || null,
       readyForAssembly: parts.length
         ? parentReadyForAssembly(parts, cpsByItem, stageSequence) && !it.assembledAt

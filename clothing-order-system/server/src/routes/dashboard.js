@@ -48,7 +48,7 @@ router.get("/summary", async (_req, res) => {
 
 router.get("/notifications", async (_req, res) => {
   const orders = await prisma.order.findMany({
-    where: { productionStatus: { notIn: ["completed", "ready_to_pack", "delivered"] } }
+    where: { productionStatus: { notIn: ["completed", "ready_to_pack", "ready_for_pickup", "delivered"] } }
   });
 
   const customerIds = [...new Set(orders.map((o) => o.customerId).filter(Boolean))];
@@ -77,7 +77,7 @@ router.get("/notifications", async (_req, res) => {
     if (
       d >= 0 &&
       d <= LOW_DAYS_THRESHOLD &&
-      !["completed", "ready_to_pack", "delivered"].includes(o.productionStatus)
+      !["completed", "ready_to_pack", "ready_for_pickup", "delivered"].includes(o.productionStatus)
     ) {
       lowTime.push({
         orderId: o.orderId,
@@ -295,7 +295,7 @@ router.get("/business", requireCapability("dashboard"), async (req, res) => {
       0
     );
     const ready = allOpen.filter((o) =>
-      ["completed", "ready_to_pack"].includes(o.productionStatus)
+      ["completed", "ready_to_pack", "ready_for_pickup"].includes(o.productionStatus)
     ).length;
 
     const trendMap = new Map();

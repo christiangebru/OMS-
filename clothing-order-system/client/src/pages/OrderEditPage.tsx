@@ -33,6 +33,7 @@ const STATUSES: ProductionStatus[] = [
   "finishing",
   "completed",
   "ready_to_pack",
+  "ready_for_pickup",
   "delivered"
 ];
 const PRIORITIES: OrderPriority[] = ["NORMAL", "RUSH", "VIP"];

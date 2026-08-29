@@ -2,6 +2,7 @@ import { prisma } from "../src/db/prisma.js";
 import { DEFAULT_TENANT_ID } from "../src/config/tenant.js";
 import { DEFAULT_CLOTHING_TYPE_SEEDS } from "../src/utils/migrateHelpers.js";
 import { newId } from "../src/utils/ids.js";
+import { clothingTypeToKey } from "../src/constants/production.js";
 import { generateItemBarcodeValue, generateOrderBarcodeValue } from "../src/utils/barcode.js";
 
 /** Expose the Prisma `id` as `_id` so existing assertions keep working. */
@@ -69,6 +70,11 @@ export async function seedOrderWithItem({
     }
   });
 
+  const config = await prisma.clothingTypeConfig.findUnique({
+    where: { key: clothingTypeToKey(clothingType) }
+  });
+  const offSiteStages = config?.offSiteStages || [];
+
   const itemId = newId();
   const item = await prisma.orderItem.create({
     data: {
@@ -89,7 +95,9 @@ export async function seedOrderWithItem({
       lineTotal: 100,
       difficultyLevel,
       barcodeValue: generateItemBarcodeValue(orderId, 1),
-      barcodeGeneratedAt: new Date()
+      barcodeGeneratedAt: new Date(),
+      itemIndex: 1,
+      offSiteStages
     }
   });
 
@@ -116,7 +124,12 @@ export async function seedOrderWithItem({
           lineTotal: 50,
           difficultyLevel: extra.difficultyLevel || 3,
           barcodeValue: generateItemBarcodeValue(orderId, siblings.length + 2),
-          barcodeGeneratedAt: new Date()
+          barcodeGeneratedAt: new Date(),
+          itemIndex: siblings.length + 2,
+          offSiteStages:
+            (await prisma.clothingTypeConfig.findUnique({
+              where: { key: clothingTypeToKey(extra.clothingType || clothingType) }
+            }))?.offSiteStages || offSiteStages
         }
       })
     );
@@ -145,6 +158,7 @@ export async function seedOrderWithItem({
     "PACKAGING",
     "READY",
     "SHOWROOM",
+    "OFF_SITE",
     "DELIVERED"
   ];
   await prisma.staffSkill.createMany({

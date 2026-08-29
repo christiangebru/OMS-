@@ -16,6 +16,7 @@ export const ProductionStage = [
   "EMBROIDERY",
   "FINAL_SEWING",
   "FINISHING",
+  "OFF_SITE",
   "PACKAGING",
   "READY",
   "SHOWROOM",
@@ -33,6 +34,9 @@ export const FULL_STAGE_SEQUENCE = [
   "PACKAGING",
   "DELIVERED"
 ];
+
+/** Physical off-site location — not a workstation and not RECEIVED. */
+export const OFF_SITE_STAGE = "OFF_SITE";
 
 /** Default garment path including embroidery. Pack/delivery are order-level. */
 export const CANONICAL_GARMENT_SEQUENCE = [
@@ -66,12 +70,12 @@ export const UserRole = [
 ];
 
 export const ROLE_PRODUCTION_STAGES = {
-  cutter: ["CUTTING", "SEWING_CUTTING"],
-  tailor: ["SEWING", "SEWING_CUTTING", "FINAL_SEWING"],
-  embroiderer: ["EMBROIDERY"],
-  finisher: ["FINISHING"],
-  packer: ["PACKAGING", "SHOWROOM", "READY"],
-  delivery: ["SHOWROOM", "READY", "DELIVERED"]
+  cutter: ["CUTTING", "SEWING_CUTTING", "OFF_SITE"],
+  tailor: ["SEWING", "SEWING_CUTTING", "FINAL_SEWING", "OFF_SITE"],
+  embroiderer: ["EMBROIDERY", "OFF_SITE"],
+  finisher: ["FINISHING", "OFF_SITE"],
+  packer: ["PACKAGING", "SHOWROOM", "READY", "OFF_SITE"],
+  delivery: ["SHOWROOM", "READY", "DELIVERED", "PACKAGING"]
 };
 
 export function stagesForUserRole(role) {
@@ -111,10 +115,16 @@ export const ProductionStatus = [
   "finishing",
   "completed",
   "ready_to_pack",
+  "ready_for_pickup",
   "delivered"
 ];
 
-export const ORDER_COMPLETE_STATUSES = ["completed", "ready_to_pack", "delivered"];
+export const ORDER_COMPLETE_STATUSES = [
+  "completed",
+  "ready_to_pack",
+  "ready_for_pickup",
+  "delivered"
+];
 export const ORDER_OPEN_STATUSES = ProductionStatus.filter((s) => s !== "delivered");
 
 /** Normalize free-text clothing type to a ClothingTypeConfig key */

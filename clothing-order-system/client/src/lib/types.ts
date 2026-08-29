@@ -19,6 +19,7 @@ export type ProductionStatus =
   | "finishing"
   | "completed"
   | "ready_to_pack"
+  | "ready_for_pickup"
   | "delivered";
 
 export type ProductionStage =
@@ -29,6 +30,7 @@ export type ProductionStage =
   | "EMBROIDERY"
   | "FINAL_SEWING"
   | "FINISHING"
+  | "OFF_SITE"
   | "PACKAGING"
   | "READY"
   | "SHOWROOM"
@@ -152,6 +154,7 @@ export interface Order {
   barcodeGeneratedAt?: string;
   notes?: string;
   partLabelMode?: PartLabelMode;
+  packedAt?: string | null;
   completion?: { completed: number; total: number; readyToPack: boolean };
   createdAt: string;
   updatedAt: string;
@@ -243,12 +246,14 @@ export const PRODUCTION_STAGES: ProductionStage[] = [
   "EMBROIDERY",
   "FINAL_SEWING",
   "FINISHING",
+  "OFF_SITE",
   "SHOWROOM",
   "PACKAGING",
   "DELIVERED"
 ];
 
 export interface ScanDetails {
+  scanKind?: "item" | "order";
   customer: CustomerSummary | null;
   item: {
     _id: string;
@@ -267,7 +272,8 @@ export interface ScanDetails {
     labelBarcode?: string;
     unitPrice?: number;
     images: OrderItemImage[];
-  };
+    offSiteStages?: string[];
+  } | null;
   group: {
     groupCode: string;
     groupId?: string | null;
@@ -283,6 +289,8 @@ export interface ScanDetails {
     productionStatus: ProductionStatus;
     priority?: OrderPriority;
     createdAt?: string;
+    barcodeValue?: string;
+    packedAt?: string | null;
     siblingItems: Array<{
       _id: string;
       clothingType: string;
@@ -306,9 +314,9 @@ export interface ScanDetails {
     stageSequence: ProductionStage[];
   };
   production?: {
-    action: "check_in" | "check_out";
+    action: "check_in" | "check_out" | "pack" | "deliver" | "blocked" | "done";
     actionStage: ProductionStage;
-    boardStatus?: "waiting" | "assigned" | "distributed" | "received" | "in_progress";
+    boardStatus?: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | "off_site";
     nextAction?: { code: string; label: string; stage: ProductionStage };
     stageStates: StageState[];
     assignment?: {
@@ -333,8 +341,17 @@ export interface ScanDetails {
     nextWorker?: { _id: string; name: string; role: string; status: string } | null;
     nextStage?: ProductionStage;
     location?: string;
+    locationKind?: "in_shop" | "off_site" | "order";
+    offSite?: boolean;
+    returnStage?: ProductionStage | null;
     managerCommand?: string;
     allowedActions?: Array<{ code: string; label: string }>;
+    incompleteItems?: Array<{
+      _id: string;
+      clothingType: string;
+      barcodeValue?: string;
+      currentStage?: ProductionStage | null;
+    }>;
     history?: Array<{
       at: string;
       action: string;
@@ -371,7 +388,7 @@ export interface StaffRanking {
 
 export interface StageState {
   stage: ProductionStage;
-  status: "completed" | "in_progress" | "waiting" | "next" | "skipped" | "blocked";
+  status: "completed" | "in_progress" | "waiting" | "next" | "skipped" | "blocked" | "off_site";
   checkedInAt?: string | null;
   checkedOutAt?: string | null;
   durationMs?: number | null;
@@ -385,6 +402,7 @@ export interface StageState {
   notes?: string;
   checkedInBy?: { _id: string; name: string; role: string } | null;
   checkedOutBy?: { _id: string; name: string; role: string } | null;
+  offSite?: boolean;
 }
 
 export interface TimelineEntry {
@@ -461,7 +479,7 @@ export interface DashboardOperations {
     customerName: string;
     orderId: string;
     stage: string | null;
-      boardStatus: "waiting" | "assigned" | "distributed" | "received" | "in_progress";
+      boardStatus: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | "off_site";
     workerName: string | null;
     overdue: boolean;
     priority: OrderPriority;
@@ -563,7 +581,9 @@ export interface QueueItem {
   currentStage: ProductionStage | null;
   nextStage: ProductionStage;
   openStage?: string | null;
-  boardStatus: "waiting" | "assigned" | "distributed" | "received" | "in_progress";
+  location?: "in_shop" | "off_site";
+  offSite?: boolean;
+  boardStatus: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | "off_site";
   inProgress?: boolean;
   assignment?: {
     _id: string;

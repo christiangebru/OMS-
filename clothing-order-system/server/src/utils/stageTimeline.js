@@ -1,6 +1,7 @@
 import { deriveCurrentStage, nextExpectedStage } from "./stageSequence.js";
 import { FULL_STAGE_SEQUENCE, WORKSTATION_STAGES } from "../constants/production.js";
 import { findCheckpoint, aliasesForStage, canonicalStage } from "./productionModel.js";
+import { completedOffSiteTrips, openOffSiteCheckpoint, offSiteWindows } from "./offSite.js";
 
 export function formatDurationMs(ms) {
   if (ms == null || Number.isNaN(ms)) return null;
@@ -35,8 +36,9 @@ function assignmentForStage(assignments, stage) {
 export function buildStageStates(checkpoints = [], stageSequence = [], options = {}) {
   const sequence = stageSequence?.length ? stageSequence : FULL_STAGE_SEQUENCE;
   const inSequence = new Set(sequence.map((s) => canonicalStage(s) || s));
-  const next = nextExpectedStage(checkpoints, sequence);
-  const current = deriveCurrentStage(checkpoints, sequence);
+  const offSiteStages = options.offSiteStages || [];
+  const next = nextExpectedStage(checkpoints, sequence, offSiteStages);
+  const current = deriveCurrentStage(checkpoints, sequence, offSiteStages);
   const due = options.dueDate ? new Date(options.dueDate) : null;
   const overdueOrder = due ? due.getTime() < Date.now() : false;
   const assignment = options.assignment || null;
@@ -46,6 +48,9 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
       : assignment
         ? [assignment]
         : [];
+  const windows = offSiteWindows(sequence, offSiteStages);
+  const tripsDone = completedOffSiteTrips(checkpoints).length;
+  const openOff = openOffSiteCheckpoint(checkpoints);
 
   let lastCompletedAt = null;
 
@@ -63,8 +68,55 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
         isCurrent: false,
         overdue: false,
         assigned: false,
-        assignedTo: null
+        assignedTo: null,
+        offSite: false
       };
+    }
+
+    const winIdx = windows.findIndex((w) => w.stages.some((s) => canonicalStage(s) === canon || s === stage));
+    const offSiteWork = winIdx >= 0;
+    if (offSiteWork) {
+      const windowDone = tripsDone > winIdx;
+      const windowActive = Boolean(openOff) && tripsDone === winIdx;
+      if (windowDone || windowActive) {
+        const offCp = windowActive
+          ? openOff
+          : completedOffSiteTrips(checkpoints)[winIdx] || null;
+        return {
+          stage,
+          status: windowActive ? "off_site" : "completed",
+          checkedInAt: offCp?.checkedInAt || null,
+          checkedOutAt: offCp?.checkedOutAt || null,
+          durationMs: null,
+          waitingMs: null,
+          open: windowActive,
+          isCurrent: windowActive,
+          overdue: overdueOrder && windowActive,
+          assigned: false,
+          assignedTo: null,
+          offSite: true,
+          notes: windowActive ? "Off-site" : "Completed off-site"
+        };
+      }
+      if (next === "OFF_SITE" && tripsDone === winIdx && !openOff) {
+        const first = windows[winIdx].stages[0];
+        const isFirst = (canonicalStage(first) || first) === canon || first === stage;
+        return {
+          stage,
+          status: isFirst ? "next" : "waiting",
+          checkedInAt: null,
+          checkedOutAt: null,
+          durationMs: null,
+          waitingMs: waitingMs(lastCompletedAt, null),
+          open: false,
+          isCurrent: false,
+          overdue: overdueOrder && isFirst,
+          assigned: false,
+          assignedTo: null,
+          offSite: true,
+          notes: "Send off-site"
+        };
+      }
     }
 
     const cp = findCheckpoint(checkpoints, stage);
@@ -143,22 +195,42 @@ const WORK_STAGES = new Set([
   ...WORKSTATION_STAGES,
   "PACKAGING",
   "SHOWROOM",
-  "READY"
+  "READY",
+  "OFF_SITE"
 ]);
 
 /**
  * Scanner is the physical hand-off. Assign first, then scan in — no separate distribute/receive.
+ * Off-site is a location scan, not a workstation.
  */
-export function inferNextAction({ checkpoints = [], assignment, nextStage, currentStage }) {
+export function inferNextAction({
+  checkpoints = [],
+  assignment,
+  nextStage,
+  currentStage,
+  location,
+  returnStage
+}) {
   const deliveredDone = checkpoints.some((c) => c.stage === "DELIVERED" && c.checkedOutAt);
   if (deliveredDone || currentStage === "DELIVERED") {
     return { code: "done", label: "Delivered", stage: "DELIVERED" };
   }
   const open = checkpoints.find((c) => c.checkedInAt && !c.checkedOutAt);
+  if (open?.stage === "OFF_SITE" || location === "off_site") {
+    return {
+      code: "check_out",
+      label: "Scan in from off-site",
+      stage: "OFF_SITE",
+      returnStage: returnStage || nextStage
+    };
+  }
   if (open) {
     return { code: "check_out", label: "Scan out", stage: open.stage };
   }
-  if (!assignment && WORK_STAGES.has(nextStage)) {
+  if (nextStage === "OFF_SITE") {
+    return { code: "check_in", label: "Scan out to off-site", stage: "OFF_SITE" };
+  }
+  if (!assignment && WORK_STAGES.has(nextStage) && nextStage !== "OFF_SITE") {
     return { code: "assign", label: "Assign worker", stage: nextStage };
   }
   if (nextStage === "PACKAGING") {
@@ -184,7 +256,10 @@ export function inferNextAction({ checkpoints = [], assignment, nextStage, curre
  * UNASSIGNED = waiting. After workers are assigned = RECEIVED (manager state).
  * Scan-in = in_progress. Assigned ≠ busy.
  */
-export function boardStatusFrom({ checkpoints = [], assignment }) {
+export function boardStatusFrom({ checkpoints = [], assignment, location }) {
+  if (location === "off_site" || checkpoints.some((c) => c.stage === "OFF_SITE" && c.checkedInAt && !c.checkedOutAt)) {
+    return "off_site";
+  }
   const inProgress = checkpoints.some((c) => c.checkedInAt && !c.checkedOutAt);
   if (inProgress) return "in_progress";
   if (!assignment) return "waiting";

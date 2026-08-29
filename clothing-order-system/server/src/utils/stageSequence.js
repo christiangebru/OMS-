@@ -5,11 +5,17 @@ import {
   ProductionStage,
   CANONICAL_GARMENT_SEQUENCE
 } from "../constants/production.js";
+import { canonicalStage, aliasesForStage } from "./productionModel.js";
 import {
-  canonicalStage,
-  findCheckpoint,
-  aliasesForStage
-} from "./productionModel.js";
+  OFF_SITE_STAGE,
+  deriveCurrentStageWithOffSite,
+  effectiveScanSequence,
+  nextExpectedStageWithOffSite,
+  openOffSiteCheckpoint,
+  pendingOffSiteWindow,
+  priorEffectiveStagesComplete,
+  stageIsOffSiteWork
+} from "./offSite.js";
 
 export async function resolveStageSequence(clothingType) {
   const key = clothingTypeToKey(clothingType);
@@ -87,44 +93,48 @@ export function resolveRequestedStage(requested, stageSequence = []) {
 }
 
 /**
- * Current stage for an item: open checkpoint stage, else last completed, else null (unstarted).
+ * Current stage for an item: open checkpoint (OFF_SITE if the garment is off-site),
+ * else last completed in-shop stage, else null (unstarted).
  */
-export function deriveCurrentStage(checkpoints, stageSequence) {
-  const open = checkpoints.find((c) => c.checkedInAt && !c.checkedOutAt);
-  if (open) return resolveRequestedStage(open.stage, stageSequence) || open.stage;
-
-  const closed = checkpoints
-    .filter((c) => c.checkedOutAt)
-    .sort((a, b) => new Date(b.checkedOutAt) - new Date(a.checkedOutAt));
-  if (closed.length) {
-    return resolveRequestedStage(closed[0].stage, stageSequence) || closed[0].stage;
-  }
-
-  return null;
+export function deriveCurrentStage(checkpoints, stageSequence, offSiteStages = []) {
+  return deriveCurrentStageWithOffSite(checkpoints, stageSequence, offSiteStages);
 }
 
-export function nextExpectedStage(checkpoints, stageSequence) {
-  const seq = stageSequence?.length ? stageSequence : SKIP_EMBROIDERY_SEQUENCE;
-  for (const stage of seq) {
-    const cp = findCheckpoint(checkpoints, stage);
-    if (!cp) return stage;
-    if (!cp.checkedOutAt) return stage;
-  }
-  return seq[seq.length - 1] || "SHOWROOM";
+export function nextExpectedStage(checkpoints, stageSequence, offSiteStages = []) {
+  return nextExpectedStageWithOffSite(checkpoints, stageSequence, offSiteStages);
 }
 
 /**
  * Validate check-in at targetStage.
+ * Off-site windows use OFF_SITE as the scan location; in-shop stages that
+ * happen off-site are not valid workstations unless adminOverride.
  * @returns {{ ok: true } | { ok: false, message: string }}
  */
-export async function validateCheckIn(orderItemId, targetStage, stageSequence, { adminOverride = false } = {}) {
+export async function validateCheckIn(
+  orderItemId,
+  targetStage,
+  stageSequence,
+  { adminOverride = false, offSiteStages = [] } = {}
+) {
   if (!ProductionStage.includes(targetStage)) {
     return { ok: false, message: `Invalid stage: ${targetStage}` };
   }
 
   const seq = stageSequence || SKIP_EMBROIDERY_SEQUENCE;
-  const resolved = resolveRequestedStage(targetStage, seq);
-  if (!seq.includes(resolved) && !adminOverride) {
+  const effective = effectiveScanSequence(seq, offSiteStages);
+  const resolved =
+    targetStage === OFF_SITE_STAGE
+      ? OFF_SITE_STAGE
+      : resolveRequestedStage(targetStage, seq);
+
+  if (!adminOverride && stageIsOffSiteWork(resolved, offSiteStages) && resolved !== OFF_SITE_STAGE) {
+    return {
+      ok: false,
+      message: `Stage ${targetStage} happens off-site. Scan out to off-site, then scan in on return.`
+    };
+  }
+
+  if (!effective.includes(resolved) && !adminOverride) {
     return {
       ok: false,
       message: `Stage ${targetStage} is not in this clothing type's sequence (${seq.join(" → ")})`
@@ -132,10 +142,34 @@ export async function validateCheckIn(orderItemId, targetStage, stageSequence, {
   }
 
   const checkpoints = await prisma.stageCheckpoint.findMany({ where: { orderItemId } });
+  const openOff = openOffSiteCheckpoint(checkpoints);
+  const pending = pendingOffSiteWindow(checkpoints, seq, offSiteStages);
 
-  const openOther = checkpoints.find(
-    (c) => !c.checkedOutAt && !aliasesForStage(resolved).includes(c.stage)
-  );
+  if (resolved === OFF_SITE_STAGE && !adminOverride && !openOff && !pending) {
+    return {
+      ok: false,
+      message: "This garment has no remaining off-site trip."
+    };
+  }
+  const returnStage = pending?.returnStage;
+  const returningHere =
+    Boolean(openOff) &&
+    returnStage &&
+    (returnStage === resolved || aliasesForStage(returnStage).includes(resolved));
+
+  if (openOff && resolved !== OFF_SITE_STAGE && !adminOverride && !returningHere) {
+    return {
+      ok: false,
+      message: `Item is off-site. Scan in from off-site (return at ${returnStage || "the next in-shop stage"}) first.`
+    };
+  }
+
+  const openOther = checkpoints.find((c) => {
+    if (c.checkedOutAt) return false;
+    if (aliasesForStage(resolved).includes(c.stage)) return false;
+    if (c.stage === OFF_SITE_STAGE && returningHere) return false;
+    return true;
+  });
   if (openOther) {
     return {
       ok: false,
@@ -150,21 +184,14 @@ export async function validateCheckIn(orderItemId, targetStage, stageSequence, {
     return { ok: true, alreadyOpen: true, checkpoint: openSame };
   }
 
-  const idx = seq.indexOf(resolved);
-  if (idx > 0 && !adminOverride) {
-    for (let i = 0; i < idx; i++) {
-      const prior = seq[i];
-      const cp = findCheckpoint(checkpoints, prior);
-      if (!cp?.checkedOutAt) {
-        return {
-          ok: false,
-          message: `Cannot check in to ${targetStage}: prior stage ${prior} is not complete. Complete prior stages or use admin override.`
-        };
-      }
+  if (!adminOverride) {
+    const prior = priorEffectiveStagesComplete(checkpoints, resolved, seq, offSiteStages);
+    if (!prior.ok) {
+      return { ok: false, message: prior.message };
     }
   }
 
-  return { ok: true, resolvedStage: resolved };
+  return { ok: true, resolvedStage: resolved, closeOffSite: Boolean(returningHere && openOff) };
 }
 
 export function stageRank(stage, stageSequence) {

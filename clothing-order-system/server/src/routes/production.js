@@ -6,7 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { ProductionStage, stagesForUserRole } from "../constants/production.js";
 import { requireCapability } from "../middleware/permissions.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
-import { resolveItemByBarcode, buildScanDetails } from "../utils/scanDetails.js";
+import { buildScanDetails, resolveScanTarget, buildOrderScanDetails } from "../utils/scanDetails.js";
 import { resolveStageSequence, validateCheckIn } from "../utils/stageSequence.js";
 import { syncOrderStatusFromItems } from "../utils/syncOrderFromStages.js";
 import { rankStaffForAssignment } from "../utils/assignmentScore.js";
@@ -15,8 +15,10 @@ import { buildProductionQueue } from "../utils/productionBoard.js";
 import { renderBarcodePng, renderBarcodeSvg } from "../utils/barcode.js";
 import { isRecordId } from "../utils/recordId.js";
 import { WORKSTATION_STAGES } from "../constants/production.js";
-import { parentReadyForAssembly, skillStagesFor, assemblyStage } from "../utils/productionModel.js";
+import { parentReadyForAssembly, skillStagesFor, assemblyStage, canonicalStage } from "../utils/productionModel.js";
 import { resolveRequestedStage } from "../utils/stageSequence.js";
+import { OFF_SITE_STAGE, openOffSiteCheckpoint } from "../utils/offSite.js";
+import { packOrder, deliverPackedOrder, packagingMessage } from "../utils/orderPack.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -37,7 +39,7 @@ async function assertStaffForStage(staffId, stage, { requireOnDuty = true } = {}
   const skill = await client.staffSkill.findFirst({
     where: { staffId: staff.id, stage: { in: skillStagesFor(stage) } }
   });
-  if (!skill) {
+  if (!skill && stage !== OFF_SITE_STAGE && stage !== "PACKAGING" && stage !== "DELIVERED") {
     throw Object.assign(
       new Error(`Worker is not assigned to this stage: ${staff.name} is not skilled for ${stage}`),
       { status: 400 }
@@ -96,7 +98,7 @@ router.post(
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     try {
-      const item = await resolveItemByBarcode(req.body.barcodeValue);
+      const target = await resolveScanTarget(req.body.barcodeValue);
       const notes = req.body.notes || "";
       const adminOverride = Boolean(req.body.adminOverride);
       const userRole = req.user?.role;
@@ -106,8 +108,65 @@ router.post(
         return res.status(403).json({ message: "Only admin/manager can override stage sequence" });
       }
 
-      const { stageSequence } = await resolveStageSequence(item.clothingType);
-      const stage = resolveRequestedStage(req.body.stage, stageSequence);
+      if (target.kind === "order") {
+        const order = target.order;
+        const requested = req.body.stage;
+        const canon = canonicalStage(requested);
+        if (canon === "PACKAGING") {
+          await assertStaffForStage(staffId, "PACKAGING", { requireOnDuty: true });
+          const packed = await prisma.$transaction(async (tx) => {
+            const fresh = await tx.order.findUnique({ where: { id: order.id } });
+            return packOrder(fresh, { userId: req.user.id, staffId, notes }, tx);
+          });
+          const scanDetails = await buildOrderScanDetails(packed);
+          const orderHydrated = await hydrateOrder(packed, { includeCheckpoints: false });
+          return res.json({
+            ok: true,
+            action: "pack",
+            scanKind: "order",
+            message: "Packed — ready for pickup / delivery",
+            checkpoint: null,
+            scanDetails,
+            order: orderHydrated
+          });
+        }
+        if (canon === "DELIVERED" || canon === "SHOWROOM" || requested === "READY") {
+          await assertStaffForStage(staffId, "DELIVERED", { requireOnDuty: false });
+          const delivered = await prisma.$transaction(async (tx) => {
+            const fresh = await tx.order.findUnique({ where: { id: order.id } });
+            return deliverPackedOrder(fresh, { userId: req.user.id, staffId, notes }, tx);
+          });
+          const scanDetails = await buildOrderScanDetails(delivered);
+          const orderHydrated = await hydrateOrder(delivered, { includeCheckpoints: false });
+          return res.json({
+            ok: true,
+            action: "deliver",
+            scanKind: "order",
+            message: "Ready for pickup / delivered",
+            checkpoint: null,
+            scanDetails,
+            order: orderHydrated
+          });
+        }
+        return res.status(400).json({
+          message: `Scan garment barcodes (ORD-n-i) for production stages. ${packagingMessage(order.orderId)}`
+        });
+      }
+
+      const item = target.item;
+      const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType);
+      const offSiteStages = item.offSiteStages?.length ? item.offSiteStages : typeOffSite || [];
+      const stage = resolveRequestedStage(req.body.stage, [...stageSequence, OFF_SITE_STAGE]);
+
+      if (
+        ["PACKAGING", "DELIVERED"].includes(canonicalStage(stage)) &&
+        !adminOverride
+      ) {
+        const orderRow = await prisma.order.findUnique({ where: { id: item.order } });
+        return res.status(400).json({
+          message: packagingMessage(orderRow?.orderId)
+        });
+      }
 
       const openAtStage = await prisma.stageCheckpoint.findFirst({
         where: { orderItemId: item.id, stage, checkedOutAt: null }
@@ -172,7 +231,8 @@ router.post(
         }
 
         const validation = await validateCheckIn(item.id, stage, stageSequence, {
-          adminOverride
+          adminOverride,
+          offSiteStages
         });
         if (!validation.ok) {
           return res.status(400).json({ message: validation.message });
@@ -216,6 +276,21 @@ router.post(
         }
 
         checkpoint = await prisma.$transaction(async (tx) => {
+          if (validation.closeOffSite) {
+            const openOff = await tx.stageCheckpoint.findFirst({
+              where: { orderItemId: item.id, stage: OFF_SITE_STAGE, checkedOutAt: null }
+            });
+            if (openOff) {
+              await tx.stageCheckpoint.update({
+                where: { id: openOff.id },
+                data: {
+                  checkedOutAt: new Date(),
+                  checkedOutByStaffId: staffId,
+                  notes: [openOff.notes, notes, "Returned from off-site"].filter(Boolean).join(" | ")
+                }
+              });
+            }
+          }
           const cp = await tx.stageCheckpoint.create({
             data: {
               orderItemId: item.id,
@@ -265,10 +340,21 @@ router.post(
         ? await hydrateOrder(orderDoc, { includeCheckpoints: false })
         : null;
 
+      const offSiteOut = action === "check_in" && stage === OFF_SITE_STAGE;
+      const offSiteIn = action === "check_out" && stage === OFF_SITE_STAGE;
+      const message = offSiteOut
+        ? "Scanned out to off-site"
+        : offSiteIn
+          ? "Scanned in from off-site"
+          : action === "check_in"
+            ? `Checked in to ${stage}`
+            : `Checked out of ${stage}`;
+
       res.json({
         ok: true,
         action,
-        message: action === "check_in" ? `Checked in to ${stage}` : `Checked out of ${stage}`,
+        scanKind: "item",
+        message,
         checkpoint: s(checkpoint),
         scanDetails,
         order: orderHydrated
@@ -378,9 +464,13 @@ router.get("/barcode.png", query("value").trim().notEmpty(), async (req, res) =>
 
 router.get("/lookup", query("barcodeValue").trim().notEmpty(), async (req, res) => {
   try {
-    const item = await resolveItemByBarcode(req.query.barcodeValue);
-    const scanDetails = await buildScanDetails(item);
-    res.json({ scanDetails });
+    const target = await resolveScanTarget(req.query.barcodeValue);
+    if (target.kind === "order") {
+      const scanDetails = await buildOrderScanDetails(target.order);
+      return res.json({ scanKind: "order", scanDetails });
+    }
+    const scanDetails = await buildScanDetails(target.item);
+    res.json({ scanKind: "item", scanDetails });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ message: e.message });
     throw e;

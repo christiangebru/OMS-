@@ -11,6 +11,7 @@ import { isTopLevelItem } from "./productionModel.js";
 export async function syncOrderStatusFromItems(orderId, userId = null, client = prisma) {
   const order = await client.order.findUnique({ where: { id: orderId } });
   if (!order) return null;
+  if (order.productionStatus === "delivered") return order;
 
   const items = await client.orderItem.findMany({ where: { order: order.id } });
   const itemIds = items.map((i) => i.id);
@@ -29,14 +30,15 @@ export async function syncOrderStatusFromItems(orderId, userId = null, client = 
   for (const item of items) {
     if (!isTopLevelItem(item)) continue;
     const cps = byItem.get(item.id) || [];
-    const { stageSequence } = await resolveStageSequence(item.clothingType);
+    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType);
+    const itemOffSite = item.offSiteStages?.length ? item.offSiteStages : offSiteStages;
     garmentStates.push({
       ...item,
-      stage: deriveCurrentStage(cps, stageSequence)
+      stage: deriveCurrentStage(cps, stageSequence, itemOffSite)
     });
   }
 
-  const nextStatus = orderStatusFromItemStages(garmentStates);
+  const nextStatus = orderStatusFromItemStages(garmentStates, { packedAt: order.packedAt });
   const prev = order.productionStatus;
 
   if (prev !== nextStatus) {

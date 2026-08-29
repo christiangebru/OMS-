@@ -55,7 +55,7 @@ export function OrderDetailPage() {
   }
 
   const due = new Date(order.requiredCompletionDate);
-  const overdue = due.getTime() < Date.now() && !["completed", "ready_to_pack", "delivered"].includes(order.productionStatus);
+  const overdue = due.getTime() < Date.now() && !["completed", "ready_to_pack", "ready_for_pickup", "delivered"].includes(order.productionStatus);
   const days = (due.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
   const canEdit = canWriteOrders(user?.role);
   const canLabels = canSee(user?.role, "labels");
@@ -158,8 +158,12 @@ export function OrderDetailPage() {
             {order.completion
               ? `${order.completion.completed}/${order.completion.total} complete`
               : `${order.items.filter((it) => it.itemKind !== "part").length} items`}
-            {order.completion?.readyToPack || order.productionStatus === "ready_to_pack"
-              ? " · Ready to pack"
+            {order.completion?.readyToPack ||
+            order.productionStatus === "ready_to_pack" ||
+            order.productionStatus === "ready_for_pickup"
+              ? order.productionStatus === "ready_for_pickup" || order.packedAt
+                ? " · Ready for pickup"
+                : " · Ready to pack"
               : ""}
           </p>
         </div>
@@ -198,7 +202,11 @@ export function OrderDetailPage() {
                           </Badge>
                         )}
                         <p className="mt-1 text-xs text-ink-muted">{it.workerName || "Unassigned"}</p>
-                        <p className="text-xs capitalize text-ink-muted">{stageLabel(current)}</p>
+                        <p className="text-xs capitalize text-ink-muted">
+                          {it.boardStatus === "off_site" || it.currentStage === "OFF_SITE"
+                            ? "Off-site"
+                            : stageLabel(current)}
+                        </p>
                       </div>
                     </div>
                     <div className="mt-3">

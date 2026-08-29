@@ -37,7 +37,7 @@ export function computeEstimatedCompletion(createdAt, items) {
 }
 
 export function isOrderDelayed(order) {
-  const terminal = ["completed", "ready_to_pack", "delivered"];
+  const terminal = ["completed", "ready_to_pack", "ready_for_pickup", "delivered"];
   if (terminal.includes(order.productionStatus)) return false;
   const ref = order.estimatedProductionCompletion || order.requiredCompletionDate;
   return new Date() > new Date(ref);

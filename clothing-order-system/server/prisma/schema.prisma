@@ -116,6 +116,8 @@ model Order {
   partLabelMode                 String    @default("none")
   barcodeValue                  String    @unique
   barcodeGeneratedAt            DateTime
+  /// Set when the order barcode is scanned to pack (all garments complete).
+  packedAt                      DateTime?
   createdBy                     String?
   lastUpdatedBy                 String?
   createdAt                     DateTime  @default(now())

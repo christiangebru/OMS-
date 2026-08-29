@@ -22,7 +22,7 @@ function assignmentState(assignment) {
  */
 export async function buildProductionQueue({ includeRecommendations = true } = {}) {
   const orders = await prisma.order.findMany({
-    where: { productionStatus: { notIn: ["delivered"] } },
+    where: { productionStatus: { notIn: ["delivered", "ready_for_pickup"] } },
     include: { customer: true, items: true }
   });
 
@@ -75,8 +75,8 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
   for (const { item, order } of items) {
     const seqInfo = await seqFor(item.clothingType);
     const cps = cpByItem.get(item.id) || [];
-    const currentStage = deriveCurrentStage(cps, seqInfo.stageSequence);
-    const nextStage = nextExpectedStage(cps, seqInfo.stageSequence);
+    const currentStage = deriveCurrentStage(cps, seqInfo.stageSequence, item.offSiteStages || seqInfo.offSiteStages);
+    const nextStage = nextExpectedStage(cps, seqInfo.stageSequence, item.offSiteStages || seqInfo.offSiteStages);
     const open = cps.find((c) => c.checkedInAt && !c.checkedOutAt);
     const assignment = asgByItemStage.get(`${item.id}:${nextStage}`) || null;
     const days = daysUntil(order.requiredCompletionDate);
@@ -84,7 +84,8 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
     const inProgress = Boolean(open);
 
     let boardStatus = "waiting";
-    if (inProgress) boardStatus = "in_progress";
+    if (inProgress && open?.stage === "OFF_SITE") boardStatus = "off_site";
+    else if (inProgress) boardStatus = "in_progress";
     else if (assignment) boardStatus = assignmentState(assignment);
 
     const siblings = [...(order.items || [])]
@@ -139,6 +140,8 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
         : null,
       currentStage,
       nextStage,
+      location: open?.stage === "OFF_SITE" ? "off_site" : "in_shop",
+      offSite: open?.stage === "OFF_SITE",
       stageSequence: seqInfo.stageSequence,
       inProgress,
       openStage: open?.stage || null,
@@ -241,10 +244,10 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
   }).length;
   const overdueOrders = uniqueOrders.filter((o) => {
     const d = new Date(o.requiredCompletionDate);
-    return d < startOfDay && !["completed", "ready_to_pack", "delivered"].includes(o.productionStatus);
+    return d < startOfDay && !["completed", "ready_to_pack", "ready_for_pickup", "delivered"].includes(o.productionStatus);
   }).length;
   const ready = uniqueOrders.filter((o) =>
-    ["completed", "ready_to_pack"].includes(o.productionStatus)
+    ["completed", "ready_to_pack", "ready_for_pickup"].includes(o.productionStatus)
   ).length;
   const inProduction = uniqueOrders.filter((o) =>
     ["cutting", "stitching", "finishing", "pending"].includes(o.productionStatus)

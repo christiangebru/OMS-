@@ -29,7 +29,7 @@ async function groupProgress(groupId) {
   });
   const total = orders.length;
   const ready = orders.filter((o) =>
-    ["completed", "ready_to_pack", "delivered"].includes(o.productionStatus)
+    ["completed", "ready_to_pack", "ready_for_pickup", "delivered"].includes(o.productionStatus)
   ).length;
   const inProduction = orders.filter((o) =>
     ["cutting", "stitching", "finishing", "pending"].includes(o.productionStatus)

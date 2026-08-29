@@ -78,8 +78,8 @@ router.get("/stage-distribution", async (_req, res) => {
 
   for (const item of items) {
     const cps = byItem.get(item.id) || [];
-    const { stageSequence } = await resolveStageSequence(item.clothingType);
-    const stage = deriveCurrentStage(cps, stageSequence);
+    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType);
+    const stage = deriveCurrentStage(cps, stageSequence, item.offSiteStages?.length ? item.offSiteStages : offSiteStages);
     if (!stage) counts.UNSTARTED += 1;
     else counts[stage] = (counts[stage] || 0) + 1;
   }

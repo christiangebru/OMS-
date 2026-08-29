@@ -79,7 +79,12 @@ export function OrdersPage() {
       if (lane === "active") return o.productionStatus !== "delivered";
       if (lane === "waiting") return o.productionStatus === "pending";
       if (lane === "in_production") return ["cutting", "stitching", "finishing"].includes(o.productionStatus);
-      if (lane === "ready") return o.productionStatus === "completed" || o.productionStatus === "ready_to_pack";
+      if (lane === "ready")
+        return (
+          o.productionStatus === "completed" ||
+          o.productionStatus === "ready_to_pack" ||
+          o.productionStatus === "ready_for_pickup"
+        );
       if (lane === "delivered") return o.productionStatus === "delivered";
       if (lane === "overdue") {
         return (
@@ -214,7 +219,7 @@ export function OrdersPage() {
         {ungrouped.map((o) => {
           const overdue =
             new Date(o.requiredCompletionDate).getTime() < Date.now() &&
-            !["completed", "ready_to_pack", "delivered"].includes(o.productionStatus);
+            !["completed", "ready_to_pack", "ready_for_pickup", "delivered"].includes(o.productionStatus);
           const balance = Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0));
           return (
             <li key={o.orderId} className="flex items-start justify-between gap-3 border border-line bg-surface px-4 py-4">
@@ -235,7 +240,7 @@ export function OrdersPage() {
                   </p>
                 </div>
                 <div className="mt-2 text-xs">
-                  <Badge tone={o.productionStatus === "completed" || o.productionStatus === "ready_to_pack" || o.productionStatus === "delivered" ? "ok" : "progress"}>
+                  <Badge tone={o.productionStatus === "completed" || o.productionStatus === "ready_to_pack" || o.productionStatus === "ready_for_pickup" || o.productionStatus === "delivered" ? "ok" : "progress"}>
                     {o.productionStatus}
                   </Badge>
                   <p className={clsx("mt-2", overdue && "font-semibold text-red-700")}>{formatDate(o.requiredCompletionDate)}</p>

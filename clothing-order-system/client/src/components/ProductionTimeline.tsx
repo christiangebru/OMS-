@@ -15,7 +15,8 @@ const STATUS_COPY: Record<StageState["status"], string> = {
   next: "Up next",
   waiting: "Waiting",
   skipped: "Skipped",
-  blocked: "Blocked"
+  blocked: "Blocked",
+  off_site: "Off-site"
 };
 
 export function ProductionTimeline({ orderItemId, stages: stagesProp }: Props) {
@@ -76,11 +77,12 @@ export function ProductionTimeline({ orderItemId, stages: stagesProp }: Props) {
       {stages.map((st, i) => {
         const worker = st.assignedTo || st.checkedOutBy?.name || st.checkedInBy?.name;
         return (
-          <li key={st.stage} className="flex gap-3">
+          <li key={`${st.stage}-${i}`} className="flex gap-3">
             <div className="flex w-4 flex-col items-center">
               <span
                 className={clsx(
                   "mt-1 h-2.5 w-2.5 rounded-full",
+                  st.status === "off_site" && "bg-amber-500 ring-4 ring-amber-500/20",
                   st.status === "in_progress" && "bg-accent ring-4 ring-accent/20",
                   st.status === "completed" && "bg-accent",
                   st.status === "next" && "bg-accent/40",

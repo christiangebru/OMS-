@@ -50,7 +50,9 @@ export function ScanPage() {
     (async () => {
       try {
         const data = await apiJson<Staff[]>(
-          `/api/staff?stage=${encodeURIComponent(actionStage)}&includeInactive=false`
+          actionStage === "OFF_SITE"
+            ? `/api/staff?includeInactive=false`
+            : `/api/staff?stage=${encodeURIComponent(actionStage)}&includeInactive=false`
         );
         if (!cancelled) {
           setStaffList(data);
@@ -158,12 +160,27 @@ export function ScanPage() {
   }
 
   const codes = new Set((details?.production?.allowedActions || []).map((a) => a.code));
+  const isOrderScan = details?.scanKind === "order" || !details?.item;
+  const offSite =
+    details?.production?.offSite ||
+    details?.production?.locationKind === "off_site" ||
+    actionStage === "OFF_SITE";
   const actionLabel =
-    action === "check_out"
-      ? `Scan out / complete ${stageLabel(actionStage)}`
-      : actionStage === "READY"
-        ? "Mark ready"
-        : `Scan in to ${stageLabel(actionStage)}`;
+    action === "pack" || (isOrderScan && actionStage === "PACKAGING")
+      ? "Pack order"
+      : action === "deliver" || (isOrderScan && actionStage === "DELIVERED")
+        ? "Mark pickup / delivery"
+        : action === "blocked"
+          ? "Cannot pack yet"
+          : action === "check_out" && offSite
+            ? "Scan in from off-site"
+            : action === "check_in" && actionStage === "OFF_SITE"
+              ? "Scan out to off-site"
+              : action === "check_out"
+                ? `Scan out / complete ${stageLabel(actionStage)}`
+                : actionStage === "READY"
+                  ? "Mark ready"
+                  : `Scan in to ${stageLabel(actionStage)}`;
 
   return (
     <div className="-mx-4 min-h-[calc(100vh-4rem)] bg-canvas px-4 py-4 sm:-mx-6 sm:px-6 lg:py-5">
@@ -199,7 +216,7 @@ export function ScanPage() {
                   }
                 }}
                 className="ui-input mt-0 font-mono text-base"
-                placeholder="ORD-293-1"
+                placeholder="ORD-1001 or ORD-1001-1"
                 autoComplete="off"
                 autoFocus
               />
@@ -218,16 +235,18 @@ export function ScanPage() {
               <div className="border border-line bg-surface p-4">
                 <p className="ui-label">What</p>
                 <p className="mt-1 font-mono text-xs font-semibold text-ink">
-                  {details.item.labelBarcode ||
-                    labelBarcode(details.order.orderId, 1, details.item.barcodeValue)}
+                  {isOrderScan
+                    ? details.order.barcodeValue || shortOrderId(details.order.orderId)
+                    : details.item?.labelBarcode ||
+                      labelBarcode(details.order.orderId, 1, details.item?.barcodeValue)}
                 </p>
                 <p className="mt-1 text-lg font-semibold text-ink">{details.customer?.name || "—"}</p>
                 <p className="text-sm text-ink-muted">
-                  {details.item.clothingType}
-                  {details.group?.name ? ` · ${details.group.name}` : ""}
-                  {` · ${shortOrderId(details.order.orderId)}`}
+                  {isOrderScan
+                    ? `Order · ${shortOrderId(details.order.orderId)}`
+                    : `${details.item?.clothingType || ""}${details.group?.name ? ` · ${details.group.name}` : ""} · ${shortOrderId(details.order.orderId)}`}
                 </p>
-                {details.item.images?.[0]?.imageUrl ? (
+                {details.item?.images?.[0]?.imageUrl ? (
                   <SmartImage
                     src={details.item.images[0].imageUrl}
                     alt=""
@@ -240,23 +259,48 @@ export function ScanPage() {
                   <Fact k="Status" v={details.production?.boardStatus?.replace(/_/g, " ") || details.order.productionStatus} />
                   <Fact k="Balance" v={formatMoney(details.pricing.balanceRemaining)} />
                 </dl>
-                <div className="mt-4">
-                  <SpecSheet item={details.item} />
-                </div>
+                {details.item ? (
+                  <div className="mt-4">
+                    <SpecSheet item={details.item} />
+                  </div>
+                ) : null}
+                {isOrderScan && (details.production?.incompleteItems?.length || 0) > 0 && (
+                  <ul className="mt-4 space-y-1 text-sm text-red-800">
+                    {details.production?.incompleteItems?.map((g) => (
+                      <li key={g._id}>
+                        {g.clothingType} · {g.barcodeValue} · {stageLabel(g.currentStage || "unstarted")}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {isOrderScan && (
+                  <ul className="mt-3 space-y-1 text-sm text-ink-muted">
+                    {(details.order.siblingItems || []).map((g) => (
+                      <li key={g._id}>
+                        {g.clothingType} · {g.labelBarcode || g.barcodeValue} · {stageLabel(g.currentStage || "")}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               <div className="border border-line bg-surface p-4 text-sm">
                 <p className="ui-label">Where</p>
-                <p className="mt-1 font-semibold capitalize text-ink">
-                  {details.production?.location || stageLabel(details.timing.currentStage || "unstarted")}
+                <p className={clsx("mt-1 font-semibold text-ink", offSite && "text-amber-800")}>
+                  {details.production?.location ||
+                    (offSite ? "Off-site" : stageLabel(details.timing.currentStage || "unstarted"))}
                 </p>
-                <p className="mt-3 ui-label">Who</p>
-                <p className="mt-1 font-medium text-ink">
-                  Current: {details.production?.currentWorker?.name || details.production?.assignment?.staff?.name || "Unassigned"}
-                </p>
-                <p className="mt-1 text-ink-muted">
-                  Next: {details.production?.nextWorker?.name || "—"}
-                </p>
+                {!isOrderScan && (
+                  <>
+                    <p className="mt-3 ui-label">Who</p>
+                    <p className="mt-1 font-medium text-ink">
+                      Current: {details.production?.currentWorker?.name || details.production?.assignment?.staff?.name || "Unassigned"}
+                    </p>
+                    <p className="mt-1 text-ink-muted">
+                      Next: {details.production?.nextWorker?.name || "—"}
+                    </p>
+                  </>
+                )}
                 <p className="mt-3 ui-label">What next</p>
                 <p className="mt-1 capitalize text-ink">
                   {stageLabel(details.production?.nextStage || details.timing.nextExpectedStage)}
@@ -271,7 +315,7 @@ export function ScanPage() {
               {canCheck && (
                 <div className="border border-line bg-surface space-y-3 p-4">
                   <label className="block text-sm">
-                    <span className="ui-label">Workstation worker</span>
+                    <span className="ui-label">{offSite || isOrderScan ? "Staff" : "Workstation worker"}</span>
                     <select
                       required
                       value={staffId}
@@ -318,7 +362,8 @@ export function ScanPage() {
                       codes.has("check_out") ||
                       codes.has("start_first") ||
                       codes.has("mark_ready") ||
-                      codes.has("send_next")) && (
+                      codes.has("send_next")) &&
+                      action !== "blocked" && (
                       <Button type="submit" form="scan-form" disabled={busy || !staffId}>
                         {busy ? "Working…" : actionLabel}
                       </Button>
@@ -328,7 +373,7 @@ export function ScanPage() {
                         Print / reprint label
                       </Link>
                     )}
-                    {details.item._id && (
+                    {details.item?._id && (
                       <Link
                         to={`/garments/${encodeURIComponent(details.item._id)}`}
                         className="text-center text-sm font-semibold text-accent"
@@ -343,8 +388,8 @@ export function ScanPage() {
               <div className="border border-line bg-surface p-4">
                 <p className="text-sm font-semibold text-ink">Production path</p>
                 <ol className="mt-3 space-y-1.5 text-sm">
-                  {(details.production?.assignmentChain || []).map((step) => (
-                    <li key={step.stage} className="flex justify-between gap-2">
+                  {(details.production?.assignmentChain || []).map((step, i) => (
+                    <li key={`${step.stage}-${i}`} className="flex justify-between gap-2">
                       <span className="capitalize text-ink">
                         {step.status === "completed" ? "✓" : step.status === "in_progress" ? "●" : "○"}{" "}
                         {stageLabel(step.stage)}
@@ -355,7 +400,7 @@ export function ScanPage() {
                 </ol>
               </div>
 
-              {canOverride && details.item._id && (
+              {canOverride && details.item?._id && (
                 <AssignmentChain
                   orderItemId={details.item._id}
                   scan={details}
@@ -363,7 +408,7 @@ export function ScanPage() {
                 />
               )}
 
-              {canOverride && details.item._id && (
+              {canOverride && details.item?._id && (
                 <SuggestedAssignments
                   orderItemId={details.item._id}
                   stage={actionStage}
@@ -374,7 +419,7 @@ export function ScanPage() {
                 />
               )}
 
-              {details.item._id && (
+              {details.item?._id && (
                 <div className="border border-line bg-surface p-4">
                   <p className="mb-3 text-sm font-semibold text-ink">What happened</p>
                   <ProductionTimeline orderItemId={details.item._id} stages={details.production?.stageStates} />

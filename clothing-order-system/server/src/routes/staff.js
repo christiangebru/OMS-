@@ -51,7 +51,7 @@ router.get(
 
     let staff = await prisma.staff.findMany({ where, orderBy: { name: "asc" } });
 
-    if (req.query.stage) {
+    if (req.query.stage && req.query.stage !== "OFF_SITE") {
       const skilled = await prisma.staffSkill.findMany({
         where: { stage: req.query.stage },
         select: { staffId: true }
@@ -104,7 +104,7 @@ router.get("/:id/workload", param("id").custom(isRecordId), async (req, res) => 
     const o = orderById.get(a.orderItem.order);
     if (!o) return false;
     return (
-      o.requiredCompletionDate < now && !["completed", "ready_to_pack", "delivered"].includes(o.productionStatus)
+      o.requiredCompletionDate < now && !["completed", "ready_to_pack", "ready_for_pickup", "delivered"].includes(o.productionStatus)
     );
   });
 

@@ -17,6 +17,7 @@ export const STAGE_TO_ORDER_STATUS = {
   PACKAGING: "ready_to_pack",
   READY: "completed",
   SHOWROOM: "completed",
+  OFF_SITE: "stitching",
   DELIVERED: "delivered"
 };
 
@@ -29,6 +30,7 @@ const STAGE_PROGRESS = Object.fromEntries(
     "EMBROIDERY",
     "FINAL_SEWING",
     "FINISHING",
+    "OFF_SITE",
     "SHOWROOM",
     "READY",
     "PACKAGING",
@@ -89,8 +91,9 @@ export function orderStatusFromStage(stage) {
 /**
  * Completion is per garment. The order is incomplete until every top-level
  * garment/accessory is complete; then it becomes ready_to_pack.
+ * After the order barcode is packed, status is ready_for_pickup.
  */
-export function orderStatusFromItemStages(items) {
+export function orderStatusFromItemStages(items, { packedAt = null, packed = false } = {}) {
   const garments = (items || []).filter(isTopLevelItem);
   if (!garments.length) return "pending";
 
@@ -98,7 +101,11 @@ export function orderStatusFromItemStages(items) {
   if (allDelivered) return "delivered";
 
   const allComplete = garments.every((g) => isGarmentCompleteStage(g.stage));
-  if (allComplete) return "ready_to_pack";
+  const isPacked = Boolean(packedAt) || packed === true;
+  if (allComplete) {
+    if (isPacked) return "ready_for_pickup";
+    return "ready_to_pack";
+  }
 
   const incomplete = garments.filter((g) => !isGarmentCompleteStage(g.stage));
   const lagging = laggingStageAcrossItems(incomplete.map((g) => g.stage));
