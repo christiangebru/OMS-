@@ -10,7 +10,14 @@ import {
 } from "react";
 import { apiJson, ApiError } from "@/lib/api";
 import { AUTH_RESTORE_TIMEOUT_MS } from "@/lib/fetchTimeout.js";
-import { planAuthRestore } from "@/lib/authRestore.js";
+import {
+  AUTH_TOKEN_KEY,
+  clearAuthSession,
+  planAuthBoot,
+  planAuthRestore,
+  readCachedAuthUser,
+  writeCachedAuthUser
+} from "@/lib/authRestore.js";
 import type { AuthUser } from "@/lib/types";
 
 interface AuthState {
@@ -25,16 +32,33 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+function readStoredToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function initialAuth() {
+  return planAuthBoot({
+    token: readStoredToken(),
+    cachedUser: readCachedAuthUser()
+  });
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
-  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem("token")));
+  const [user, setUser] = useState<AuthUser | null>(
+    () => initialAuth().user as AuthUser | null
+  );
+  const [token, setToken] = useState<string | null>(() => initialAuth().token);
+  const [loading, setLoading] = useState(() => initialAuth().loading);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const restoreGen = useRef(0);
 
   const logout = useCallback((message?: string) => {
     restoreGen.current += 1;
-    localStorage.removeItem("token");
+    clearAuthSession();
     setToken(null);
     setUser(null);
     setLoading(false);
@@ -43,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshMe = useCallback(async () => {
     const gen = ++restoreGen.current;
-    const t = localStorage.getItem("token");
+    const t = readStoredToken();
     if (!t) {
       const planned = planAuthRestore({ token: null });
       setUser(planned.user);
@@ -57,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       if (gen !== restoreGen.current) return;
       const planned = planAuthRestore({ token: t, result: { ok: true, user: data.user } });
+      writeCachedAuthUser(planned.user);
       setUser(planned.user as AuthUser);
       setSessionError(planned.sessionError);
       setLoading(planned.loading);
@@ -66,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token: t,
         result: { ok: false, error: e instanceof ApiError ? e : { status: 0, message: String(e) } }
       });
-      if (planned.clearToken) localStorage.removeItem("token");
+      if (planned.clearToken) clearAuthSession();
       setToken(planned.token);
       setUser(planned.user as AuthUser | null);
       setSessionError(planned.sessionError);
@@ -84,7 +109,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password })
     });
     restoreGen.current += 1;
-    localStorage.setItem("token", data.token);
+    localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+    writeCachedAuthUser(data.user);
     setToken(data.token);
     setUser(data.user);
     setSessionError(null);

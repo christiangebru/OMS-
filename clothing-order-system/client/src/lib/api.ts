@@ -1,4 +1,5 @@
 import { apiUrl, resolveApiBase } from "./apiBase.js";
+import { AUTH_TOKEN_KEY, clearAuthSession } from "./authRestore.js";
 import {
   DEFAULT_API_TIMEOUT_MS,
   apiNetworkErrorMessage,
@@ -12,7 +13,7 @@ const API_BASE = resolveApiBase(import.meta.env.VITE_API_URL);
 export { DEFAULT_API_TIMEOUT_MS, AUTH_RESTORE_TIMEOUT_MS } from "./fetchTimeout.js";
 
 function authHeader(): HeadersInit {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
   const h: Record<string, string> = {};
   if (token) h.Authorization = `Bearer ${token}`;
   return h;
@@ -76,7 +77,7 @@ export async function apiJson<T>(path: string, init: ApiRequestInit = {}): Promi
       !path.startsWith("/api/auth/login") &&
       !path.startsWith("/api/auth/bootstrap")
     ) {
-      localStorage.removeItem("token");
+      clearAuthSession();
       if (!window.location.pathname.startsWith("/login")) {
         window.location.href = "/login";
       }
@@ -158,5 +159,5 @@ export function apiBaseUrl(): string {
 }
 
 export function authToken(): string | null {
-  return localStorage.getItem("token");
+  return localStorage.getItem(AUTH_TOKEN_KEY);
 }

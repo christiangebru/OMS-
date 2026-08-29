@@ -6,6 +6,9 @@ import App from "./App";
 import "./index.css";
 import { AuthProvider } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
+import { prefetchApiHealth } from "./lib/healthPrefetch.js";
+
+prefetchApiHealth({ apiBase: import.meta.env.VITE_API_URL });
 
 registerSW({
   immediate: true,

@@ -2,7 +2,9 @@ import { FormEvent, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { apiJson, ApiError } from "@/lib/api";
+import { AUTH_TOKEN_KEY, writeCachedAuthUser } from "@/lib/authRestore.js";
 import { Button } from "@/components/ui/Button";
+import type { AuthUser } from "@/lib/types";
 
 export function LoginPage() {
   const { user, login, loading, sessionError } = useAuth();
@@ -36,7 +38,7 @@ export function LoginPage() {
     setBootMsg(null);
     setBusy(true);
     try {
-      const data = await apiJson<{ token: string }>("/api/auth/bootstrap", {
+      const data = await apiJson<{ token: string; user?: AuthUser }>("/api/auth/bootstrap", {
         method: "POST",
         body: JSON.stringify({
           name: bootName,
@@ -44,7 +46,8 @@ export function LoginPage() {
           password: bootPassword
         })
       });
-      localStorage.setItem("token", data.token);
+      localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+      if (data.user) writeCachedAuthUser(data.user);
       window.location.href = "/";
     } catch (err) {
       setBootMsg(err instanceof ApiError ? err.message : "Bootstrap failed");

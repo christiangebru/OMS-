@@ -1,0 +1,36 @@
+# Ping the public Render liveness/readiness URLs so a free instance is less
+# likely to be asleep when someone opens the Vercel client.
+# Fail the job only if BOTH probes fail. Paid always-on is the real fix.
+
+name: Keep API awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    name: Ping Render health endpoints
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: GET /health and /ready
+        run: |
+          set +e
+          API="https://oms-28nk.onrender.com"
+          health_code=$(curl -sS -o /tmp/health.body -w "%{http_code}" --max-time 60 "${API}/health" || echo "000")
+          ready_code=$(curl -sS -o /tmp/ready.body -w "%{http_code}" --max-time 60 "${API}/ready" || echo "000")
+          echo "GET /health -> ${health_code}"
+          echo "GET /ready  -> ${ready_code}"
+          health_ok=0
+          ready_ok=0
+          case "${health_code}" in 2*) health_ok=1 ;; esac
+          case "${ready_code}" in 2*) ready_ok=1 ;; esac
+          if [ "${health_ok}" -eq 0 ] && [ "${ready_ok}" -eq 0 ]; then
+            echo "Both /health and /ready failed"
+            exit 1
+          fi
