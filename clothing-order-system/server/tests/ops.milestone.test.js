@@ -45,7 +45,7 @@ describe("multi-assignment queues, scan flow, groups, barcodes", () => {
       const res = await request(app)
         .post("/api/production/assignments")
         .set(auth(token))
-        .send({ staffId: first.staff.id, orderItemId: row.item.id, stage: "RECEIVED" });
+        .send({ staffId: first.staff.id, orderItemId: row.item.id, stage: "SEWING_CUTTING" });
       expect(res.status).toBe(201);
     }
 
@@ -71,16 +71,16 @@ describe("multi-assignment queues, scan flow, groups, barcodes", () => {
     await request(app)
       .post("/api/production/assignments")
       .set(auth(token))
-      .send({ staffId: staff.id, orderItemId: item.id, stage: "RECEIVED" });
+      .send({ staffId: staff.id, orderItemId: item.id, stage: "SEWING_CUTTING" });
     await request(app)
       .post("/api/production/assignments")
       .set(auth(token))
-      .send({ staffId: staff.id, orderItemId: extra.item.id, stage: "RECEIVED" });
+      .send({ staffId: staff.id, orderItemId: extra.item.id, stage: "SEWING_CUTTING" });
 
     const cin = await request(app)
       .post("/api/production/scan")
       .set(auth(token))
-      .send({ barcodeValue: item.barcodeValue, stage: "RECEIVED", staffId: staff.id });
+      .send({ barcodeValue: item.barcodeValue, stage: "SEWING_CUTTING", staffId: staff.id });
     expect(cin.status).toBe(200);
     expect(cin.body.action).toBe("check_in");
 
@@ -94,7 +94,7 @@ describe("multi-assignment queues, scan flow, groups, barcodes", () => {
     const { item, staff } = await seedOrderWithItem({ clothingType: "thobe" });
     const sewer = await createStaff({
       name: "Abebe",
-      stages: ["SEWING", "CUTTING", "RECEIVED"]
+      stages: ["SEWING_CUTTING", "FINAL_SEWING"]
     });
 
     await request(app)
@@ -103,22 +103,21 @@ describe("multi-assignment queues, scan flow, groups, barcodes", () => {
       .send({
         orderItemId: item.id,
         path: [
-          { stage: "RECEIVED", staffId: staff.id },
-          { stage: "CUTTING", staffId: staff.id },
-          { stage: "SEWING", staffId: sewer.id }
+          { stage: "SEWING_CUTTING", staffId: staff.id },
+          { stage: "FINAL_SEWING", staffId: sewer.id }
         ]
       });
 
     const cin = await request(app)
       .post("/api/production/scan")
       .set(auth(token))
-      .send({ barcodeValue: item.barcodeValue, stage: "RECEIVED", staffId: staff.id });
+      .send({ barcodeValue: item.barcodeValue, stage: "SEWING_CUTTING", staffId: staff.id });
     expect(cin.status).toBe(200);
 
     const cout = await request(app)
       .post("/api/production/scan")
       .set(auth(token))
-      .send({ barcodeValue: item.barcodeValue, stage: "RECEIVED", staffId: staff.id });
+      .send({ barcodeValue: item.barcodeValue, stage: "SEWING_CUTTING", staffId: staff.id });
     expect(cout.status).toBe(200);
     expect(cout.body.action).toBe("check_out");
 
@@ -127,11 +126,11 @@ describe("multi-assignment queues, scan flow, groups, barcodes", () => {
       .query({ barcodeValue: item.barcodeValue })
       .set(auth(token));
     expect(lookup.status).toBe(200);
-    expect(lookup.body.scanDetails.timing.nextExpectedStage).toBe("CUTTING");
+    expect(lookup.body.scanDetails.timing.nextExpectedStage).toBe("FINAL_SEWING");
     expect(lookup.body.scanDetails.production.assignmentChain).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          stage: "SEWING",
+          stage: "FINAL_SEWING",
           staff: expect.objectContaining({ name: "Abebe" })
         })
       ])

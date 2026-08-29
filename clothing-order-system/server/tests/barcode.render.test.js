@@ -1,9 +1,11 @@
 import { describe, it, expect } from "@jest/globals";
-import { renderBarcodePng, renderBarcodeSvg, operationalItemBarcode } from "../src/utils/barcode.js";
+import { renderBarcodePng, renderBarcodeSvg, operationalItemBarcode, operationalPartBarcode } from "../src/utils/barcode.js";
 
 describe("barcode rendering", () => {
   it("prints short operational codes, not database ids", () => {
     expect(operationalItemBarcode("ORD-293", 1)).toBe("ORD-293-1");
+    expect(operationalPartBarcode("ORD-293", 1, "WR")).toBe("ORD-293-1-WR");
+    expect(operationalPartBarcode("ORD-293", 1, "BD")).toBe("ORD-293-1-BD");
   });
 
   it("renders a high-resolution PNG without baked-in giant text", async () => {

@@ -15,7 +15,7 @@ export async function refreshStatisticSnapshot() {
   for (const o of orders) {
     byStatus[o.productionStatus] = (byStatus[o.productionStatus] || 0) + 1;
     totalRevenue += o.totalRevenue || 0;
-    if (["completed", "delivered"].includes(o.productionStatus)) completed += 1;
+    if (["completed", "ready_to_pack", "delivered"].includes(o.productionStatus)) completed += 1;
     if (isOrderDelayed(o)) delayed += 1;
   }
 

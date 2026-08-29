@@ -29,7 +29,7 @@ export function ScanPage() {
   const action = details?.production?.action;
   const actionStage = (details?.production?.actionStage ||
     details?.timing.nextExpectedStage ||
-    "RECEIVED") as ProductionStage;
+    "SEWING_CUTTING") as ProductionStage;
   const manager = isManagerRole(user?.role);
   const floor = isFloorRole(user?.role);
   const canCheck = manager || floor;

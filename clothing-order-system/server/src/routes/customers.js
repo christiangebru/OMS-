@@ -54,7 +54,7 @@ router.get("/", query("q").optional().isString(), async (req, res) => {
   for (const o of openOrders) {
     const cur = extra.get(o.customerId) || { outstanding: 0, active: 0 };
     cur.outstanding += Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0));
-    if (!["completed", "delivered"].includes(o.productionStatus)) cur.active += o._count.items;
+    if (!["completed", "ready_to_pack", "delivered"].includes(o.productionStatus)) cur.active += o._count.items;
     extra.set(o.customerId, cur);
   }
 

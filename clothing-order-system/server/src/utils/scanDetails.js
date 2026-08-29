@@ -8,7 +8,7 @@ import {
 } from "./stageSequence.js";
 import { buildStageStates, inferScanAction, inferNextAction, boardStatusFrom } from "./stageTimeline.js";
 import { WORKSTATION_STAGES } from "../constants/production.js";
-import { operationalItemBarcode } from "./barcode.js";
+import { operationalItemBarcode, operationalPartBarcode } from "./barcode.js";
 import { storedImagePath } from "./publicImage.js";
 
 function daysUntil(date) {
@@ -61,11 +61,8 @@ export function managerCommandFor({
   if (open) {
     return `Scan out of ${titleStage(currentStage)} when work is complete.`;
   }
-  if (assignment && assignment.staff && !assignment.distributedAt) {
-    return `Give to assigned worker: ${titleStage(assignment.stage)} — ${assignment.staff.name}`;
-  }
-  if (assignment && assignment.staff) {
-    return `Scan in to ${titleStage(assignment.stage)} — ${assignment.staff.name}`;
+  if (assignment && assignment.staff && !open) {
+    return `Scan in to ${titleStage(assignment.stage)} — ${assignment.staff.name} (physical hand-off)`;
   }
   if (nextWorker) {
     return `Send to ${titleStage(nextStage)} — ${nextWorker.name}`;
@@ -107,7 +104,7 @@ export function allowedActionsFor({
 
   if (!hasAny) {
     actions.push({ code: "assign", label: "Assign / view assignment" });
-    actions.push({ code: "start_first", label: "Start first stage" });
+    actions.push({ code: "start_first", label: "Scan in (physical hand-off)" });
     return actions;
   }
 
@@ -117,16 +114,8 @@ export function allowedActionsFor({
     return actions;
   }
 
-  if (assignment && !assignment.distributedAt) {
-    actions.push({ code: "handover", label: "Hand to workstation" });
-  }
-  if (assignment?.distributedAt && !assignment.receivedAt) {
-    actions.push({ code: "receive", label: "Confirm received" });
-  }
-
-  if (nextStage === "READY") {
-    actions.push({ code: "mark_ready", label: "Mark ready" });
-    return actions;
+  if (nextStage === "READY" || nextStage === "SHOWROOM") {
+    actions.push({ code: "mark_ready", label: "Move to showroom" });
   }
   if (nextStage === "DELIVERED") {
     actions.push({ code: "mark_delivered", label: "Mark delivered" });
@@ -193,18 +182,27 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     cpByItem.get(k).push(cp);
   }
 
+  const siblingSource = siblings.filter((sib) => sib.itemKind !== "part" && !sib.parentItemId);
+  if (item.itemKind === "part" && !siblingSource.some((s) => s.id === item.id)) {
+    siblingSource.push(item);
+  }
   const siblingDetails = await Promise.all(
-    siblings.map(async (sib, idx) => {
+    siblingSource.map(async (sib) => {
       const cps = cpByItem.get(sib.id) || [];
       const { stageSequence } = await resolveStageSequence(sib.clothingType);
+      const idx = sib.itemIndex || 1;
       return {
         _id: sib.id,
         clothingType: sib.clothingType,
         clothingCode: sib.clothingCode,
+        itemKind: sib.itemKind || "garment",
         barcodeValue: sib.barcodeValue,
-        labelBarcode: operationalItemBarcode(order.orderId, idx + 1, sib.barcodeValue),
+        labelBarcode:
+          sib.itemKind === "part"
+            ? operationalPartBarcode(order.orderId, idx, sib.partCode, sib.barcodeValue)
+            : operationalItemBarcode(order.orderId, idx, sib.barcodeValue),
         currentStage: deriveCurrentStage(cps, stageSequence),
-        isCurrent: sib.id === item.id
+        isCurrent: sib.id === item.id || (item.parentItemId && sib.id === item.parentItemId)
       };
     })
   );
@@ -327,11 +325,15 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       difficultyLevel: item.difficultyLevel,
       unitPrice: item.unitPrice || 0,
       barcodeValue: item.barcodeValue,
-      labelBarcode: operationalItemBarcode(
-        order.orderId,
-        siblings.findIndex((s) => s.id === item.id) + 1 || 1,
-        item.barcodeValue
-      ),
+      itemKind: item.itemKind || "garment",
+      partCode: item.partCode || "",
+      parentItemId: item.parentItemId || null,
+      assembledAt: item.assembledAt || null,
+      offSiteStages: item.offSiteStages || [],
+      labelBarcode:
+        item.itemKind === "part"
+          ? operationalPartBarcode(order.orderId, item.itemIndex || 1, item.partCode, item.barcodeValue)
+          : operationalItemBarcode(order.orderId, item.itemIndex || 1, item.barcodeValue),
       images: images.map((img) => s({ ...img, imageUrl: storedImagePath(img.imageUrl) }))
     },
     group: {
@@ -415,10 +417,35 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   };
 }
 
+async function findGarmentByOperationalIndex(orderId, itemIndex, orderPk = null) {
+  const order = orderPk
+    ? { id: orderPk, orderId }
+    : await prisma.order.findFirst({
+        where: { orderId: { equals: orderId, mode: "insensitive" } }
+      });
+  if (!order) return null;
+  const idx = Math.max(1, Number(itemIndex) || 1);
+  const byIndex = await prisma.orderItem.findFirst({
+    where: {
+      order: order.id,
+      itemIndex: idx,
+      itemKind: { not: "part" },
+      parentItemId: null
+    }
+  });
+  if (byIndex) return byIndex;
+  const top = await prisma.orderItem.findMany({
+    where: { order: order.id, itemKind: { not: "part" }, parentItemId: null },
+    orderBy: { createdAt: "asc" }
+  });
+  return top[idx - 1] || (top.length === 1 ? top[0] : null);
+}
+
 /**
  * Resolve barcode to OrderItem. Accepts:
  * - stored barcodeValue (including legacy ITM-* / CUID-era codes)
  * - simple operational codes ORD-293-1
+ * - part codes ORD-293-1-XX (parent after assembly)
  * - order barcodes / orderIds
  */
 export async function resolveItemByBarcode(barcodeValue) {
@@ -430,22 +457,43 @@ export async function resolveItemByBarcode(barcodeValue) {
   const item = await prisma.orderItem.findFirst({
     where: { barcodeValue: { equals: value, mode: "insensitive" } }
   });
-  if (item) return item;
+  if (item) {
+    if (item.itemKind === "part" && item.assembledAt && item.parentItemId) {
+      const parent = await prisma.orderItem.findUnique({ where: { id: item.parentItemId } });
+      if (parent) return parent;
+    }
+    return item;
+  }
 
   const simple = value.match(/^ORD-(\d+)-(\d+)$/i);
-  if (simple) {
+  const partMatch = value.match(/^ORD-(\d+)-(\d+)-([A-Z]{2})$/i);
+  if (partMatch) {
     const order = await prisma.order.findFirst({
-      where: { orderId: { equals: `ORD-${simple[1]}`, mode: "insensitive" } }
+      where: { orderId: { equals: `ORD-${partMatch[1]}`, mode: "insensitive" } }
     });
     if (order) {
-      const items = await prisma.orderItem.findMany({
-        where: { order: order.id },
-        orderBy: { createdAt: "asc" }
+      const idx = Math.max(1, Number(partMatch[2]));
+      const code = partMatch[3].toUpperCase();
+      const part = await prisma.orderItem.findFirst({
+        where: {
+          order: order.id,
+          partCode: { equals: code, mode: "insensitive" },
+          itemIndex: idx,
+          itemKind: "part"
+        }
       });
-      const idx = Math.max(1, Number(simple[2])) - 1;
-      if (items[idx]) return items[idx];
-      if (items.length === 1) return items[0];
+      if (part) {
+        if (part.assembledAt && part.parentItemId) {
+          const parent = await prisma.orderItem.findUnique({ where: { id: part.parentItemId } });
+          if (parent) return parent;
+        }
+        return part;
+      }
     }
+  }
+  if (simple) {
+    const found = await findGarmentByOperationalIndex(`ORD-${simple[1]}`, Number(simple[2]));
+    if (found) return found;
   }
 
   const tailForm = value.match(/^ORD-([A-Z0-9]+)-(\d+)$/i);
@@ -460,13 +508,8 @@ export async function resolveItemByBarcode(barcodeValue) {
       return compact.endsWith(tail) || compact === tail;
     });
     if (matchOrder) {
-      const items = await prisma.orderItem.findMany({
-        where: { order: matchOrder.id },
-        orderBy: { createdAt: "asc" }
-      });
-      const idx = Math.max(1, Number(tailForm[2])) - 1;
-      if (items[idx]) return items[idx];
-      if (items.length === 1) return items[0];
+      const found = await findGarmentByOperationalIndex(matchOrder.orderId, Number(tailForm[2]), matchOrder.id);
+      if (found) return found;
     }
   }
 
@@ -483,8 +526,8 @@ export async function resolveItemByBarcode(barcodeValue) {
   }
 
   const items = await prisma.orderItem.findMany({
-    where: { order: order.id },
-    orderBy: { createdAt: "asc" }
+    where: { order: order.id, itemKind: { not: "part" }, parentItemId: null },
+    orderBy: [{ itemIndex: "asc" }, { createdAt: "asc" }]
   });
   if (!items.length) {
     throw Object.assign(new Error("Barcode not found"), { status: 404 });

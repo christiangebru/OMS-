@@ -6,14 +6,14 @@ export function shortOrderId(id?: string | null) {
 }
 
 /** Printed / spoken garment barcode. Never a UUID, CUID, or ITM-* blob. */
-export function labelBarcode(orderId?: string | null, index = 1, stored?: string | null) {
+export function labelBarcode(orderId?: string | null, index = 1, stored?: string | null, partCode?: string | null) {
   const n = Math.max(1, Number(index) || 1);
-  if (stored && /^ORD-\d+-\d+$/i.test(stored)) return stored.toUpperCase();
+  if (stored && /^ORD-\d+-\d+-[A-Z]{2}$/i.test(stored)) return stored.toUpperCase();
+  if (stored && /^ORD-\d+-\d+$/i.test(stored) && !partCode) return stored.toUpperCase();
   const seq = String(orderId || "").match(/^ORD-(\d+)$/i);
-  if (seq) return `ORD-${seq[1]}-${n}`;
-  const digits = String(orderId || "").replace(/\D/g, "").slice(-4);
-  if (digits) return `ORD-${Number(digits)}-${n}`;
-  return `${shortOrderId(orderId)}-${n}`;
+  const base = seq ? `ORD-${seq[1]}-${n}` : `${shortOrderId(orderId)}-${n}`;
+  const code = partCode ? String(partCode).toUpperCase() : "";
+  return code ? `${base}-${code}` : base;
 }
 
 export function formatDuration(ms?: number | null) {
@@ -54,13 +54,13 @@ export function daysLabel(daysRemaining?: number | null, overdue?: boolean) {
 export function boardStatusLabel(status?: string | null) {
   switch (status) {
     case "waiting":
-      return "Waiting";
+    case "unassigned":
+      return "Unassigned";
     case "assigned":
-      return "Assigned";
+    case "received":
+      return "Received";
     case "distributed":
     case "handed_over":
-      return "Handed over";
-    case "received":
       return "Received";
     case "in_progress":
       return "Checked in";
@@ -72,6 +72,20 @@ export function boardStatusLabel(status?: string | null) {
 }
 
 export function stageLabel(stage: string) {
+  const map: Record<string, string> = {
+    RECEIVED: "Received",
+    SEWING_CUTTING: "Sewing & cutting",
+    CUTTING: "Sewing & cutting",
+    SEWING: "Sewing & cutting",
+    EMBROIDERY: "Embroidery",
+    FINAL_SEWING: "Final sewing",
+    FINISHING: "Finishing",
+    SHOWROOM: "Showroom",
+    READY: "Showroom",
+    PACKAGING: "Ready to pack",
+    DELIVERED: "Pickup / delivery"
+  };
+  if (map[stage]) return map[stage];
   return String(stage || "")
     .toLowerCase()
     .replace(/_/g, " ");

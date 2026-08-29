@@ -15,6 +15,8 @@ import { buildProductionQueue } from "../utils/productionBoard.js";
 import { renderBarcodePng, renderBarcodeSvg } from "../utils/barcode.js";
 import { isRecordId } from "../utils/recordId.js";
 import { WORKSTATION_STAGES } from "../constants/production.js";
+import { parentReadyForAssembly, skillStagesFor, assemblyStage } from "../utils/productionModel.js";
+import { resolveRequestedStage } from "../utils/stageSequence.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -32,7 +34,9 @@ async function assertStaffForStage(staffId, stage, { requireOnDuty = true } = {}
       { status: 400 }
     );
   }
-  const skill = await client.staffSkill.findFirst({ where: { staffId: staff.id, stage } });
+  const skill = await client.staffSkill.findFirst({
+    where: { staffId: staff.id, stage: { in: skillStagesFor(stage) } }
+  });
   if (!skill) {
     throw Object.assign(
       new Error(`Worker is not assigned to this stage: ${staff.name} is not skilled for ${stage}`),
@@ -93,7 +97,6 @@ router.post(
 
     try {
       const item = await resolveItemByBarcode(req.body.barcodeValue);
-      const stage = req.body.stage;
       const notes = req.body.notes || "";
       const adminOverride = Boolean(req.body.adminOverride);
       const userRole = req.user?.role;
@@ -104,6 +107,7 @@ router.post(
       }
 
       const { stageSequence } = await resolveStageSequence(item.clothingType);
+      const stage = resolveRequestedStage(req.body.stage, stageSequence);
 
       const openAtStage = await prisma.stageCheckpoint.findFirst({
         where: { orderItemId: item.id, stage, checkedOutAt: null }
@@ -130,6 +134,14 @@ router.post(
             where: { orderItemId: item.id, stage, completedAt: null },
             data: { completedAt: new Date() }
           });
+          if (stage === "FINAL_SEWING" || (stage === "FINISHING" && !stageSequence.includes("FINAL_SEWING"))) {
+            const now = new Date();
+            await tx.orderItem.update({ where: { id: item.id }, data: { assembledAt: now } });
+            await tx.orderItem.updateMany({
+              where: { parentItemId: item.id },
+              data: { assembledAt: now }
+            });
+          }
           await syncOrderStatusFromItems(item.order, req.user.id, tx);
           const orderRow = await tx.order.findUnique({ where: { id: item.order } });
           await tx.productionLog.create({
@@ -166,6 +178,27 @@ router.post(
           return res.status(400).json({ message: validation.message });
         }
 
+        const assembleAt = assemblyStage(stageSequence);
+        if (assembleAt && stage === assembleAt && !item.parentItemId && !adminOverride) {
+          const parts = await prisma.orderItem.findMany({ where: { parentItemId: item.id } });
+          if (parts.length) {
+            const partIds = parts.map((p) => p.id);
+            const partCps = await prisma.stageCheckpoint.findMany({
+              where: { orderItemId: { in: partIds } }
+            });
+            const byPart = new Map();
+            for (const cp of partCps) {
+              if (!byPart.has(cp.orderItemId)) byPart.set(cp.orderItemId, []);
+              byPart.get(cp.orderItemId).push(cp);
+            }
+            if (!parentReadyForAssembly(parts, byPart, stageSequence)) {
+              return res.status(400).json({
+                message: "Parts are not ready for assembly. Complete parallel part work first, or scan the parent after READY FOR ASSEMBLY."
+              });
+            }
+          }
+        }
+
         const staff = await assertStaffForStage(staffId, stage, { requireOnDuty: true });
 
         const otherOpen = await prisma.stageCheckpoint.findFirst({
@@ -197,6 +230,14 @@ router.post(
             orderItemId: item.id,
             stage,
             userId: req.user.id
+          });
+          await tx.staffAssignment.updateMany({
+            where: { orderItemId: item.id, stage, staffId, completedAt: null },
+            data: {
+              distributedAt: new Date(),
+              receivedAt: new Date(),
+              distributedByUserId: req.user.id
+            }
           });
           await syncOrderStatusFromItems(item.order, req.user.id, tx);
           const orderRow = await tx.order.findUnique({ where: { id: item.order } });

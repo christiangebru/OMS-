@@ -16,12 +16,22 @@ export async function seedClothingTypes() {
         key: c.key,
         label: c.label,
         stageSequence: c.stageSequence,
-        includesEmbroidery: c.includesEmbroidery
+        includesEmbroidery: c.includesEmbroidery,
+        itemKind: c.itemKind || "garment",
+        partCodes: c.partCodes || [],
+        offSiteStages: c.offSiteStages || [],
+        compactLabel: Boolean(c.compactLabel),
+        measurementProfile: c.measurementProfile || ""
       },
       update: {
         label: c.label,
         stageSequence: c.stageSequence,
-        includesEmbroidery: c.includesEmbroidery
+        includesEmbroidery: c.includesEmbroidery,
+        itemKind: c.itemKind || "garment",
+        partCodes: c.partCodes || [],
+        offSiteStages: c.offSiteStages || [],
+        compactLabel: Boolean(c.compactLabel),
+        measurementProfile: c.measurementProfile || ""
       }
     });
   }

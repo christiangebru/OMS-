@@ -80,7 +80,7 @@ describe("role capabilities", () => {
     const floor = await request(app).get("/api/production/floor").set(auth(tailorToken));
     expect(floor.status).toBe(200);
     expect(Array.isArray(floor.body.items)).toBe(true);
-    expect(floor.body.stages).toEqual(["SEWING"]);
+    expect(floor.body.stages).toEqual(["SEWING", "SEWING_CUTTING", "FINAL_SEWING"]);
 
     const queue = await request(app).get("/api/production/queue").set(auth(tailorToken));
     expect(queue.status).toBe(403);

@@ -16,7 +16,7 @@ export function ClothingTypePicker({
 
   return (
     <div>
-      <p className="ui-label">Garment</p>
+      <p className="ui-label">Item</p>
       <div className="mt-2 flex flex-wrap gap-2">
         {types.map((t) => (
           <button
@@ -31,6 +31,9 @@ export function ClothingTypePicker({
             )}
           >
             {t.label}
+            {t.itemKind === "accessory" ? (
+              <span className="ml-1 text-[10px] font-normal uppercase tracking-wide opacity-70">acc</span>
+            ) : null}
           </button>
         ))}
       </div>

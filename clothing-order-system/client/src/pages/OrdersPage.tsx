@@ -79,7 +79,7 @@ export function OrdersPage() {
       if (lane === "active") return o.productionStatus !== "delivered";
       if (lane === "waiting") return o.productionStatus === "pending";
       if (lane === "in_production") return ["cutting", "stitching", "finishing"].includes(o.productionStatus);
-      if (lane === "ready") return o.productionStatus === "completed";
+      if (lane === "ready") return o.productionStatus === "completed" || o.productionStatus === "ready_to_pack";
       if (lane === "delivered") return o.productionStatus === "delivered";
       if (lane === "overdue") {
         return (
@@ -197,7 +197,7 @@ export function OrdersPage() {
                           <span>
                             <span className="font-mono text-xs font-semibold">{shortOrderId(o.orderId)}</span>
                             <span className="ml-2">{o.customerName || o.customer?.name}</span>
-                            <span className="ml-2 text-ink-muted">{o.items.map((it) => it.clothingType).join(" · ")}</span>
+                            <span className="ml-2 text-ink-muted">{o.items.filter((it) => it.itemKind !== "part").map((it) => it.clothingType).join(" · ")}</span>
                           </span>
                           <span className="text-xs capitalize text-ink-muted">
                             {o.items[0]?.currentStage || o.productionStatus} · {formatDate(o.requiredCompletionDate)}
@@ -214,7 +214,7 @@ export function OrdersPage() {
         {ungrouped.map((o) => {
           const overdue =
             new Date(o.requiredCompletionDate).getTime() < Date.now() &&
-            !["completed", "delivered"].includes(o.productionStatus);
+            !["completed", "ready_to_pack", "delivered"].includes(o.productionStatus);
           const balance = Math.max(0, (o.totalAgreedPrice || 0) - (o.depositPaid || 0));
           return (
             <li key={o.orderId} className="flex items-start justify-between gap-3 border border-line bg-surface px-4 py-4">
@@ -222,14 +222,20 @@ export function OrdersPage() {
                 <div>
                   <p className="font-mono text-xs font-semibold text-ink">{shortOrderId(o.orderId)}</p>
                   <p className="mt-1 font-medium text-ink">{o.customerName || o.customer?.name || "—"}</p>
-                  <p className="mt-1 text-xs text-ink-muted">{o.items.map((it) => it.clothingType).join(" · ")}</p>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {(o.items || []).filter((it) => it.itemKind !== "part").length} garments
+                    {o.completion
+                      ? ` · ${o.completion.completed}/${o.completion.total} complete`
+                      : ""}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-muted">{o.items.filter((it) => it.itemKind !== "part").map((it) => it.clothingType).join(" · ")}</p>
                   <p className="mt-1 text-xs text-ink-muted">
                     Ordered {formatDate(o.createdAt)}
                     {o.priority && o.priority !== "NORMAL" ? ` · ${o.priority}` : ""}
                   </p>
                 </div>
                 <div className="mt-2 text-xs">
-                  <Badge tone={o.productionStatus === "completed" || o.productionStatus === "delivered" ? "ok" : "progress"}>
+                  <Badge tone={o.productionStatus === "completed" || o.productionStatus === "ready_to_pack" || o.productionStatus === "delivered" ? "ok" : "progress"}>
                     {o.productionStatus}
                   </Badge>
                   <p className={clsx("mt-2", overdue && "font-semibold text-red-700")}>{formatDate(o.requiredCompletionDate)}</p>

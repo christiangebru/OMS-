@@ -9,6 +9,7 @@ import type {
   NeckType,
   Order,
   OrderItem,
+  OrderItemImage,
   OrderPriority,
   ProductionStatus,
   SizeCategory
@@ -31,6 +32,7 @@ const STATUSES: ProductionStatus[] = [
   "stitching",
   "finishing",
   "completed",
+  "ready_to_pack",
   "delivered"
 ];
 const PRIORITIES: OrderPriority[] = ["NORMAL", "RUSH", "VIP"];
@@ -103,6 +105,7 @@ export function OrderEditPage() {
   const [priority, setPriority] = useState<OrderPriority>("NORMAL");
   const [totalAgreedPrice, setTotalAgreedPrice] = useState(0);
   const [depositPaid, setDepositPaid] = useState(0);
+  const [notes, setNotes] = useState("");
   const [barcodeValue, setBarcodeValue] = useState("");
   const [items, setItems] = useState<OrderItem[]>([emptyItem()]);
   const [msg, setMsg] = useState<string | null>(null);
@@ -140,10 +143,13 @@ export function OrderEditPage() {
         setPriority(o.priority || "NORMAL");
         setTotalAgreedPrice(o.totalAgreedPrice ?? o.totalRevenue ?? 0);
         setDepositPaid(o.depositPaid ?? 0);
+        setNotes(o.notes || "");
         setBarcodeValue(o.barcodeValue || "");
         setItems(
           o.items.length
-            ? o.items.map((it) => ({
+            ? o.items
+                .filter((it) => it.itemKind !== "part")
+                .map((it) => ({
                 ...it,
                 notes: it.notes || "",
                 images: it.images?.length
@@ -237,7 +243,10 @@ export function OrderEditPage() {
       priority,
       totalAgreedPrice: Number(totalAgreedPrice),
       depositPaid: Number(depositPaid),
+      notes,
       items: items.map((it) => ({
+        _id: it._id,
+        id: it._id,
         clothingCode: it.clothingCode,
         clothingType: it.clothingType,
         fabricType: it.fabricType,
@@ -520,6 +529,18 @@ export function OrderEditPage() {
             />
           </div>
           <div>
+            <label className="ui-label" htmlFor="order-notes">
+              Notes
+            </label>
+            <textarea
+              id="order-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="ui-input"
+            />
+          </div>
+          <div>
             <p className="ui-label">Balance remaining</p>
             <p className="mt-2 text-lg font-bold text-ink">{balance.toFixed(2)}</p>
           </div>
@@ -557,7 +578,7 @@ export function OrderEditPage() {
                     </span>
                   ) : null}
                 </span>
-                {items.length > 1 && (
+                {items.length > 1 && !it.stageCheckpoints?.length && (
                   <button
                     type="button"
                     onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}

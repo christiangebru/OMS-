@@ -4,7 +4,8 @@ import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./stageSequence.js";
 import { rankStaffForAssignment } from "./assignmentScore.js";
 import { s } from "./serialize.js";
-import { operationalItemBarcode } from "./barcode.js";
+import { operationalItemBarcode, operationalPartBarcode } from "./barcode.js";
+import { isTopLevelItem } from "./productionModel.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -12,10 +13,8 @@ function daysUntil(date) {
 }
 
 function assignmentState(assignment) {
-  if (!assignment) return "unassigned";
-  if (assignment.receivedAt) return "received";
-  if (assignment.distributedAt) return "distributed";
-  return "assigned";
+  if (!assignment) return "waiting";
+  return "received";
 }
 
 /**
@@ -88,10 +87,11 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
     if (inProgress) boardStatus = "in_progress";
     else if (assignment) boardStatus = assignmentState(assignment);
 
-    const siblings = [...(order.items || [])].sort(
-      (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
-    );
-    const itemIndex = Math.max(1, siblings.findIndex((it) => it.id === item.id) + 1);
+    const siblings = [...(order.items || [])]
+      .filter((x) => isTopLevelItem(x) || x.id === item.id)
+      .sort((a, b) => (a.itemIndex || 0) - (b.itemIndex || 0) || new Date(a.createdAt) - new Date(b.createdAt));
+    const itemIndex = item.itemIndex || Math.max(1, siblings.findIndex((it) => it.id === item.id) + 1);
+    if (item.itemKind === "part" && item.assembledAt) continue;
     const chainAsg = chainByItem.get(item.id) || [];
     const path = seqInfo.stageSequence
       .filter((s) => s !== "DELIVERED")
@@ -112,7 +112,15 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
     rows.push({
       itemId: item.id,
       barcodeValue: item.barcodeValue,
-      labelBarcode: operationalItemBarcode(order.orderId, itemIndex, item.barcodeValue),
+      labelBarcode:
+        item.itemKind === "part"
+          ? operationalPartBarcode(order.orderId, itemIndex, item.partCode, item.barcodeValue)
+          : operationalItemBarcode(order.orderId, itemIndex, item.barcodeValue),
+      itemKind: item.itemKind || "garment",
+      partCode: item.partCode || "",
+      parentItemId: item.parentItemId || null,
+      offSiteStages: item.offSiteStages || [],
+      assembledAt: item.assembledAt || null,
       clothingType: item.clothingType,
       clothingCode: item.clothingCode,
       fabricType: item.fabricType,
@@ -233,9 +241,11 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
   }).length;
   const overdueOrders = uniqueOrders.filter((o) => {
     const d = new Date(o.requiredCompletionDate);
-    return d < startOfDay && !["completed", "delivered"].includes(o.productionStatus);
+    return d < startOfDay && !["completed", "ready_to_pack", "delivered"].includes(o.productionStatus);
   }).length;
-  const ready = uniqueOrders.filter((o) => o.productionStatus === "completed").length;
+  const ready = uniqueOrders.filter((o) =>
+    ["completed", "ready_to_pack"].includes(o.productionStatus)
+  ).length;
   const inProduction = uniqueOrders.filter((o) =>
     ["cutting", "stitching", "finishing", "pending"].includes(o.productionStatus)
   ).length;

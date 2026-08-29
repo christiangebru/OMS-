@@ -9,6 +9,27 @@ export function isSimpleItemBarcode(value) {
   return /^ORD-\d+-\d+$/i.test(String(value || "").trim());
 }
 
+export function isPartBarcode(value) {
+  return /^ORD-\d+-\d+-[A-Z]{2}$/i.test(String(value || "").trim());
+}
+
+export function parseOperationalBarcode(value) {
+  const raw = String(value || "").trim().toUpperCase();
+  const part = raw.match(/^ORD-(\d+)-(\d+)-([A-Z]{2})$/);
+  if (part) {
+    return { kind: "part", orderNumber: part[1], itemIndex: Number(part[2]), partCode: part[3] };
+  }
+  const item = raw.match(/^ORD-(\d+)-(\d+)$/);
+  if (item) {
+    return { kind: "item", orderNumber: item[1], itemIndex: Number(item[2]) };
+  }
+  const order = raw.match(/^ORD-(\d+)$/);
+  if (order) {
+    return { kind: "order", orderNumber: order[1] };
+  }
+  return null;
+}
+
 export function sequentialOrderNumber(orderId) {
   const m = String(orderId || "").trim().match(/^ORD-(\d+)$/i);
   return m ? Number(m[1]) : null;
@@ -39,6 +60,29 @@ export function operationalItemBarcode(orderId, index = 1, storedBarcode) {
  */
 export function generateItemBarcodeValue(orderIdOrItemId, index = 1) {
   return operationalItemBarcode(orderIdOrItemId, index);
+}
+
+export function operationalPartBarcode(orderId, index = 1, partCode, storedBarcode) {
+  const code = String(partCode || "").trim().toUpperCase();
+  if (isPartBarcode(storedBarcode)) return String(storedBarcode).trim().toUpperCase();
+  const parent = operationalItemBarcode(orderId, index);
+  return code ? `${parent}-${code}` : parent;
+}
+
+export async function ensureUniquePartBarcode(client, orderId, index, partCode) {
+  const base = operationalPartBarcode(orderId, index, partCode);
+  const clash = await client.orderItem.findFirst({
+    where: { barcodeValue: { equals: base, mode: "insensitive" } }
+  });
+  if (!clash) return base;
+  for (let i = 2; i < 40; i += 1) {
+    const value = `${base}${i}`;
+    const again = await client.orderItem.findFirst({
+      where: { barcodeValue: { equals: value, mode: "insensitive" } }
+    });
+    if (!again) return value;
+  }
+  return `${base}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
 }
 
 export function generateUniqueBarcode(prefix = "BC") {

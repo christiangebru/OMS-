@@ -69,7 +69,7 @@ describe("POST /api/production/scan", () => {
       .set(auth(managerToken))
       .send({
         barcodeValue: item.barcodeValue,
-        stage: "RECEIVED",
+        stage: "SEWING_CUTTING",
         staffId: String(staff._id)
       });
 
@@ -81,10 +81,16 @@ describe("POST /api/production/scan", () => {
 
     const cp = await prisma.stageCheckpoint.findUnique({ where: { id: res.body.checkpoint._id } });
     expect(cp).toBeTruthy();
-    expect(cp.stage).toBe("RECEIVED");
+    expect(cp.stage).toBe("SEWING_CUTTING");
     expect(cp.checkedInAt).toBeInstanceOf(Date);
     expect(cp.checkedOutAt).toBeNull();
     expect(String(cp.checkedInByStaffId)).toBe(String(staff._id));
+
+    const asg = await prisma.staffAssignment.findFirst({
+      where: { orderItemId: item.id, stage: "SEWING_CUTTING", completedAt: null }
+    });
+    expect(asg.receivedAt).toBeTruthy();
+    expect(asg.distributedAt).toBeTruthy();
   });
 
   it("successful check-out on open checkpoint sets checkedOutAt", async () => {
@@ -95,7 +101,7 @@ describe("POST /api/production/scan", () => {
       .set(auth(managerToken))
       .send({
         barcodeValue: item.barcodeValue,
-        stage: "RECEIVED",
+        stage: "SEWING_CUTTING",
         staffId: String(staff._id)
       });
 
@@ -104,7 +110,7 @@ describe("POST /api/production/scan", () => {
       .set(auth(managerToken))
       .send({
         barcodeValue: item.barcodeValue,
-        stage: "RECEIVED",
+        stage: "SEWING_CUTTING",
         staffId: String(staff._id)
       });
 
@@ -119,7 +125,7 @@ describe("POST /api/production/scan", () => {
 
   it("rejects sequence violation (FINISHING before SEWING complete) with clear error", async () => {
     const { item, staff } = await seedOrderWithItem({ clothingType: "thobe" });
-    await advanceThroughStages(item, staff, ["RECEIVED", "CUTTING"], managerToken);
+    await advanceThroughStages(item, staff, ["SEWING_CUTTING"], managerToken);
 
     const res = await request(app)
       .post("/api/production/scan")
@@ -131,7 +137,7 @@ describe("POST /api/production/scan", () => {
       });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/prior stage|SEWING|not complete/i);
+    expect(res.body.message).toMatch(/prior stage|FINAL_SEWING|not complete/i);
   });
 
   it("adminOverride bypasses sequence for admin", async () => {
@@ -187,39 +193,50 @@ describe("POST /api/production/scan", () => {
     expect(res.body.message).toMatch(/admin\/manager|override/i);
   });
 
-  it("updates Order.productionStatus to furthest stage across items", async () => {
+  it("keeps sibling garments on the floor; order is ready_to_pack only when all complete", async () => {
     const { order, item, siblings, staff } = await seedOrderWithItem({
       clothingType: "thobe",
       extraItems: [{ clothingCode: "SIB" }]
     });
     const sibling = siblings[0];
 
-    // Give staff skills already seeded for all stages on primary staff —
-    // need skill on all; seedOrderWithItem already does allStages for primary staff.
-
-    await advanceThroughStages(item, staff, ["RECEIVED", "CUTTING"], managerToken);
-
-    // sibling only RECEIVED
-    await advanceThroughStages(sibling, staff, ["RECEIVED"], managerToken);
-
-    // Advance primary into SEWING (check-in only) — furthest should be SEWING → stitching
-    const res = await request(app)
+    await advanceThroughStages(item, staff, ["SEWING_CUTTING", "FINAL_SEWING", "FINISHING"], managerToken);
+    await request(app)
       .post("/api/production/scan")
       .set(auth(managerToken))
       .send({
         barcodeValue: item.barcodeValue,
-        stage: "SEWING",
+        stage: "SHOWROOM",
         staffId: String(staff._id)
       });
-    expect(res.status).toBe(200);
+    await request(app)
+      .post("/api/production/scan")
+      .set(auth(managerToken))
+      .send({
+        barcodeValue: item.barcodeValue,
+        stage: "SHOWROOM",
+        staffId: String(staff._id)
+      });
+
+    const mid = await prisma.order.findUnique({ where: { id: order._id } });
+    expect(mid.productionStatus).not.toBe("ready_to_pack");
+    expect(mid.productionStatus).not.toBe("delivered");
+    expect(["pending", "cutting", "stitching", "finishing"]).toContain(mid.productionStatus);
+
+    const queue = await request(app).get("/api/production/queue").set(auth(managerToken));
+    const sibRow = queue.body.items.find((r) => r.itemId === sibling.id);
+    expect(sibRow).toBeTruthy();
+    expect(sibRow.nextStage).toBe("SEWING_CUTTING");
+
+    await advanceThroughStages(sibling, staff, ["SEWING_CUTTING", "FINAL_SEWING", "FINISHING", "SHOWROOM"], managerToken);
 
     const updated = await prisma.order.findUnique({ where: { id: order._id } });
-    expect(updated.productionStatus).toBe("stitching");
+    expect(updated.productionStatus).toBe("ready_to_pack");
   });
 
   it("skip-embroidery clothing types reject EMBROIDERY check-in", async () => {
     const { item, staff } = await seedOrderWithItem({ clothingType: "thobe" });
-    await advanceThroughStages(item, staff, ["RECEIVED", "CUTTING", "SEWING"], managerToken);
+    await advanceThroughStages(item, staff, ["SEWING_CUTTING"], managerToken);
 
     const res = await request(app)
       .post("/api/production/scan")

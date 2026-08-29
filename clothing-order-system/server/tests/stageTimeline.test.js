@@ -8,18 +8,18 @@ describe("buildStageStates", () => {
     expect(stages.map((s) => s.stage)).toEqual(FULL_STAGE_SEQUENCE);
   });
 
-  it("marks embroidery skipped when the clothing type omits it", () => {
+  it("marks embroidery skipped when the clothing type omits it", async () => {
     const stages = buildStageStates([], SKIP_EMBROIDERY_SEQUENCE);
     const embroidery = stages.find((s) => s.stage === "EMBROIDERY");
     expect(embroidery.status).toBe("skipped");
-    expect(stages.find((s) => s.stage === "RECEIVED").status).toBe("next");
-    expect(stages.find((s) => s.stage === "CUTTING").status).toBe("waiting");
+    expect(stages.find((s) => s.stage === "RECEIVED").status).toBe("skipped");
+    expect(stages.find((s) => s.stage === "SEWING_CUTTING").status).toBe("next");
   });
 
   it("marks overdue next stages as blocked", () => {
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const stages = buildStageStates([], SKIP_EMBROIDERY_SEQUENCE, { dueDate: yesterday });
-    expect(stages.find((s) => s.stage === "RECEIVED").status).toBe("blocked");
+    expect(stages.find((s) => s.stage === "SEWING_CUTTING").status).toBe("blocked");
     expect(stages.find((s) => s.stage === "EMBROIDERY").status).toBe("skipped");
   });
 
@@ -30,18 +30,18 @@ describe("buildStageStates", () => {
       [
         {
           id: "cp1",
-          stage: "RECEIVED",
+          stage: "SEWING_CUTTING",
           checkedInAt: t0,
           checkedOutAt: t1
         }
       ],
       SKIP_EMBROIDERY_SEQUENCE
     );
-    const received = stages.find((s) => s.stage === "RECEIVED");
-    const cutting = stages.find((s) => s.stage === "CUTTING");
-    expect(received.status).toBe("completed");
-    expect(received.durationMs).toBeGreaterThan(0);
-    expect(cutting.status).toBe("next");
-    expect(cutting.waitingMs).toBeGreaterThan(0);
+    const sewing = stages.find((s) => s.stage === "SEWING_CUTTING");
+    const next = stages.find((s) => s.stage === "FINAL_SEWING");
+    expect(sewing.status).toBe("completed");
+    expect(sewing.durationMs).toBeGreaterThan(0);
+    expect(next.status).toBe("next");
+    expect(next.waitingMs).toBeGreaterThan(0);
   });
 });

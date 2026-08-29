@@ -43,7 +43,7 @@ export function decorateQueueRow(assignment, order, extra = {}) {
   const overdue =
     days != null &&
     days < 0 &&
-    !["completed", "delivered"].includes(order?.productionStatus || "");
+    !["completed", "ready_to_pack", "delivered"].includes(order?.productionStatus || "");
   const row = {
     assignmentId: assignment.id,
     stage: assignment.stage,

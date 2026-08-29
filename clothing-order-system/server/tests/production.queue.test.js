@@ -35,25 +35,25 @@ describe("production queue and distribution", () => {
     token = u.token;
   });
 
-  it("places an unstarted item in RECEIVED waiting", async () => {
+  it("places an unstarted item waiting at sewing & cutting", async () => {
     const { item } = await seedOrderWithItem({ clothingType: "thobe" });
     const res = await request(app).get("/api/production/queue").set(auth(token));
     expect(res.status).toBe(200);
     expect(res.body.summary.itemsWaiting).toBeGreaterThanOrEqual(1);
     const found = res.body.items.find((r) => r.itemId === item.id || r.barcodeValue === item.barcodeValue);
     expect(found).toBeTruthy();
-    expect(found.nextStage).toBe("RECEIVED");
+    expect(found.nextStage).toBe("SEWING_CUTTING");
     expect(found.boardStatus).toBe("waiting");
     expect(found.recommended?.staff?._id || found.recommended?.staff?.name).toBeTruthy();
     expect(found.recommended.summary).toEqual(expect.any(String));
   });
 
-  it("assign then distribute then receive", async () => {
+  it("assign then scan-in is the physical hand-off; legacy distribute/receive still record timestamps", async () => {
     const { item, staff } = await seedOrderWithItem({ clothingType: "thobe" });
 
     const suggest = await request(app)
       .get("/api/production/suggest-assignment")
-      .query({ orderItemId: item.id, stage: "RECEIVED" })
+      .query({ orderItemId: item.id, stage: "SEWING_CUTTING" })
       .set(auth(token));
     expect(suggest.status).toBe(200);
     expect(Array.isArray(suggest.body.rankings[0]?.reasons)).toBe(true);
@@ -64,7 +64,7 @@ describe("production queue and distribution", () => {
       .send({
         staffId: staff.id,
         orderItemId: item.id,
-        stage: "RECEIVED",
+        stage: "SEWING_CUTTING",
         followedSuggestion: true,
         suggestedStaffId: staff.id
       });
@@ -72,7 +72,7 @@ describe("production queue and distribution", () => {
 
     const afterAssign = await request(app).get("/api/production/queue").set(auth(token));
     const row = afterAssign.body.items.find((r) => r.itemId === item.id);
-    expect(row.boardStatus).toBe("assigned");
+    expect(row.boardStatus).toBe("received");
     expect(row.assignment._id).toBe(assigned.body._id);
 
     const dist = await request(app)
@@ -103,24 +103,24 @@ describe("production queue and distribution", () => {
         role: "CUTTER",
         status: "AVAILABLE",
         skillLevel: 3,
-        skills: { create: [{ stage: "RECEIVED" }, { stage: "CUTTING" }] }
+        skills: { create: [{ stage: "SEWING_CUTTING" }, { stage: "CUTTING" }] }
       }
     });
 
     const first = await request(app)
       .post("/api/production/assignments")
       .set(auth(token))
-      .send({ staffId: staff.id, orderItemId: item.id, stage: "RECEIVED" });
+      .send({ staffId: staff.id, orderItemId: item.id, stage: "SEWING_CUTTING" });
     expect(first.status).toBe(201);
 
     const second = await request(app)
       .post("/api/production/assignments")
       .set(auth(token))
-      .send({ staffId: other.id, orderItemId: item.id, stage: "RECEIVED" });
+      .send({ staffId: other.id, orderItemId: item.id, stage: "SEWING_CUTTING" });
     expect(second.status).toBe(201);
 
     const open = await prisma.staffAssignment.findMany({
-      where: { orderItemId: item.id, stage: "RECEIVED", completedAt: null }
+      where: { orderItemId: item.id, stage: "SEWING_CUTTING", completedAt: null }
     });
     expect(open).toHaveLength(1);
     expect(open[0].staffId).toBe(other.id);

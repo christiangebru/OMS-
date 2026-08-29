@@ -19,20 +19,30 @@ type LabelItem = {
   priority: string;
   quantity: number;
   location?: string;
+  kind: "order" | "garment" | "part" | "accessory";
+  compact?: boolean;
 };
 
-function toLabel(order: Order, it: Order["items"][number], index: number): LabelItem {
-  const key = it._id || it.barcodeValue || `${order.orderId}-${it.clothingCode}`;
+function toLabel(
+  order: Order,
+  it: Order["items"][number],
+  kind: LabelItem["kind"]
+): LabelItem {
+  const key = it._id || it.barcodeValue || `${order.orderId}-${it.clothingCode}-${it.partCode || ""}`;
+  const title =
+    kind === "part" ? `${it.partCode || "Part"} · ${it.clothingType}` : it.clothingType;
   return {
     key,
-    barcode: it.labelBarcode || labelBarcode(order.orderId, index, it.barcodeValue),
+    barcode: it.labelBarcode || it.barcodeValue || "",
     orderId: order.orderId,
     customer: order.customerName || order.customer?.name || "—",
-    garment: it.clothingType,
+    garment: title,
     due: order.requiredCompletionDate,
     priority: order.priority || "NORMAL",
     quantity: it.quantity || 1,
-    location: it.currentStage || it.nextStage || ""
+    location: it.currentStage || it.nextStage || "",
+    kind,
+    compact: kind === "part" || kind === "accessory" || Boolean(it.itemKind === "accessory")
   };
 }
 
@@ -76,7 +86,27 @@ export function LabelsWorkspacePage() {
   const allLabels = useMemo(() => {
     const rows: LabelItem[] = [];
     for (const o of orders) {
-      o.items.forEach((it, idx) => rows.push(toLabel(o, it, idx + 1)));
+      rows.push({
+        key: `order-${o._id}`,
+        barcode: o.barcodeValue || o.orderId,
+        orderId: o.orderId,
+        customer: o.customerName || o.customer?.name || "—",
+        garment: "Order",
+        due: o.requiredCompletionDate,
+        priority: o.priority || "NORMAL",
+        quantity: 1,
+        kind: "order"
+      });
+      const garments = (o.items || []).filter((it) => it.itemKind !== "part");
+      for (const it of garments) {
+        rows.push(
+          toLabel(o, it, it.itemKind === "accessory" ? "accessory" : "garment")
+        );
+        const parts = (o.items || []).filter(
+          (p) => p.itemKind === "part" && p.parentItemId === it._id && p.printPartLabel !== false
+        );
+        for (const part of parts) rows.push(toLabel(o, part, "part"));
+      }
     }
     return rows.filter((l) => l.barcode);
   }, [orders]);
@@ -264,8 +294,9 @@ export function LabelsWorkspacePage() {
               <article
                 key={l.key}
                 className={clsx(
-                  "label-print relative flex h-[200px] flex-col justify-between bg-white p-3 text-black",
+                  "label-print relative flex flex-col justify-between bg-white p-3 text-black",
                   "border border-neutral-800",
+                  l.compact ? "h-[140px]" : "h-[200px]",
                   selecting && on && "ring-2 ring-accent",
                   hideForPrint && "print:hidden",
                   !matchesFilter && "screen-hidden",
@@ -286,7 +317,13 @@ export function LabelsWorkspacePage() {
                 <div className="flex items-start justify-between gap-2 pr-6">
                   <div>
                     <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-neutral-500">
-                      Atelier OMS
+                      {l.kind === "order"
+                        ? "Order"
+                        : l.kind === "part"
+                          ? "Part"
+                          : l.kind === "accessory"
+                            ? "Accessory"
+                            : "Garment"}
                     </p>
                     <p className="mt-0.5 font-mono text-base font-semibold tracking-tight">
                       {shortOrderId(l.orderId)}
@@ -297,7 +334,7 @@ export function LabelsWorkspacePage() {
                     <span className="border border-black px-1.5 py-0.5 text-[10px] font-bold">{l.priority}</span>
                   )}
                 </div>
-                <p className="text-lg font-semibold leading-tight">{l.garment}</p>
+                <p className={clsx("font-semibold leading-tight", l.compact ? "text-base" : "text-lg")}>{l.garment}</p>
                 <div>
                   {l.barcode ? (
                     <BarcodeImage value={l.barcode} />

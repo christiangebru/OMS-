@@ -142,9 +142,7 @@ export function DistributionPage() {
             {(
               [
                 ["ALL", "All lanes"],
-                ["waiting", "Waiting"],
-                ["assigned", "Assigned"],
-                ["distributed", "Handed over"],
+                ["waiting", "Unassigned"],
                 ["received", "Received"],
                 ["in_progress", "In progress"]
               ] as const
@@ -366,15 +364,13 @@ function LaneActions({
           Assign {item.recommended.staff.name.split(" ")[0]}
         </Button>
       )}
-      {item.boardStatus === "assigned" && (
-        <Button size="sm" disabled={busy === item.itemId} onClick={() => onDistribute(item)}>
-          Mark handed over
-        </Button>
-      )}
-      {item.boardStatus === "distributed" && (
-        <Button size="sm" disabled={busy === item.itemId} onClick={() => onReceive(item)}>
-          Confirm received
-        </Button>
+      {item.boardStatus === "received" && (
+        <Link
+          to={`/scan?barcode=${encodeURIComponent(item.labelBarcode || item.barcodeValue)}`}
+          className="rounded-control bg-accent px-3 py-1.5 text-center text-xs font-semibold text-white"
+        >
+          Scan in — hand off
+        </Link>
       )}
       {item.boardStatus === "waiting" && (
         <div className="flex gap-1">

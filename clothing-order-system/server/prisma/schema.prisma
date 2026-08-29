@@ -111,6 +111,9 @@ model Order {
   totalAgreedPrice              Float     @default(0)
   depositPaid                   Float     @default(0)
   totalRevenue                  Float     @default(0)
+  notes                         String    @default("")
+  /// none | all | selected — part labels chosen at the last ordering step
+  partLabelMode                 String    @default("none")
   barcodeValue                  String    @unique
   barcodeGeneratedAt            DateTime
   createdBy                     String?
@@ -150,10 +153,22 @@ model OrderItem {
   difficultyLevel    Int      @default(3)
   barcodeValue       String   @unique
   barcodeGeneratedAt DateTime
+  /// garment | accessory | part
+  itemKind           String   @default("garment")
+  parentItemId       String?
+  /// BD | WR | LB | UB | …
+  partCode           String   @default("")
+  /// 1-based index among top-level garments/accessories in the order
+  itemIndex          Int      @default(1)
+  assembledAt        DateTime?
+  offSiteStages      String[] @default([])
+  printPartLabel     Boolean  @default(false)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
   orderRel    Order            @relation(fields: [order], references: [id], onDelete: Cascade)
+  parentItem  OrderItem?       @relation("GarmentParts", fields: [parentItemId], references: [id], onDelete: Cascade)
+  parts       OrderItem[]      @relation("GarmentParts")
   images      OrderItemImage[]
   checkpoints StageCheckpoint[]
   assignments StaffAssignment[]
@@ -161,6 +176,8 @@ model OrderItem {
   @@index([order])
   @@index([orderId])
   @@index([clothingType])
+  @@index([parentItemId])
+  @@index([itemKind])
   @@map("order_items")
 }
 
@@ -181,13 +198,20 @@ model OrderItemImage {
 }
 
 model ClothingTypeConfig {
-  id                String   @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
-  key               String   @unique
-  label             String
-  stageSequence     String[]
-  includesEmbroidery Boolean @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                 String   @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
+  key                String   @unique
+  label              String
+  stageSequence      String[]
+  includesEmbroidery Boolean  @default(false)
+  /// garment | accessory
+  itemKind           String   @default("garment")
+  partCodes          String[] @default([])
+  offSiteStages      String[] @default([])
+  compactLabel       Boolean  @default(false)
+  /// female | male | kids | none
+  measurementProfile String   @default("")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@map("clothing_type_configs")
 }
