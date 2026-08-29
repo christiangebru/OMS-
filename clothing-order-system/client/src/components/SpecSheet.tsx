@@ -1,5 +1,6 @@
 import { Children } from "react";
 import type { OrderItem } from "@/lib/types";
+import { audienceShortLabel } from "@/lib/clothingAudience";
 
 type SpecItem = Partial<OrderItem> & {
   clothingType?: string;
@@ -10,6 +11,7 @@ type SpecItem = Partial<OrderItem> & {
   neckType?: string;
   handType?: string;
   size?: string;
+  audience?: string;
   quantity?: number;
   measurements?: OrderItem["measurements"];
 };
@@ -59,6 +61,7 @@ export function SpecSheet({ item }: { item: SpecItem }) {
       <Block title="Garment">
         <Row k="Type" v={item.clothingType} />
         <Row k="Code" v={item.clothingCode} />
+        <Row k="Category" v={audienceShortLabel(item.audience)} />
         <Row k="Quantity" v={item.quantity ? String(item.quantity) : ""} />
         <Row k="Size" v={val(item.size)} />
       </Block>

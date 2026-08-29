@@ -257,6 +257,8 @@ export function OrderEditPage() {
         neckType: it.neckType,
         handType: it.handType,
         size: it.size,
+        audience: it.audience || undefined,
+        setChoice: it.setChoice || undefined,
         measurements: it.measurements,
         productionDays: Number(it.productionDays),
         unitPrice: Number(it.unitPrice),

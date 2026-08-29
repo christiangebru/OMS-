@@ -63,6 +63,8 @@ export interface StageCheckpoint {
 }
 
 export type ItemKind = "garment" | "accessory" | "part";
+export type ClothingAudience = "men" | "women" | "kids_boy" | "kids_girl";
+export type ItemSetChoice = "shirt" | "trouser" | "both" | "belt" | "netela" | "garment";
 export type PartLabelMode = "none" | "all" | "selected";
 
 export interface OrderItem {
@@ -76,6 +78,8 @@ export interface OrderItem {
   neckType: NeckType;
   handType: HandType;
   size: SizeCategory;
+  audience?: ClothingAudience | "";
+  setChoice?: ItemSetChoice | "";
   /** @deprecated use images */
   imagePath?: string;
   images?: OrderItemImage[];
@@ -262,6 +266,8 @@ export interface ScanDetails {
     fabricType: string;
     color: string;
     size: string;
+    audience?: string;
+    setChoice?: string;
     neckType: string;
     handType: string;
     notes: string;
