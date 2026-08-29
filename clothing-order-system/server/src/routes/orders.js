@@ -15,7 +15,9 @@ import {
   HandType,
   SizeCategory,
   PartLabelMode,
-  ItemKind
+    ItemKind,
+    ItemAudience,
+    ItemSetChoice
 } from "../constants/production.js";
 import { generateOrderBarcodeValue, operationalItemBarcode, operationalPartBarcode } from "../utils/barcode.js";
 import { buildSingleLabelPdf, buildBatchLabelPdf } from "../utils/labelPdf.js";
@@ -58,6 +60,12 @@ function validateItems(items) {
     }
     if (it.itemKind && !ItemKind.includes(it.itemKind)) {
       return { ok: false, message: `${label}.itemKind must be one of: ${ItemKind.join(", ")}` };
+    }
+    if (it.audience && !ItemAudience.includes(it.audience)) {
+      return { ok: false, message: `${label}.audience must be one of: ${ItemAudience.join(", ")}` };
+    }
+    if (it.setChoice && !ItemSetChoice.includes(it.setChoice)) {
+      return { ok: false, message: `${label}.setChoice must be one of: ${ItemSetChoice.join(", ")}` };
     }
     const kind = it.itemKind || "garment";
     const neck = it.neckType || (kind === "accessory" ? "oval" : it.neckType);
@@ -138,6 +146,8 @@ function normalizeItemPayload(item) {
     neckType: item.neckType || "oval",
     handType: item.handType || "normal",
     size: item.size || "adult",
+    audience: item.audience != null && item.audience !== "" ? String(item.audience) : undefined,
+    setChoice: item.setChoice != null && item.setChoice !== "" ? String(item.setChoice) : undefined,
     measurements,
     productionDays,
     unitPrice,

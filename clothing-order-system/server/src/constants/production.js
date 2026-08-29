@@ -106,6 +106,8 @@ export const NeckType = ["V-shape", "square", "oval"];
 export const HandType = ["wide", "normal"];
 export const SizeCategory = ["adult", "kids", "baby"];
 export const ItemKind = ["garment", "accessory", "part"];
+export const ItemAudience = ["men", "women", "kids_boy", "kids_girl"];
+export const ItemSetChoice = ["shirt", "trouser", "both", "belt", "netela", "garment"];
 export const PartLabelMode = ["none", "all", "selected"];
 
 export const ProductionStatus = [

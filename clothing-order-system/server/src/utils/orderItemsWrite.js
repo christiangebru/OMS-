@@ -1,6 +1,6 @@
 import { newId } from "./ids.js";
 import { ensureUniqueItemBarcode, ensureUniquePartBarcode } from "./barcode.js";
-import { clothingTypeToKey } from "../constants/production.js";
+import { findClothingTypeConfig } from "./clothingTypeConfig.js";
 import { resolvePartCodes, partLabel } from "./productionModel.js";
 
 export async function hasProductionHistory(orderId, client) {
@@ -25,10 +25,8 @@ export async function itemHasHistory(itemId, client) {
   return cp > 0 || asg > 0;
 }
 
-async function configForType(clothingType, client) {
-  const key = clothingTypeToKey(clothingType);
-  if (!key) return null;
-  return client.clothingTypeConfig.findUnique({ where: { key } });
+async function configForType(clothingType, clothingCode, client) {
+  return findClothingTypeConfig(client, clothingType, clothingCode);
 }
 
 async function createPartRows(order, parent, partCodes, client) {
@@ -50,6 +48,8 @@ async function createPartRows(order, parent, partCodes, client) {
         neckType: parent.neckType,
         handType: parent.handType,
         size: parent.size,
+        audience: parent.audience || "",
+        setChoice: parent.setChoice || "",
         measurements: parent.measurements || undefined,
         productionDays: parent.productionDays,
         unitPrice: 0,
@@ -81,7 +81,7 @@ export async function createItemsForOrder(order, itemPayloads, client, { partLab
     const kind = fields.itemKind || "garment";
     if (kind !== "part") index += 1;
     const barcodeValue = await ensureUniqueItemBarcode(client, order.orderId, index, itemId);
-    const config = await configForType(fields.clothingType, client);
+    const config = await configForType(fields.clothingType, fields.clothingCode, client);
     const itemKind = fields.itemKind || config?.itemKind || "garment";
     const offSiteStages = fields.offSiteStages?.length
       ? fields.offSiteStages
@@ -100,6 +100,8 @@ export async function createItemsForOrder(order, itemPayloads, client, { partLab
         neckType: fields.neckType,
         handType: fields.handType,
         size: fields.size,
+        audience: fields.audience || "",
+        setChoice: fields.setChoice || "",
         measurements: fields.measurements,
         productionDays: fields.productionDays,
         unitPrice: fields.unitPrice,
@@ -208,6 +210,8 @@ export async function upsertItemsForOrder(order, itemPayloads, client, { partLab
         lineTotal: fields.lineTotal,
         difficultyLevel: fields.difficultyLevel
       };
+      if (fields.audience !== undefined) data.audience = fields.audience;
+      if (fields.setChoice !== undefined) data.setChoice = fields.setChoice;
       if (fields.offSiteStages) data.offSiteStages = fields.offSiteStages;
       await client.orderItem.update({ where: { id }, data });
       continue;

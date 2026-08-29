@@ -157,6 +157,10 @@ model OrderItem {
   barcodeGeneratedAt DateTime
   /// garment | accessory | part
   itemKind           String   @default("garment")
+  /// men | women | kids_boy | kids_girl — clothing category chosen at order time
+  audience           String   @default("")
+  /// shirt | trouser | both | belt | netela | garment — option that created this item
+  setChoice          String   @default("")
   parentItemId       String?
   /// BD | WR | LB | UB | …
   partCode           String   @default("")
@@ -180,6 +184,7 @@ model OrderItem {
   @@index([clothingType])
   @@index([parentItemId])
   @@index([itemKind])
+  @@index([audience])
   @@map("order_items")
 }
 
