@@ -12,6 +12,7 @@ type SpecItem = Partial<OrderItem> & {
   handType?: string;
   size?: string;
   audience?: string;
+  itemKind?: string;
   quantity?: number;
   measurements?: OrderItem["measurements"];
 };
@@ -53,8 +54,9 @@ function isShirt(type?: string) {
 
 export function SpecSheet({ item }: { item: SpecItem }) {
   const m = item.measurements || {};
-  const trouser = isTrouser(item.clothingType);
-  const shirt = isShirt(item.clothingType);
+  const accessory = item.itemKind === "accessory";
+  const trouser = !accessory && isTrouser(item.clothingType);
+  const shirt = !accessory && isShirt(item.clothingType);
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -69,7 +71,7 @@ export function SpecSheet({ item }: { item: SpecItem }) {
         <Row k="Fabric" v={val(item.fabricType)} />
         <Row k="Color" v={val(item.color)} />
       </Block>
-      {!trouser ? (
+      {accessory ? null : !trouser ? (
         <Block title={shirt ? "Shirt" : "Measurements"}>
           <Row k="Chest" v={val(m.chest || m.breast)} />
           <Row k="Shoulder" v={val(m.shoulder)} />

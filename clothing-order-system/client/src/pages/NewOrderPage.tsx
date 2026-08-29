@@ -464,6 +464,11 @@ export function NewOrderPage() {
 
   async function create() {
     if (!drafts.length || !due) return;
+    const dueDate = new Date(due);
+    if (Number.isNaN(dueDate.getTime())) {
+      setErr("Enter a valid due date");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
@@ -493,7 +498,7 @@ export function NewOrderPage() {
           customerId: customerId || undefined,
           customerName: customerId ? undefined : customerName,
           customerPhone: customerId ? undefined : customerPhone,
-          requiredCompletionDate: new Date(due).toISOString(),
+          requiredCompletionDate: dueDate.toISOString(),
           priority,
           totalAgreedPrice: Number(agreed),
           depositPaid: Number(deposit),
@@ -888,17 +893,21 @@ export function NewOrderPage() {
                       : types
                   }
                   value={editing.clothingType}
-                  onChange={(t) =>
-                    setEditing((d) =>
-                      d
-                        ? {
-                            ...d,
-                            clothingType: t.label,
-                            clothingCode: d.clothingCode || String(t.key || t.label).toUpperCase()
-                          }
-                        : d
-                    )
-                  }
+                onChange={(t) =>
+                  setEditing((d) =>
+                    d
+                      ? {
+                          ...d,
+                          clothingType: t.label,
+                          clothingCode: String(t.key || t.label)
+                            .trim()
+                            .replace(/\s+/g, "_")
+                            .toUpperCase()
+                            .slice(0, 12)
+                        }
+                      : d
+                  )
+                }
                 />
               </div>
             )}
