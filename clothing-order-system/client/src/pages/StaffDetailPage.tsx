@@ -97,13 +97,25 @@ export function StaffDetailPage() {
   async function saveSkills() {
     if (!id || !canManage) return;
     try {
+      const requestedSkills = Object.entries(skillMap).map(([stage, level]) => ({ stage, level }));
       const updated = await apiJson<Staff>(`/api/staff/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          skills: Object.entries(skillMap).map(([stage, level]) => ({ stage, level }))
-        })
+        body: JSON.stringify({ skills: requestedSkills })
       });
       setStaff(updated);
+      const savedMap: Partial<Record<ProductionStage, number>> = {};
+      for (const detail of updated.skillDetails || []) savedMap[detail.stage] = detail.level;
+      for (const stage of updated.skills || []) {
+        if (savedMap[stage] == null) savedMap[stage] = updated.skillLevel || 3;
+      }
+      setSkillMap(savedMap);
+      const missingStages = requestedSkills
+        .map(({ stage }) => stage)
+        .filter((stage) => savedMap[stage as ProductionStage] == null);
+      if (missingStages.length) {
+        setErr(`Skills were not saved: ${missingStages.join(", ")}`);
+        return;
+      }
       push("Skills saved", "ok");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Skills update failed");

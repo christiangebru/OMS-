@@ -23,17 +23,45 @@ export const ProductionStage = [
   "DELIVERED"
 ];
 
+<<<<<<< HEAD
 /** Display / timeline sequence (no duplicate alias stages). */
 export const FULL_STAGE_SEQUENCE = [
+=======
+/**
+ * The atelier names are the canonical names used for staff skills.  The order
+ * workflow still recognises its older CUTTING/SEWING/READY names, so callers
+ * that persist skills should normalise them through this map first.
+ */
+export const SkillStageAliases = {
+  CUTTING: "SEWING_CUTTING",
+  SEWING: "SEWING_CUTTING",
+  READY: "SHOWROOM"
+};
+
+export const SkillProductionStage = [
+>>>>>>> 1cae4e1 (feat(staff): validate canonical production skills)
   "RECEIVED",
   "SEWING_CUTTING",
   "EMBROIDERY",
   "FINAL_SEWING",
   "FINISHING",
+<<<<<<< HEAD
+=======
+  "OFF_SITE",
+>>>>>>> 1cae4e1 (feat(staff): validate canonical production skills)
   "SHOWROOM",
   "PACKAGING",
   "DELIVERED"
 ];
+<<<<<<< HEAD
+=======
+
+export function normalizeSkillStage(stage) {
+  return SkillStageAliases[stage] || stage;
+}
+
+export const FULL_STAGE_SEQUENCE = [...ProductionStage];
+>>>>>>> 1cae4e1 (feat(staff): validate canonical production skills)
 
 /** Physical off-site location — not a workstation and not RECEIVED. */
 export const OFF_SITE_STAGE = "OFF_SITE";

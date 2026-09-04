@@ -95,6 +95,7 @@ export function productionStatusLabel(status?: string | null) {
 }
 
 export function stageLabel(stage: string) {
+<<<<<<< HEAD
   const map: Record<string, string> = {
     RECEIVED: "Received",
     SEWING_CUTTING: "Sewing & cutting",
@@ -110,6 +111,16 @@ export function stageLabel(stage: string) {
     DELIVERED: "Pickup / delivery"
   };
   if (map[stage]) return map[stage];
+=======
+  switch (stage) {
+    case "SEWING_CUTTING":
+    case "CUTTING":
+    case "SEWING":
+      return "Sewing & cutting";
+    case "FINAL_SEWING":
+      return "Final sewing";
+  }
+>>>>>>> 1cae4e1 (feat(staff): validate canonical production skills)
   return String(stage || "")
     .toLowerCase()
     .replace(/_/g, " ");

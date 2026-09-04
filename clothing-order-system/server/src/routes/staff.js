@@ -5,7 +5,13 @@ import { s, sMany } from "../utils/serialize.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireCapability } from "../middleware/permissions.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
-import { StaffRole, StaffStatus, ProductionStage } from "../constants/production.js";
+import {
+  StaffRole,
+  StaffStatus,
+  ProductionStage,
+  SkillProductionStage,
+  normalizeSkillStage
+} from "../constants/production.js";
 import { attachStaffBoard } from "../utils/staffBoard.js";
 import { decorateQueueRow, splitWorkerQueue } from "../utils/workerQueue.js";
 import { isRecordId } from "../utils/recordId.js";
@@ -24,15 +30,31 @@ async function withSkills(staff) {
 
 function normalizeSkillInputs(raw, fallbackLevel = 3) {
   const out = [];
+  const rejected = [];
   for (const sk of raw || []) {
-    if (typeof sk === "string" && ProductionStage.includes(sk)) {
-      out.push({ stage: sk, level: fallbackLevel });
-    } else if (sk && typeof sk === "object" && ProductionStage.includes(sk.stage)) {
-      const level = Math.min(5, Math.max(1, Number(sk.level) || fallbackLevel));
-      out.push({ stage: sk.stage, level });
+    const rawStage = typeof sk === "string" ? sk : sk?.stage;
+    const stage = typeof rawStage === "string" ? normalizeSkillStage(rawStage) : rawStage;
+    if (SkillProductionStage.includes(stage)) {
+      if (sk && typeof sk === "object") {
+        const level = Math.min(5, Math.max(1, Number(sk.level) || fallbackLevel));
+        out.push({ stage, level });
+      } else {
+        out.push({ stage, level: fallbackLevel });
+      }
+    } else {
+      rejected.push(rawStage);
     }
   }
-  return out;
+  return { skills: out, rejected };
+}
+
+function rejectUnknownSkillStages(res, rejected) {
+  if (!rejected.length) return false;
+  res.status(400).json({
+    message: "Unknown skill stage",
+    rejectedStages: rejected.map((stage) => String(stage))
+  });
+  return true;
 }
 
 router.get(
@@ -206,7 +228,8 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    const skills = normalizeSkillInputs(req.body.skills, req.body.skillLevel || 3);
+    const { skills, rejected } = normalizeSkillInputs(req.body.skills, req.body.skillLevel || 3);
+    if (rejectUnknownSkillStages(res, rejected)) return;
     const staff = await prisma.staff.create({
       data: {
         tenantId: DEFAULT_TENANT_ID,
@@ -250,6 +273,11 @@ router.patch(
     });
     if (!staff) return res.status(404).json({ message: "Staff not found" });
 
+    const normalizedSkills = Array.isArray(req.body.skills)
+      ? normalizeSkillInputs(req.body.skills, req.body.skillLevel || staff.skillLevel || 3)
+      : null;
+    if (normalizedSkills && rejectUnknownSkillStages(res, normalizedSkills.rejected)) return;
+
     const data = {};
     if (req.body.name) data.name = req.body.name.trim();
     if (req.body.phone) data.phone = String(req.body.phone).trim();
@@ -260,8 +288,8 @@ router.patch(
 
     const updated = await prisma.staff.update({ where: { id: staff.id }, data });
 
-    if (Array.isArray(req.body.skills)) {
-      const skills = normalizeSkillInputs(req.body.skills, updated.skillLevel || 3);
+    if (normalizedSkills) {
+      const { skills } = normalizedSkills;
       await prisma.staffSkill.deleteMany({ where: { staffId: staff.id } });
       if (skills.length) {
         await prisma.staffSkill.createMany({
