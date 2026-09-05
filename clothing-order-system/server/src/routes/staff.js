@@ -20,16 +20,30 @@ const router = Router();
 router.use(requireAuth);
 
 async function withSkills(staff) {
-  const skills = await prisma.staffSkill.findMany({ where: { staffId: staff.id } });
+  const storedSkills = await prisma.staffSkill.findMany({ where: { staffId: staff.id } });
+  // StaffSkill.stage is a String column, so installations created before the
+  // atelier terminology can still contain CUTTING/SEWING/READY.  The API
+  // contract for the staff-skills UI is canonical, independent of how an old
+  // row was stored.  Collapse aliases here rather than rewriting production
+  // workflow stages or running a data migration.
+  const byStage = new Map();
+  for (const skill of storedSkills) {
+    const stage = normalizeSkillStage(skill.stage);
+    if (!SkillProductionStage.includes(stage)) continue;
+    const level = Math.min(5, Math.max(1, Number(skill.level) || 3));
+    const current = byStage.get(stage);
+    if (!current || level > current.level) byStage.set(stage, { stage, level });
+  }
+  const skillDetails = [...byStage.values()];
   return {
     ...s(staff),
-    skills: skills.map((sk) => sk.stage),
-    skillDetails: skills.map((sk) => ({ stage: sk.stage, level: sk.level || 3 }))
+    skills: skillDetails.map((skill) => skill.stage),
+    skillDetails
   };
 }
 
 function normalizeSkillInputs(raw, fallbackLevel = 3) {
-  const out = [];
+  const byStage = new Map();
   const rejected = [];
   for (const sk of raw || []) {
     const rawStage = typeof sk === "string" ? sk : sk?.stage;
@@ -37,15 +51,15 @@ function normalizeSkillInputs(raw, fallbackLevel = 3) {
     if (SkillProductionStage.includes(stage)) {
       if (sk && typeof sk === "object") {
         const level = Math.min(5, Math.max(1, Number(sk.level) || fallbackLevel));
-        out.push({ stage, level });
+        byStage.set(stage, { stage, level });
       } else {
-        out.push({ stage, level: fallbackLevel });
+        byStage.set(stage, { stage, level: fallbackLevel });
       }
     } else {
       rejected.push(rawStage);
     }
   }
-  return { skills: out, rejected };
+  return { skills: [...byStage.values()], rejected };
 }
 
 function rejectUnknownSkillStages(res, rejected) {
