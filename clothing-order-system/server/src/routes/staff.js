@@ -10,7 +10,8 @@ import {
   StaffStatus,
   ProductionStage,
   SkillProductionStage,
-  normalizeSkillStage
+  normalizeSkillStage,
+  skillStageVariants
 } from "../constants/production.js";
 import { attachStaffBoard } from "../utils/staffBoard.js";
 import { decorateQueueRow, splitWorkerQueue } from "../utils/workerQueue.js";
@@ -89,7 +90,7 @@ router.get(
 
     if (req.query.stage && req.query.stage !== "OFF_SITE") {
       const skilled = await prisma.staffSkill.findMany({
-        where: { stage: req.query.stage },
+        where: { stage: { in: skillStageVariants(req.query.stage) } },
         select: { staffId: true }
       });
       const allowed = new Set(skilled.map((sk) => sk.staffId));

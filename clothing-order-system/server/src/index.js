@@ -5,7 +5,7 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import { connectDb } from "./config/db.js";
-import { healthLivenessHandler, readinessHandler } from "./routes/health.js";
+import { healthLivenessHandler, readinessHandler, versionHandler } from "./routes/health.js";
 import authRoutes from "./routes/auth.js";
 import orderRoutes from "./routes/orders.js";
 import dashboardRoutes from "./routes/dashboard.js";
@@ -41,6 +41,8 @@ app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 app.get("/health", healthLivenessHandler());
 app.get("/ready", readinessHandler());
+app.get("/version", versionHandler());
+app.get("/api/version", versionHandler());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/upload", uploadRoutes);

@@ -1,7 +1,21 @@
 import path from "path";
+import { execSync } from "child_process";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+
+function resolveCommitSha(): string {
+  if (process.env.VERCEL_GIT_COMMIT_SHA) return process.env.VERCEL_GIT_COMMIT_SHA;
+  if (process.env.VITE_COMMIT_SHA) return process.env.VITE_COMMIT_SHA;
+  if (process.env.GIT_COMMIT) return process.env.GIT_COMMIT;
+  try {
+    return execSync("git rev-parse HEAD", { timeout: 1000 }).toString().trim();
+  } catch {
+    return "unknown";
+  }
+}
+
+const commitSha = resolveCommitSha();
 
 export default defineConfig({
   resolve: {
@@ -9,8 +23,27 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src")
     }
   },
+  define: {
+    "import.meta.env.VITE_COMMIT_SHA": JSON.stringify(commitSha)
+  },
   plugins: [
     react(),
+    {
+      name: "version-emitter",
+      generateBundle() {
+        this.emitFile({
+          type: "asset",
+          fileName: "version.json",
+          source: JSON.stringify({ commit: commitSha }, null, 2)
+        });
+      },
+      transformIndexHtml(html) {
+        return html.replace(
+          "</head>",
+          `  <meta name="build-commit" content="${commitSha}" />\n  </head>`
+        );
+      }
+    },
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],

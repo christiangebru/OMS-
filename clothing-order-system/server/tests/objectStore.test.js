@@ -58,6 +58,37 @@ describe("durable image object store", () => {
     await expect(fs.stat(file.path)).rejects.toThrow();
   });
 
+  it("supports CLOUDINARY_URL and signed API key/secret configurations", async () => {
+    const envUrl = {
+      CLOUDINARY_URL: "cloudinary://123456:secretkey@mycloud"
+    };
+    expect(objectStoreKind(envUrl)).toBe("cloudinary");
+
+    const envSigned = {
+      CLOUDINARY_CLOUD_NAME: "mycloud",
+      CLOUDINARY_API_KEY: "123456",
+      CLOUDINARY_API_SECRET: "secretkey"
+    };
+    expect(objectStoreKind(envSigned)).toBe("cloudinary");
+
+    const file = await multerFile();
+    const url = "https://res.cloudinary.com/mycloud/image/upload/v1/oms-garments/front.jpg";
+    let calledCfg = null;
+    const stored = await persistPublicImage(file, {
+      env: envSigned,
+      putCloudinary: async (_f, cfg) => {
+        calledCfg = cfg;
+        return url;
+      }
+    });
+    expect(stored).toBe(url);
+    expect(calledCfg).toMatchObject({
+      cloud: "mycloud",
+      apiKey: "123456",
+      apiSecret: "secretkey"
+    });
+  });
+
   it("uploads to S3 when configured (mocked) and prefers S3 over Cloudinary", async () => {
     const env = {
       S3_BUCKET: "oms-photos",

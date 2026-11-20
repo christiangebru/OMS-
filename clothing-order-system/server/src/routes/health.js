@@ -1,4 +1,18 @@
+import { execSync } from "child_process";
 import { checkDb } from "../config/db.js";
+
+function resolveCommit() {
+  const envCommit =
+    process.env.RENDER_GIT_COMMIT ||
+    process.env.GIT_COMMIT ||
+    process.env.COMMIT_SHA;
+  if (envCommit) return envCommit;
+  try {
+    return execSync("git rev-parse HEAD", { timeout: 1000 }).toString().trim();
+  } catch {
+    return "unknown";
+  }
+}
 
 /**
  * Liveness for Render `healthCheckPath`. Always 200 once Express is listening.
@@ -26,5 +40,20 @@ export function readinessHandler(probe = checkDb) {
     } catch {
       res.status(503).json({ ok: false, db: "postgresql", dbConnected: false });
     }
+  };
+}
+
+/** Version: exposes deployment commit and branch without leaking sensitive env vars. */
+export function versionHandler() {
+  const commit = resolveCommit();
+  const branch =
+    process.env.RENDER_GIT_BRANCH ||
+    process.env.GIT_BRANCH ||
+    "main";
+  return (_req, res) => {
+    res.status(200).json({
+      commit: process.env.RENDER_GIT_COMMIT || commit,
+      branch: process.env.RENDER_GIT_BRANCH || branch
+    });
   };
 }

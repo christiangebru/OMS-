@@ -50,6 +50,33 @@ export function normalizeSkillStage(stage) {
   return SkillStageAliases[stage] || stage;
 }
 
+/**
+ * Given a stage, return all DB values that satisfy this stage requirement,
+ * ensuring legacy CUTTING and SEWING records are recognized when filtering
+ * for SEWING_CUTTING, while preserving stage boundaries for specific legacy stages.
+ */
+export function skillStageVariants(stage) {
+  if (stage === "SEWING_CUTTING") {
+    return ["SEWING_CUTTING", "CUTTING", "SEWING"];
+  }
+  if (stage === "CUTTING") {
+    return ["CUTTING", "SEWING_CUTTING"];
+  }
+  if (stage === "SEWING") {
+    return ["SEWING", "SEWING_CUTTING"];
+  }
+  if (stage === "SHOWROOM") {
+    return ["SHOWROOM", "READY"];
+  }
+  if (stage === "READY") {
+    return ["READY", "SHOWROOM"];
+  }
+  if (stage === "FINAL_SEWING") {
+    return ["FINAL_SEWING", "SEWING", "SEWING_CUTTING"];
+  }
+  return [stage];
+}
+
 /** Display / timeline sequence (no duplicate legacy aliases). */
 export const FULL_STAGE_SEQUENCE = [
   "RECEIVED",

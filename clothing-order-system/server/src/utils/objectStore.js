@@ -23,10 +23,30 @@ export function s3Config(env = process.env) {
 }
 
 export function cloudinaryConfig(env = process.env) {
+  if (env.CLOUDINARY_URL) {
+    const m = String(env.CLOUDINARY_URL).match(/^cloudinary:\/\/([^:]+):([^@]+)@([^/?#]+)/i);
+    if (m) {
+      return {
+        cloud: m[3],
+        apiKey: m[1],
+        apiSecret: m[2],
+        folder: env.CLOUDINARY_FOLDER || "oms-garments"
+      };
+    }
+  }
   const cloud = env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = env.CLOUDINARY_API_KEY;
+  const apiSecret = env.CLOUDINARY_API_SECRET;
   const preset = env.CLOUDINARY_UPLOAD_PRESET;
-  if (!cloud || !preset) return null;
-  return { cloud, preset };
+  const folder = env.CLOUDINARY_FOLDER || "oms-garments";
+
+  if (cloud && apiKey && apiSecret) {
+    return { cloud, apiKey, apiSecret, folder };
+  }
+  if (cloud && preset) {
+    return { cloud, preset, folder };
+  }
+  return null;
 }
 
 /** Which backend persistPublicImage will use for this env. */
@@ -44,8 +64,20 @@ export async function putCloudinary(file, cfg, { fetchImpl = fetch } = {}) {
   const buf = await fs.readFile(file.path);
   const form = new FormData();
   form.append("file", `data:${file.mimetype || "image/jpeg"};base64,${buf.toString("base64")}`);
-  form.append("upload_preset", cfg.preset);
-  form.append("folder", "oms-garments");
+  const folder = cfg.folder || "oms-garments";
+  form.append("folder", folder);
+
+  if (cfg.apiKey && cfg.apiSecret) {
+    const timestamp = Math.floor(Date.now() / 1000);
+    form.append("timestamp", String(timestamp));
+    form.append("api_key", cfg.apiKey);
+    const toSign = `folder=${folder}&timestamp=${timestamp}${cfg.apiSecret}`;
+    const signature = crypto.createHash("sha1").update(toSign).digest("hex");
+    form.append("signature", signature);
+  } else if (cfg.preset) {
+    form.append("upload_preset", cfg.preset);
+  }
+
   const res = await fetchImpl(`https://api.cloudinary.com/v1_1/${cfg.cloud}/image/upload`, {
     method: "POST",
     body: form

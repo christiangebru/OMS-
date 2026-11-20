@@ -1,6 +1,7 @@
 import { prisma } from "../db/prisma.js";
 import { ASSIGNMENT_WEIGHTS } from "../config/assignmentWeights.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
+import { skillStageVariants } from "../constants/production.js";
 
 function clamp01(n) {
   return Math.max(0, Math.min(1, n));
@@ -121,11 +122,18 @@ export async function rankStaffForAssignment(orderItemId, stage) {
   if (!order) throw Object.assign(new Error("Order not found"), { status: 404 });
 
   const skilled = await prisma.staffSkill.findMany({
-    where: { stage },
+    where: { stage: { in: skillStageVariants(stage) } },
     select: { staffId: true, level: true }
   });
   const staffIds = [...new Set(skilled.map((sk) => sk.staffId))];
-  const stageSkillByStaff = new Map(skilled.map((sk) => [sk.staffId, sk.level || 3]));
+  const stageSkillByStaff = new Map();
+  for (const sk of skilled) {
+    const lvl = sk.level || 3;
+    const existing = stageSkillByStaff.get(sk.staffId);
+    if (existing == null || lvl > existing) {
+      stageSkillByStaff.set(sk.staffId, lvl);
+    }
+  }
   if (!staffIds.length) return { item, order, rankings: [] };
 
   const staffList = await prisma.staff.findMany({

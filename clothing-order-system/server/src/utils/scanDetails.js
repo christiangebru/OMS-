@@ -7,7 +7,7 @@ import {
   resolveStageSequence
 } from "./stageSequence.js";
 import { buildStageStates, inferScanAction, inferNextAction, boardStatusFrom } from "./stageTimeline.js";
-import { WORKSTATION_STAGES } from "../constants/production.js";
+import { WORKSTATION_STAGES, skillStageVariants } from "../constants/production.js";
 import { operationalItemBarcode, operationalPartBarcode, parseOperationalBarcode } from "./barcode.js";
 import { storedImagePath } from "./publicImage.js";
 import {
@@ -308,7 +308,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   const workstationStage = open?.stage || nextStage;
   const workstationWorkers = WORKSTATION_STAGES.includes(workstationStage)
     ? await prisma.staffSkill.findMany({
-        where: { stage: workstationStage },
+        where: { stage: { in: skillStageVariants(workstationStage) } },
         include: { staff: true }
       })
     : [];
@@ -452,9 +452,13 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       workstation: {
         stage: workstationStage,
         label: `${titleStage(workstationStage)} workstation`,
-        workers: workstationWorkers
-          .filter((w) => w.staff?.active)
-          .map((w) => staffSummary(w.staff))
+        workers: Array.from(
+          new Map(
+            workstationWorkers
+              .filter((w) => w.staff?.active)
+              .map((w) => [w.staff.id, staffSummary(w.staff)])
+          ).values()
+        )
       },
       currentWorker: staffSummary(currentWorkerStaff),
       nextWorker: staffSummary(nextWorkerStaff),
