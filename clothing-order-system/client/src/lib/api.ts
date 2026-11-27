@@ -94,7 +94,10 @@ export function describeApiError(e: unknown, fallback = "Request failed") {
   if (e.status === 401) return "Sign-in required (401).";
   if (e.status === 403) return e.message || "You do not have permission (403).";
   if (e.status === 404) {
-    return `${e.message || "Not found"} (404). This route may be missing on the deployed API.`;
+    // A server-supplied reason ("No order has the code …") is the answer.
+    // Only a bare 404 means the route itself is missing on the deployed API.
+    const generic = !e.message || /^(not found|request failed)$/i.test(e.message) || /cannot (get|post|put|patch|delete)/i.test(e.message);
+    return generic ? "Not found (404). This route may be missing on the deployed API." : e.message;
   }
   if (e.status === 0 && e.code === "timeout") return "Request timed out.";
   if (e.status === 0) return e.message || "Network failure.";

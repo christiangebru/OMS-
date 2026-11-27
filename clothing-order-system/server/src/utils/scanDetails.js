@@ -8,7 +8,13 @@ import {
 } from "./stageSequence.js";
 import { buildStageStates, inferScanAction, inferNextAction, boardStatusFrom } from "./stageTimeline.js";
 import { WORKSTATION_STAGES, skillStageVariants } from "../constants/production.js";
-import { operationalItemBarcode, operationalPartBarcode, parseOperationalBarcode } from "./barcode.js";
+import {
+  operationalItemBarcode,
+  operationalPartBarcode,
+  parseOperationalBarcode,
+  normalizeBarcodeInput,
+  legacyOrderTails
+} from "./barcode.js";
 import { storedImagePath } from "./publicImage.js";
 import {
   OFF_SITE_STAGE,
@@ -538,26 +544,63 @@ async function findGarmentByOperationalIndex(orderId, itemIndex, orderPk = null)
   return top[idx - 1] || (top.length === 1 ? top[0] : null);
 }
 
+/**
+ * Older order whose short code (shown or printed) ends in `tail`.
+ * Throws 409 when the tail is shared by more than one older order.
+ */
+async function findLegacyOrderByTail(tail) {
+  const t = String(tail || "").toUpperCase();
+  if (!t) return null;
+  const legacy = await prisma.$queryRaw`
+    SELECT id, "orderId" FROM orders WHERE "orderId" !~ '^ORD-[0-9]+$'`;
+  const asNumber = /^\d+$/.test(t) ? String(Number(t)) : null;
+  const hits = legacy.filter((o) => {
+    const tails = legacyOrderTails(o.orderId);
+    return tails.includes(t) || (asNumber && tails.includes(asNumber));
+  });
+  if (hits.length > 1) {
+    throw Object.assign(
+      new Error(`More than one older order matches ${t}. Scan the label or type the full order number.`),
+      { status: 409 }
+    );
+  }
+  return hits.length ? prisma.order.findUnique({ where: { id: hits[0].id } }) : null;
+}
+
+function notFound(raw) {
+  return Object.assign(
+    new Error(`Barcode not found: no order or garment has the code "${String(raw).trim()}". Check the code printed under the barcode (for example ORD-1001 or ORD-1001-1).`),
+    { status: 404 }
+  );
+}
+
 export async function resolveScanTarget(barcodeValue) {
-  const value = String(barcodeValue || "").trim();
-  if (!value) {
+  const raw = String(barcodeValue || "").trim();
+  if (!raw) {
     throw Object.assign(new Error("Barcode value is required"), { status: 400 });
   }
+  const value = normalizeBarcodeInput(raw);
 
   const parsed = parseOperationalBarcode(value);
   if (parsed?.kind === "order") {
-    const order = await prisma.order.findFirst({
-      where: {
-        OR: [
-          { barcodeValue: { equals: value, mode: "insensitive" } },
-          { orderId: { equals: `ORD-${parsed.orderNumber}`, mode: "insensitive" } }
-        ]
-      }
-    });
-    if (!order) {
-      throw Object.assign(new Error("Barcode not found"), { status: 404 });
-    }
+    const order =
+      (await prisma.order.findFirst({
+        where: {
+          OR: [
+            { barcodeValue: { equals: value, mode: "insensitive" } },
+            { orderId: { equals: `ORD-${parsed.orderNumber}`, mode: "insensitive" } }
+          ]
+        }
+      })) || (await findLegacyOrderByTail(parsed.orderNumber));
+    if (!order) throw notFound(raw);
     return { kind: "order", order };
+  }
+
+  // Short code of an older order as the app shows it, e.g. ORD-6AC0.
+  const shortLegacy = value.match(/^ORD-([A-Z0-9]{1,8})$/);
+  if (shortLegacy) {
+    const legacyOrder = await findLegacyOrderByTail(shortLegacy[1]);
+    if (legacyOrder) return { kind: "order", order: legacyOrder };
   }
 
   const itemHit = await prisma.orderItem.findFirst({
@@ -577,8 +620,13 @@ export async function resolveScanTarget(barcodeValue) {
     }
   }
 
-  const item = await resolveItemByBarcode(value);
-  return { kind: "item", item };
+  try {
+    const item = await resolveItemByBarcode(value);
+    return { kind: "item", item };
+  } catch (e) {
+    if (e.status === 404) throw notFound(raw);
+    throw e;
+  }
 }
 
 export async function buildOrderScanDetails(orderOrDoc) {
@@ -729,7 +777,7 @@ export async function resolveItemByBarcode(barcodeValue) {
   }
 
   const simple = value.match(/^ORD-(\d+)-(\d+)$/i);
-  const partMatch = value.match(/^ORD-(\d+)-(\d+)-([A-Z]{2})$/i);
+  const partMatch = value.match(/^ORD-(\d+)-(\d+)-([A-Z]{2,4})$/i);
   if (partMatch) {
     const order = await prisma.order.findFirst({
       where: { orderId: { equals: `ORD-${partMatch[1]}`, mode: "insensitive" } }
@@ -759,17 +807,10 @@ export async function resolveItemByBarcode(barcodeValue) {
     if (found) return found;
   }
 
+  // Older orders: labels print ORD-<last 4 digits>-n, the app shows ORD-<last 4>-n.
   const tailForm = value.match(/^ORD-([A-Z0-9]+)-(\d+)$/i);
-  if (tailForm && !simple) {
-    const tail = tailForm[1].toUpperCase();
-    const orders = await prisma.order.findMany({
-      where: { orderId: { contains: tail, mode: "insensitive" } },
-      take: 20
-    });
-    const matchOrder = orders.find((o) => {
-      const compact = String(o.orderId).replace(/^ORD-/i, "").replace(/-/g, "").toUpperCase();
-      return compact.endsWith(tail) || compact === tail;
-    });
+  if (tailForm) {
+    const matchOrder = await findLegacyOrderByTail(tailForm[1]);
     if (matchOrder) {
       const found = await findGarmentByOperationalIndex(matchOrder.orderId, Number(tailForm[2]), matchOrder.id);
       if (found) return found;

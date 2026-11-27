@@ -10,12 +10,35 @@ export function isSimpleItemBarcode(value) {
 }
 
 export function isPartBarcode(value) {
-  return /^ORD-\d+-\d+-[A-Z]{2}$/i.test(String(value || "").trim());
+  return /^ORD-\d+-\d+-[A-Z]{2,4}$/i.test(String(value || "").trim());
+}
+
+/**
+ * What people actually type or what a scanner sends: "1001", "1001-1",
+ * "ord1001-1", " ORD-1001 " → "ORD-1001", "ORD-1001-1". Other values
+ * (legacy ITM-… codes) are only trimmed and upper-cased.
+ */
+export function normalizeBarcodeInput(raw) {
+  const v = String(raw || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (/^\d+(-\d+)?(-[A-Z]{2,4})?$/.test(v)) return `ORD-${v}`;
+  return v.replace(/^ORD_?(?=\d)/, "ORD-");
+}
+
+/**
+ * Short forms an older (non-sequential) order id is shown or printed as:
+ * the app shows the last 4 characters (ORD-6AC0), labels use the last 4
+ * digits (ORD-6160-1). Both must scan back to the order.
+ */
+export function legacyOrderTails(orderId) {
+  const id = String(orderId || "");
+  const compact = id.replace(/^ORD-/i, "").replace(/-/g, "").toUpperCase();
+  const digits = id.replace(/\D/g, "").slice(-4);
+  return [compact.slice(-4), digits ? String(Number(digits)) : null].filter(Boolean);
 }
 
 export function parseOperationalBarcode(value) {
   const raw = String(value || "").trim().toUpperCase();
-  const part = raw.match(/^ORD-(\d+)-(\d+)-([A-Z]{2})$/);
+  const part = raw.match(/^ORD-(\d+)-(\d+)-([A-Z]{2,4})$/);
   if (part) {
     return { kind: "part", orderNumber: part[1], itemIndex: Number(part[2]), partCode: part[3] };
   }
