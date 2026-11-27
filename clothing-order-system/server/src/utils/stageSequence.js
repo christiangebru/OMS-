@@ -6,7 +6,7 @@ import {
   CANONICAL_GARMENT_SEQUENCE
 } from "../constants/production.js";
 import { findClothingTypeConfig } from "./clothingTypeConfig.js";
-import { canonicalStage, aliasesForStage } from "./productionModel.js";
+import { canonicalStage, aliasesForStage, stageMatchesStep } from "./productionModel.js";
 import {
   OFF_SITE_STAGE,
   deriveCurrentStageWithOffSite,
@@ -165,7 +165,7 @@ export async function validateCheckIn(
 
   const openOther = checkpoints.find((c) => {
     if (c.checkedOutAt) return false;
-    if (aliasesForStage(resolved).includes(c.stage)) return false;
+    if (stageMatchesStep(c.stage, resolved, seq)) return false;
     if (c.stage === OFF_SITE_STAGE && returningHere) return false;
     return true;
   });
@@ -177,7 +177,7 @@ export async function validateCheckIn(
   }
 
   const openSame = checkpoints.find(
-    (c) => !c.checkedOutAt && aliasesForStage(resolved).includes(c.stage)
+    (c) => !c.checkedOutAt && stageMatchesStep(c.stage, resolved, seq)
   );
   if (openSame) {
     return { ok: true, alreadyOpen: true, checkpoint: openSame };

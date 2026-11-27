@@ -14,13 +14,26 @@ import { hydrateOrder } from "../utils/orderHydrate.js";
 import { buildProductionQueue } from "../utils/productionBoard.js";
 import { renderBarcodePng, renderBarcodeSvg } from "../utils/barcode.js";
 import { isRecordId } from "../utils/recordId.js";
-import { WORKSTATION_STAGES } from "../constants/production.js";
-import { parentReadyForAssembly, skillStagesFor, assemblyStage, canonicalStage } from "../utils/productionModel.js";
+import { CANONICAL_WORKSTATION_STAGES, stageAliases } from "../constants/production.js";
+import {
+  parentReadyForAssembly,
+  skillStagesFor,
+  assemblyStage,
+  canonicalStage,
+  stepStageNames
+} from "../utils/productionModel.js";
 import { resolveRequestedStage } from "../utils/stageSequence.js";
 import { OFF_SITE_STAGE, openOffSiteCheckpoint } from "../utils/offSite.js";
 import { packOrder, deliverPackedOrder, packagingMessage } from "../utils/orderPack.js";
 
 const router = Router();
+
+const WORKSTATION_LABELS = {
+  SEWING_CUTTING: "Sewing & cutting",
+  EMBROIDERY: "Embroidery",
+  FINAL_SEWING: "Final sewing",
+  FINISHING: "Finishing"
+};
 router.use(requireAuth);
 
 async function assertStaffForStage(staffId, stage, { requireOnDuty = true } = {}, client = prisma) {
@@ -168,8 +181,11 @@ router.post(
         });
       }
 
+      // Same route step under any of its names (legacy CUTTING/SEWING/READY
+      // checkpoints count as their atelier step) — never open a second one.
+      const stepNames = stepStageNames(stage, [...stageSequence, OFF_SITE_STAGE]);
       const openAtStage = await prisma.stageCheckpoint.findFirst({
-        where: { orderItemId: item.id, stage, checkedOutAt: null }
+        where: { orderItemId: item.id, stage: { in: stepNames }, checkedOutAt: null }
       });
 
       let action;
@@ -190,7 +206,7 @@ router.post(
             }
           });
           await tx.staffAssignment.updateMany({
-            where: { orderItemId: item.id, stage, completedAt: null },
+            where: { orderItemId: item.id, stage: { in: stepNames }, completedAt: null },
             data: { completedAt: new Date() }
           });
           if (stage === "FINAL_SEWING" || (stage === "FINISHING" && !stageSequence.includes("FINAL_SEWING"))) {
@@ -221,21 +237,17 @@ router.post(
         action = "check_out";
       } else {
         // Check-in
-        const alreadyHere = await prisma.stageCheckpoint.findFirst({
-          where: { orderItemId: item.id, stage, checkedOutAt: null }
-        });
-        if (alreadyHere) {
-          return res.status(400).json({
-            message: `This garment is already checked into ${stage}`
-          });
-        }
-
         const validation = await validateCheckIn(item.id, stage, stageSequence, {
           adminOverride,
           offSiteStages
         });
         if (!validation.ok) {
           return res.status(400).json({ message: validation.message });
+        }
+        if (validation.alreadyOpen) {
+          return res.status(400).json({
+            message: `This garment is already checked into ${validation.checkpoint?.stage || stage}`
+          });
         }
 
         const assembleAt = assemblyStage(stageSequence);
@@ -633,17 +645,18 @@ router.get("/workstations", requireCapability("scan"), async (_req, res) => {
     where: { tenantId: DEFAULT_TENANT_ID, active: true },
     include: { skills: true, assignments: { where: { completedAt: null } } }
   });
-  const workstations = WORKSTATION_STAGES.map((stage) => {
-    const workers = staff.filter((st) => st.skills.some((sk) => sk.stage === stage));
+  const workstations = CANONICAL_WORKSTATION_STAGES.map((stage) => {
+    const names = stageAliases(stage);
+    const workers = staff.filter((st) => st.skills.some((sk) => names.includes(sk.stage)));
     return {
       stage,
-      label: `${stage.charAt(0)}${stage.slice(1).toLowerCase()} workstation`,
+      label: `${WORKSTATION_LABELS[stage] || stage} workstation`,
       workers: workers.map((st) => ({
         _id: st.id,
         name: st.name,
         role: st.role,
         status: st.status,
-        queuedCount: st.assignments.filter((a) => a.stage === stage).length
+        queuedCount: st.assignments.filter((a) => names.includes(a.stage)).length
       }))
     };
   });

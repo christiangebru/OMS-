@@ -135,7 +135,7 @@ export function nextExpectedStageWithOffSite(checkpoints, stageSequence, offSite
       if (!trip) return OFF_SITE_STAGE;
       continue;
     }
-    const cp = findCheckpoint(checkpoints, stage);
+    const cp = findCheckpoint(checkpoints, stage, stageSequence);
     if (!cp) return stage;
     if (!cp.checkedOutAt) return stage;
   }
@@ -185,7 +185,7 @@ export function priorEffectiveStagesComplete(checkpoints, targetStage, stageSequ
       tripIdx += 1;
       continue;
     }
-    const cp = findCheckpoint(checkpoints, prior);
+    const cp = findCheckpoint(checkpoints, prior, stageSequence);
     if (!cp?.checkedOutAt) {
       return {
         ok: false,

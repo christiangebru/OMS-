@@ -5,7 +5,7 @@ import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./s
 import { rankStaffForAssignment } from "./assignmentScore.js";
 import { s } from "./serialize.js";
 import { operationalItemBarcode, operationalPartBarcode } from "./barcode.js";
-import { isTopLevelItem } from "./productionModel.js";
+import { isTopLevelItem, findCheckpoint, stageMatchesStep } from "./productionModel.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -97,8 +97,9 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
     const path = seqInfo.stageSequence
       .filter((s) => s !== "DELIVERED")
       .map((stage) => {
-        const a = chainAsg.filter((x) => x.stage === stage).at(-1) || null;
-        const cp = cps.find((c) => c.stage === stage);
+        const a =
+          chainAsg.filter((x) => stageMatchesStep(x.stage, stage, seqInfo.stageSequence)).at(-1) || null;
+        const cp = findCheckpoint(cps, stage, seqInfo.stageSequence);
         let status = "waiting";
         if (cp?.checkedOutAt) status = "completed";
         else if (cp && !cp.checkedOutAt) status = "in_progress";

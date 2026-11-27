@@ -18,7 +18,7 @@ import {
   openOffSiteCheckpoint,
   pendingOffSiteWindow
 } from "./offSite.js";
-import { isGarmentCompleteStage, isTopLevelItem } from "./productionModel.js";
+import { isGarmentCompleteStage, isTopLevelItem, findCheckpoint, stageMatchesStep } from "./productionModel.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -429,12 +429,13 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       stageStates,
       assignment: assignmentSummary(openAssignment),
       assignmentChain: effectiveScanSequence(seqInfo.stageSequence, offSiteStages).map((stage) => {
-        const asg = allAssignments.find((a) => a.stage === stage) || null;
+        const asg =
+          allAssignments.find((a) => stageMatchesStep(a.stage, stage, seqInfo.stageSequence)) || null;
         const cp =
           stage === OFF_SITE_STAGE
             ? openOffSiteCheckpoint(checkpoints) ||
               checkpoints.filter((c) => c.stage === OFF_SITE_STAGE).at(-1)
-            : checkpoints.find((c) => c.stage === stage);
+            : findCheckpoint(checkpoints, stage, seqInfo.stageSequence);
         let status = "waiting";
         if (stage === OFF_SITE_STAGE) {
           if (openOffSiteCheckpoint(checkpoints)) status = "in_progress";
