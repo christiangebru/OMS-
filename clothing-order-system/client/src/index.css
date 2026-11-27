@@ -113,3 +113,243 @@
     box-shadow: none !important;
   }
 }
+
+/* ---------- Sticker labels (LabelCard) ----------
+   --lw/--lh: physical size in mm. --ls: on-screen enlargement only. */
+.label-card {
+  --u: calc(var(--lh) / 30);
+  /* --ls comes from the component; --k is the on-screen scale actually used. */
+  --k: var(--ls);
+  width: calc(var(--lw) * var(--k));
+  height: calc(var(--lh) * var(--k));
+  font-size: calc(var(--u) * 2.6 * var(--k));
+  padding: calc(var(--u) * 1.4 * var(--k)) calc(var(--u) * 2 * var(--k));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  color: #111;
+  border: 1px solid #111;
+  box-sizing: border-box;
+  line-height: 1.15;
+}
+/* Text rows keep their height; only the barcode shrinks when space is tight. */
+.label-top,
+.label-title,
+.label-sub,
+.label-code { flex-shrink: 0; }
+@media (max-width: 640px) {
+  .label-card { --k: calc(var(--ls) * 0.7); }
+}
+.label-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4em;
+}
+.label-kind {
+  font-size: 0.7em;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #555;
+}
+.label-priority {
+  font-size: 0.75em;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  background: #111;
+  color: #fff;
+  padding: 0.05em 0.45em;
+}
+.label-title {
+  margin-top: 0.15em;
+  font-size: 1.15em;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.label-sub {
+  font-size: 0.8em;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.label-bars {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.2em;
+}
+.label-bars > span {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.label-barcode {
+  max-height: 100%;
+  max-width: 100%;
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.label-code {
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.05em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* Print: true size; the print-only sheet holds exactly the chosen stickers. */
+.label-sheet { display: none; }
+@media print {
+  .label-sheet { display: block; }
+  .label-sheet .label-card {
+    width: var(--lw);
+    height: var(--lh);
+    font-size: calc(var(--u) * 2.6);
+    padding: calc(var(--u) * 1.4) calc(var(--u) * 2);
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .label-sheet .barcode-mark { max-height: none; }
+  .label-sheet[data-mode="roll"] .label-card {
+    border: 0;
+    break-after: page;
+    page-break-after: always;
+  }
+  .label-sheet[data-mode="roll"] .label-card:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  .label-sheet[data-mode="sheet"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2mm;
+    align-items: flex-start;
+  }
+  .label-screen { display: none !important; }
+}
+
+/* ---------- Camera scanner ---------- */
+/* Make the library's video fill the frame (it sets inline sizes). */
+.scan-host > div,
+.scan-host video {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+/* Never show the library's own shaded box; the page draws the only guide. */
+.scan-host #qr-shaded-region { display: none !important; }
+.scan-guide { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35); border-radius: 6px; }
+.scan-corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border-color: rgba(255, 255, 255, 0.95);
+  border-radius: 4px;
+}
+.scan-guide--hit .scan-corner { border-color: #34d399; }
+.scan-guide--hit { box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35), inset 0 0 0 2px #34d399; }
+.scan-line {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  height: 2px;
+  background: rgba(248, 113, 113, 0.9);
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.8);
+  animation: scan-sweep 1.8s ease-in-out infinite alternate;
+}
+@keyframes scan-sweep {
+  from { top: 12%; }
+  to { top: 86%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scan-line { animation: none; top: 50%; }
+}
+@media print {
+  /* Label pages: no app chrome or padding around the stickers. */
+  body:has(.label-sheet) main,
+  body:has(.label-sheet) main > *,
+  body:has(.label-sheet) #root > div {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    gap: 0 !important;
+  }
+}
+
+/* Label types: told apart by shape (thermal = black only). */
+.label-card--order {
+  border-width: 3px;
+  padding-top: 0;
+}
+.label-card--order .label-top {
+  margin: 0 calc(var(--u) * -2 * var(--k)) 0.15em;
+  padding: 0.25em calc(var(--u) * 2 * var(--k));
+  background: #111;
+}
+.label-card--order .label-kind { color: #fff; font-size: 0.85em; font-weight: 800; letter-spacing: 0.2em; }
+.label-card--order .label-priority { background: #fff; color: #111; }
+.label-card--order .label-title { font-size: 1.3em; }
+.label-card--garment { border-width: 2px; }
+.label-card--part {
+  border-style: dashed;
+  border-width: 1.5px;
+  padding-left: 0;
+}
+.label-card--accessory { border-radius: calc(var(--u) * 3 * var(--k)); }
+.label-card--accessory .label-kind {
+  border: 1px solid #111;
+  border-radius: 999px;
+  padding: 0 0.5em;
+  color: #111;
+}
+.label-part-row { display: flex; height: 100%; gap: 0.4em; min-height: 0; }
+.label-part-code {
+  flex: 0 0 auto;
+  width: 1.9em;
+  margin: calc(var(--u) * -1.4 * var(--k)) 0;
+  background: #111;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 1.35em;
+  letter-spacing: 0.02em;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+.label-part-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+@media print {
+  .label-sheet .label-card--order .label-top {
+    margin: 0 calc(var(--u) * -2) 0.15em;
+    padding: 0.25em calc(var(--u) * 2);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .label-sheet .label-card--accessory { border-radius: calc(var(--u) * 3); }
+  .label-sheet .label-part-code {
+    margin: calc(var(--u) * -1.4) 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .label-sheet .label-priority {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* On a roll, keep the type shapes even without the outer border. */
+  .label-sheet[data-mode="roll"] .label-card--part { border: 1.5px dashed #111; }
+  .label-sheet[data-mode="roll"] .label-card--accessory { border: 1px solid #111; }
+}
