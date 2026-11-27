@@ -11,12 +11,13 @@ export async function requireAuth(req, res, next) {
     const decoded = verifyToken(token);
     const user = await prisma.user.findUnique({
       where: { id: decoded.sub },
-      select: { id: true, email: true, name: true, role: true }
+      select: { id: true, email: true, name: true, role: true, active: true }
     });
-    if (!user) {
+    if (!user || user.active === false) {
       return res.status(401).json({ message: "User not found" });
     }
-    req.user = user;
+    const { active: _active, ...rest } = user;
+    req.user = rest;
     next();
   } catch {
     return res.status(401).json({ message: "Invalid or expired token" });

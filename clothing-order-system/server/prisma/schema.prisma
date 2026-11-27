@@ -22,7 +22,9 @@ model User {
   email        String   @unique
   passwordHash String
   name         String
-  role         String   @default("manager") // admin | manager
+  role         String   @default("manager") // admin | manager | reception (worker roles reserved)
+  /// false = login switched off by an owner; the record and its history stay.
+  active       Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -136,7 +138,7 @@ model Order {
 }
 
 model OrderItem {
-  id                 String   @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
+  id                 String    @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
   order              String // FK -> Order.id (kept named `order` to preserve API/query contract)
   orderId            String // denormalized business order id
   clothingCode       String
@@ -144,37 +146,39 @@ model OrderItem {
   fabricType         String
   color              String
   quantity           Int
-  notes              String   @default("")
+  notes              String    @default("")
   neckType           String
   handType           String
   size               String
   measurements       Json?
-  productionDays     Int      @default(3)
-  lineTotal          Float    @default(0)
-  unitPrice          Float    @default(0)
-  difficultyLevel    Int      @default(3)
-  barcodeValue       String   @unique
+  productionDays     Int       @default(3)
+  lineTotal          Float     @default(0)
+  unitPrice          Float     @default(0)
+  difficultyLevel    Int       @default(3)
+  barcodeValue       String    @unique
   barcodeGeneratedAt DateTime
   /// garment | accessory | part
-  itemKind           String   @default("garment")
+  itemKind           String    @default("garment")
   /// men | women | kids_boy | kids_girl — clothing category chosen at order time
-  audience           String   @default("")
+  audience           String    @default("")
   /// shirt | trouser | both | belt | netela | garment — option that created this item
-  setChoice          String   @default("")
+  setChoice          String    @default("")
   parentItemId       String?
   /// BD | WR | LB | UB | …
-  partCode           String   @default("")
+  partCode           String    @default("")
   /// 1-based index among top-level garments/accessories in the order
-  itemIndex          Int      @default(1)
+  itemIndex          Int       @default(1)
   assembledAt        DateTime?
-  offSiteStages      String[] @default([])
-  printPartLabel     Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  offSiteStages      String[]  @default([])
+  /// Manager edited this garment's off-site route; an empty list then means all in shop.
+  offSiteRouteCustom Boolean   @default(false)
+  printPartLabel     Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  orderRel    Order            @relation(fields: [order], references: [id], onDelete: Cascade)
-  parentItem  OrderItem?       @relation("GarmentParts", fields: [parentItemId], references: [id], onDelete: Cascade)
-  parts       OrderItem[]      @relation("GarmentParts")
+  orderRel    Order             @relation(fields: [order], references: [id], onDelete: Cascade)
+  parentItem  OrderItem?        @relation("GarmentParts", fields: [parentItemId], references: [id], onDelete: Cascade)
+  parts       OrderItem[]       @relation("GarmentParts")
   images      OrderItemImage[]
   checkpoints StageCheckpoint[]
   assignments StaffAssignment[]
@@ -276,21 +280,23 @@ model StaffSkill {
 }
 
 model StaffAssignment {
-  id                 String    @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
-  staffId            String
-  orderItemId        String
-  stage              String
-  assignedAt         DateTime  @default(now())
-  completedAt        DateTime?
-  suggestedStaffId   String?
-  followedSuggestion Boolean   @default(false)
+  id                  String    @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
+  staffId             String
+  orderItemId         String
+  stage               String
+  assignedAt          DateTime  @default(now())
+  completedAt         DateTime?
+  suggestedStaffId    String?
+  followedSuggestion  Boolean   @default(false)
   /// Manager handed the physical garment to the worker (distinct from assigned).
-  distributedAt      DateTime?
+  distributedAt       DateTime?
   distributedByUserId String?
   /// Worker acknowledged receipt of the garment.
-  receivedAt         DateTime?
+  receivedAt          DateTime?
   /// Manual queue order for this worker (lower = earlier). Null = automatic priority.
-  queuePosition      Int?
+  queuePosition       Int?
+  /// Stage was handed to another worker. completedAt is also set (closed), but it is not finished work.
+  reassignedAt        DateTime?
 
   staff     Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
@@ -309,6 +315,10 @@ model StageCheckpoint {
   checkedOutAt        DateTime?
   checkedOutByStaffId String?
   notes               String    @default("")
+  /// OFF_SITE trips: who took the garment (free text, not a Staff record).
+  offSiteHandlerName  String    @default("")
+  offSiteHandlerPhone String    @default("")
+  expectedReturnAt    DateTime?
 
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
 
@@ -317,17 +327,17 @@ model StageCheckpoint {
 }
 
 model StatisticSnapshot {
-  id              String   @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
-  key             String   @unique @default("global")
-  totalOrders     Int      @default(0)
-  completedOrders Int      @default(0)
-  delayedOrders   Int      @default(0)
-  totalRevenue    Float    @default(0)
-  byStatus        Json     @default("{}")
-  byClothingType  Json     @default("{}")
+  id              String    @id @default(dbgenerated("substr(md5((random())::text || (clock_timestamp())::text), 1, 24)"))
+  key             String    @unique @default("global")
+  totalOrders     Int       @default(0)
+  completedOrders Int       @default(0)
+  delayedOrders   Int       @default(0)
+  totalRevenue    Float     @default(0)
+  byStatus        Json      @default("{}")
+  byClothingType  Json      @default("{}")
   lastComputedAt  DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@map("statistic_snapshots")
 }

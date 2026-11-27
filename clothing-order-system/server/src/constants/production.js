@@ -74,17 +74,11 @@ export function stageMatchesStep(storedStage, step, stageSequence = []) {
   return stepStageNames(step, stageSequence).includes(storedStage);
 }
 
-export const SkillProductionStage = [
-  "RECEIVED",
-  "SEWING_CUTTING",
-  "EMBROIDERY",
-  "FINAL_SEWING",
-  "FINISHING",
-  "OFF_SITE",
-  "SHOWROOM",
-  "PACKAGING",
-  "DELIVERED"
-];
+/**
+ * Skills are workstation work only. RECEIVED, OFF_SITE, SHOWROOM, PACKAGING and
+ * DELIVERED are states or locations the manager scans, not skills.
+ */
+export const SkillProductionStage = ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
 
 export function normalizeSkillStage(stage) {
   return canonicalStage(stage);

@@ -196,3 +196,30 @@ export function priorEffectiveStagesComplete(checkpoints, targetStage, stageSequ
   }
   return { ok: true, resolved };
 }
+
+/**
+ * Off-site route for one garment. The clothing type's offSiteStages are only a
+ * default: once the manager changes a garment's route (offSiteRouteCustom),
+ * the garment's own list wins, even when empty (= all in shop).
+ */
+export function itemOffSiteStages(item, typeOffSiteStages = []) {
+  if (item?.offSiteRouteCustom) return [...(item.offSiteStages || [])];
+  if (item?.offSiteStages?.length) return [...item.offSiteStages];
+  return [...(typeOffSiteStages || [])];
+}
+
+/** Public summary of an off-site trip checkpoint (who has it, until when). */
+export function offSiteTripSummary(cp) {
+  if (!cp) return null;
+  return {
+    checkpointId: cp.id,
+    sentAt: cp.checkedInAt,
+    returnedAt: cp.checkedOutAt || null,
+    handlerName: cp.offSiteHandlerName || "",
+    handlerPhone: cp.offSiteHandlerPhone || "",
+    expectedReturnAt: cp.expectedReturnAt || null,
+    overdue: Boolean(
+      !cp.checkedOutAt && cp.expectedReturnAt && new Date(cp.expectedReturnAt).getTime() < Date.now()
+    )
+  };
+}

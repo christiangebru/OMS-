@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/Button";
 
 type PathStep = { stage: ProductionStage; staffId: string };
 
+const NON_WORKSTATION: string[] = ["RECEIVED", "OFF_SITE", "SHOWROOM", "READY", "PACKAGING", "DELIVERED"];
+
 export function AssignmentChain({
   orderItemId,
   scan,
@@ -16,9 +18,13 @@ export function AssignmentChain({
   scan?: ScanDetails | null;
   onSaved?: () => void;
 }) {
+  // Only workstation stages take a worker. Showroom/packing are states, and
+  // off-site stages go to an outside person recorded when the garment is sent.
+  const offSite = new Set(scan?.production?.offSiteStages || scan?.item?.offSiteStages || []);
   const sequence = (scan?.timing.stageSequence || PRODUCTION_STAGES).filter(
-    (s) => !["DELIVERED"].includes(s)
+    (s) => !NON_WORKSTATION.includes(s) && !offSite.has(s)
   ) as ProductionStage[];
+  const offSiteSteps = (scan?.timing.stageSequence || []).filter((s) => offSite.has(s));
   const [staffByStage, setStaffByStage] = useState<Record<string, Staff[]>>({});
   const [path, setPath] = useState<PathStep[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -100,6 +106,11 @@ export function AssignmentChain({
           </li>
         ))}
       </ol>
+      {offSiteSteps.length > 0 && (
+        <p className="mt-2 text-xs text-amber-800">
+          Off-site: {offSiteSteps.map((s) => stageLabel(s)).join(", ")}. Record who takes it when you send it out.
+        </p>
+      )}
       <Button type="button" className="mt-3" disabled={busy} onClick={save}>
         {busy ? "Saving…" : "Save path"}
       </Button>

@@ -56,7 +56,9 @@ function normalizeSkillInputs(raw, fallbackLevel = 3) {
       } else {
         byStage.set(stage, { stage, level: fallbackLevel });
       }
-    } else {
+    } else if (!ProductionStage.includes(stage)) {
+      // Known non-workstation stages (SHOWROOM, OFF_SITE, …) are not skills:
+      // drop them quietly. Only genuinely unknown names are an error.
       rejected.push(rawStage);
     }
   }
@@ -118,11 +120,11 @@ router.get("/:id/workload", param("id").custom(isRecordId), async (req, res) => 
   const activeCount = active.length;
 
   const completedCount = await prisma.staffAssignment.count({
-    where: { staffId: staff.id, completedAt: { not: null } }
+    where: { staffId: staff.id, completedAt: { not: null }, reassignedAt: null }
   });
 
   const recentCompletions = await prisma.staffAssignment.findMany({
-    where: { staffId: staff.id, completedAt: { not: null } },
+    where: { staffId: staff.id, completedAt: { not: null }, reassignedAt: null },
     include: { orderItem: true },
     orderBy: { completedAt: "desc" },
     take: 20
@@ -148,7 +150,8 @@ router.get("/:id/workload", param("id").custom(isRecordId), async (req, res) => 
   const checkpoints = await prisma.stageCheckpoint.findMany({
     where: {
       OR: [{ checkedInByStaffId: staff.id }, { checkedOutByStaffId: staff.id }],
-      checkedOutAt: { not: null }
+      checkedOutAt: { not: null },
+      stage: { not: "OFF_SITE" }
     },
     orderBy: { checkedOutAt: "desc" },
     take: 50
@@ -162,7 +165,7 @@ router.get("/:id/workload", param("id").custom(isRecordId), async (req, res) => 
     : null;
 
   const openNow = await prisma.stageCheckpoint.findMany({
-    where: { checkedInByStaffId: staff.id, checkedOutAt: null },
+    where: { checkedInByStaffId: staff.id, checkedOutAt: null, stage: { not: "OFF_SITE" } },
     include: { orderItem: true }
   });
 

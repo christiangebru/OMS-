@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, Staff, StaffRole, StaffStatus } from "@/lib/types";
-import { PRODUCTION_STAGES } from "@/lib/types";
+import { SKILL_STAGES } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PageHeader, ErrorState, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
@@ -260,7 +260,7 @@ export function StaffDetailPage() {
         <section className="ui-card space-y-4 p-5">
           <p className="text-sm text-ink-muted">Turn on stages this worker can run, then set skill from 1 to 5.</p>
           <ul className="space-y-3">
-            {PRODUCTION_STAGES.map((stage) => {
+            {SKILL_STAGES.map((stage) => {
               const level = skillMap[stage];
               const on = level != null;
               return (

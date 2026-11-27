@@ -19,6 +19,7 @@ import {
   pendingOffSiteWindow
 } from "./offSite.js";
 import { isGarmentCompleteStage, isTopLevelItem, findCheckpoint, stageMatchesStep } from "./productionModel.js";
+import { itemOffSiteStages, offSiteTripSummary } from "./offSite.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -61,7 +62,8 @@ export function managerCommandFor({
   location
 }) {
   if (location === "off_site" || open?.stage === OFF_SITE_STAGE) {
-    return "Garment is off-site. Scan in when it returns.";
+    const who = open?.offSiteHandlerName ? ` with ${open.offSiteHandlerName}` : "";
+    return `Garment is off-site${who}. Scan in when it returns.`;
   }
   if (nextStage === OFF_SITE_STAGE) {
     return "Scan out to off-site.";
@@ -223,7 +225,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     siblingSource.map(async (sib) => {
       const cps = cpByItem.get(sib.id) || [];
       const seq = await resolveStageSequence(sib.clothingType);
-      const off = sib.offSiteStages?.length ? sib.offSiteStages : seq.offSiteStages;
+      const off = itemOffSiteStages(sib, seq.offSiteStages);
       const idx = sib.itemIndex || 1;
       return {
         _id: sib.id,
@@ -259,7 +261,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     }
   }
 
-  const offSiteStages = item.offSiteStages?.length ? item.offSiteStages : seqInfo.offSiteStages || [];
+  const offSiteStages = itemOffSiteStages(item, seqInfo.offSiteStages);
   const currentStage = deriveCurrentStage(checkpoints, seqInfo.stageSequence, offSiteStages);
   const nextStage = nextExpectedStage(checkpoints, seqInfo.stageSequence, offSiteStages);
   const loc = garmentLocation(checkpoints);
@@ -336,7 +338,31 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     returnStage: pendingWindow?.returnStage
   });
 
-  const locationFromOffSite = offSiteLabel;
+  const openTrip = offSiteTripSummary(openOffSiteCheckpoint(checkpoints));
+  const tripBits = openTrip
+    ? [
+        openTrip.handlerName ? `with ${openTrip.handlerName}` : "",
+        openTrip.expectedReturnAt
+          ? `due back ${new Date(openTrip.expectedReturnAt).toISOString().slice(0, 10)}`
+          : ""
+      ].filter(Boolean)
+    : [];
+  const offSiteOptions = {
+    // In-shop stage that could go out instead (manager's choice, per garment).
+    sendNextStage:
+      !open &&
+      nextStage &&
+      nextStage !== OFF_SITE_STAGE &&
+      seqInfo.stageSequence.includes(nextStage) &&
+      !isGarmentCompleteStage(nextStage)
+        ? nextStage
+        : null,
+    // Planned off-site stages that could be kept in shop instead.
+    plannedStages: !open && nextStage === OFF_SITE_STAGE ? pendingWindow?.stages || [] : []
+  };
+  const locationFromOffSite = openTrip
+    ? ["Off-site", ...tripBits].join(" · ")
+    : offSiteLabel;
   const locationLabelResolved =
     locationFromOffSite ||
     (open
@@ -468,6 +494,10 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       locationKind: loc,
       offSite: loc === "off_site",
       returnStage: pendingWindow?.returnStage || null,
+      offSiteTrip: openTrip,
+      offSiteTrips: checkpoints.filter((c) => c.stage === OFF_SITE_STAGE).map(offSiteTripSummary),
+      offSiteOptions,
+      offSiteStages,
       managerCommand: managerCommandFor({
         open,
         currentStage: open?.stage || currentStage,

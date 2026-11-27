@@ -1,5 +1,6 @@
 import { execSync } from "child_process";
 import { checkDb } from "../config/db.js";
+import { checkSchema } from "../utils/schemaCheck.js";
 
 function resolveCommit() {
   const envCommit =
@@ -31,15 +32,31 @@ export function healthLivenessHandler(probe = checkDb) {
   };
 }
 
-/** Readiness: 503 when the database cannot be reached. Not used as healthCheckPath. */
-export function readinessHandler(probe = checkDb) {
+/**
+ * Readiness: 503 when the database cannot be reached, or when its schema does
+ * not match this build (missing columns, pending or failed migrations).
+ * Not used as healthCheckPath. A custom `probe` (tests) skips the schema check
+ * unless a `schemaProbe` is also passed.
+ */
+export function readinessHandler(probe = checkDb, schemaProbe = probe === checkDb ? checkSchema : null) {
   return async (_req, res) => {
     try {
       await probe();
-      res.status(200).json({ ok: true, db: "postgresql", dbConnected: true });
     } catch {
-      res.status(503).json({ ok: false, db: "postgresql", dbConnected: false });
+      return res.status(503).json({ ok: false, db: "postgresql", dbConnected: false });
     }
+    if (!schemaProbe) {
+      return res.status(200).json({ ok: true, db: "postgresql", dbConnected: true });
+    }
+    let schema;
+    try {
+      schema = await schemaProbe();
+    } catch (e) {
+      schema = { ok: false, error: "schema check failed" };
+    }
+    res
+      .status(schema.ok ? 200 : 503)
+      .json({ ok: schema.ok, db: "postgresql", dbConnected: true, schema });
   };
 }
 

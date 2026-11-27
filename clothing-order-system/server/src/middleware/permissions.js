@@ -15,7 +15,8 @@ export const CAPABILITIES = {
   "distribution": ["admin", "manager"],
   "dashboard": ["admin", "manager", "reception"],
   "scan": UserRole,
-  "labels": ["admin", "manager", "packer", "reception"]
+  "labels": ["admin", "manager", "packer", "reception"],
+  "users.manage": ["admin"]
 };
 
 export function hasCapability(role, capability) {

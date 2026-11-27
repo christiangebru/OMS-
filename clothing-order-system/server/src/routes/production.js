@@ -7,7 +7,7 @@ import { ProductionStage, stagesForUserRole } from "../constants/production.js";
 import { requireCapability } from "../middleware/permissions.js";
 import { DEFAULT_TENANT_ID } from "../config/tenant.js";
 import { buildScanDetails, resolveScanTarget, buildOrderScanDetails } from "../utils/scanDetails.js";
-import { resolveStageSequence, validateCheckIn } from "../utils/stageSequence.js";
+import { resolveStageSequence, validateCheckIn, nextExpectedStage } from "../utils/stageSequence.js";
 import { syncOrderStatusFromItems } from "../utils/syncOrderFromStages.js";
 import { rankStaffForAssignment } from "../utils/assignmentScore.js";
 import { hydrateOrder } from "../utils/orderHydrate.js";
@@ -20,11 +20,14 @@ import {
   skillStagesFor,
   assemblyStage,
   canonicalStage,
-  stepStageNames
+  stepStageNames,
+  findCheckpoint,
+  isGarmentCompleteStage
 } from "../utils/productionModel.js";
 import { resolveRequestedStage } from "../utils/stageSequence.js";
-import { OFF_SITE_STAGE, openOffSiteCheckpoint } from "../utils/offSite.js";
+import { OFF_SITE_STAGE, openOffSiteCheckpoint, pendingOffSiteWindow } from "../utils/offSite.js";
 import { packOrder, deliverPackedOrder, packagingMessage } from "../utils/orderPack.js";
+import { itemOffSiteStages } from "../utils/offSite.js";
 
 const router = Router();
 
@@ -36,23 +39,35 @@ const WORKSTATION_LABELS = {
 };
 router.use(requireAuth);
 
+/** Stages that are a location or order step, not a workstation: no worker or skill needed. */
+const STAFF_OPTIONAL_STAGES = new Set(["RECEIVED", "OFF_SITE", "SHOWROOM", "READY", "PACKAGING", "DELIVERED"]);
+
+function staffOptionalFor(stage) {
+  return STAFF_OPTIONAL_STAGES.has(stage) || STAFF_OPTIONAL_STAGES.has(canonicalStage(stage));
+}
+
 async function assertStaffForStage(staffId, stage, { requireOnDuty = true } = {}, client = prisma) {
+  if (!staffId) {
+    if (staffOptionalFor(stage)) return null;
+    throw Object.assign(new Error(`Choose the worker for ${stage}.`), { status: 400 });
+  }
   const staff = await client.staff.findFirst({
     where: { id: staffId, tenantId: DEFAULT_TENANT_ID, active: true }
   });
   if (!staff) {
     throw Object.assign(new Error("Staff not found or inactive"), { status: 400 });
   }
-  if (requireOnDuty && staff.status === "OFF_DUTY") {
+  if (requireOnDuty && staff.status === "OFF_DUTY" && !staffOptionalFor(stage)) {
     throw Object.assign(
       new Error(`${staff.name} is off duty and cannot take this stage.`),
       { status: 400 }
     );
   }
+  if (staffOptionalFor(stage)) return staff;
   const skill = await client.staffSkill.findFirst({
     where: { staffId: staff.id, stage: { in: skillStagesFor(stage) } }
   });
-  if (!skill && stage !== OFF_SITE_STAGE && stage !== "PACKAGING" && stage !== "DELIVERED") {
+  if (!skill) {
     throw Object.assign(
       new Error(`Worker is not assigned to this stage: ${staff.name} is not skilled for ${stage}`),
       { status: 400 }
@@ -61,11 +76,13 @@ async function assertStaffForStage(staffId, stage, { requireOnDuty = true } = {}
   return staff;
 }
 
+/** BUSY = actively on a workstation garment. Off-site trips never make a worker busy. */
 async function refreshStaffPresence(staffId, client = prisma) {
+  if (!staffId) return;
   const staff = await client.staff.findUnique({ where: { id: staffId } });
   if (!staff || staff.status === "OFF_DUTY") return;
   const open = await client.stageCheckpoint.count({
-    where: { checkedInByStaffId: staffId, checkedOutAt: null }
+    where: { checkedInByStaffId: staffId, checkedOutAt: null, stage: { not: OFF_SITE_STAGE } }
   });
   const next = open > 0 ? "BUSY" : "AVAILABLE";
   if (staff.status !== next) {
@@ -74,9 +91,12 @@ async function refreshStaffPresence(staffId, client = prisma) {
 }
 
 async function upsertAssignment(tx, { staffId, orderItemId, stage, suggestedStaffId, followedSuggestion, userId }) {
+  // Handing a stage to someone else closes the old assignment as reassigned,
+  // not as finished work.
+  const now = new Date();
   await tx.staffAssignment.updateMany({
     where: { orderItemId, stage, completedAt: null, staffId: { not: staffId } },
-    data: { completedAt: new Date() }
+    data: { completedAt: now, reassignedAt: now }
   });
   const existing = await tx.staffAssignment.findFirst({
     where: { orderItemId, stage, staffId, completedAt: null }
@@ -90,7 +110,7 @@ async function upsertAssignment(tx, { staffId, orderItemId, stage, suggestedStaf
       staffId,
       orderItemId,
       stage,
-      assignedAt: new Date(),
+      assignedAt: now,
       completedAt: null,
       suggestedStaffId: suggestedStaffId || null,
       followedSuggestion: Boolean(followedSuggestion),
@@ -99,13 +119,29 @@ async function upsertAssignment(tx, { staffId, orderItemId, stage, suggestedStaf
   });
 }
 
+function offSiteTripData(body) {
+  const clip = (v, n) => String(v || "").trim().slice(0, n);
+  const due = body.expectedReturnAt ? new Date(body.expectedReturnAt) : null;
+  return {
+    offSiteHandlerName: clip(body.offSiteHandlerName, 120),
+    offSiteHandlerPhone: clip(body.offSiteHandlerPhone, 40),
+    expectedReturnAt: due && !Number.isNaN(due.getTime()) ? due : null
+  };
+}
+
+const optionalId = { nullable: true, checkFalsy: true };
+
 router.post(
   "/scan",
   body("barcodeValue").trim().notEmpty(),
   body("stage").isIn(ProductionStage),
-  body("staffId").custom(isRecordId),
+  body("staffId").optional(optionalId).custom(isRecordId),
   body("notes").optional().isString(),
   body("adminOverride").optional().isBoolean(),
+  body("offSiteFor").optional(optionalId).isIn(ProductionStage),
+  body("offSiteHandlerName").optional({ nullable: true }).isString().isLength({ max: 120 }),
+  body("offSiteHandlerPhone").optional({ nullable: true }).isString().isLength({ max: 40 }),
+  body("expectedReturnAt").optional(optionalId).isISO8601(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -115,7 +151,7 @@ router.post(
       const notes = req.body.notes || "";
       const adminOverride = Boolean(req.body.adminOverride);
       const userRole = req.user?.role;
-      const staffId = req.body.staffId;
+      const staffId = req.body.staffId || null;
 
       if (adminOverride && !["admin", "manager"].includes(userRole)) {
         return res.status(403).json({ message: "Only admin/manager can override stage sequence" });
@@ -168,7 +204,7 @@ router.post(
 
       const item = target.item;
       const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType);
-      const offSiteStages = item.offSiteStages?.length ? item.offSiteStages : typeOffSite || [];
+      let offSiteStages = itemOffSiteStages(item, typeOffSite);
       const stage = resolveRequestedStage(req.body.stage, [...stageSequence, OFF_SITE_STAGE]);
 
       if (
@@ -190,10 +226,12 @@ router.post(
 
       let action;
       let checkpoint;
+      let actor = null;
 
       if (openAtStage) {
-        // Check-out
-        const staff = await assertStaffForStage(staffId, stage, { requireOnDuty: false });
+        // Check-out (for OFF_SITE: the garment came back)
+        actor = await assertStaffForStage(staffId, stage, { requireOnDuty: false });
+        const actorName = actor?.name || req.user?.name || "manager";
         checkpoint = await prisma.$transaction(async (tx) => {
           const cp = await tx.stageCheckpoint.update({
             where: { id: openAtStage.id },
@@ -227,7 +265,10 @@ router.post(
               action: "scan_out",
               fromStatus: stage,
               toStatus: stage,
-              notes: `Checked out of ${stage} by ${staff.name}`,
+              notes:
+                stage === OFF_SITE_STAGE
+                  ? `Returned from off-site${openAtStage.offSiteHandlerName ? ` (${openAtStage.offSiteHandlerName})` : ""}`
+                  : `Checked out of ${stage} by ${actorName}`,
               metadata: { stage, staffId, itemId: item.id, barcodeValue: item.barcodeValue }
             }
           });
@@ -236,7 +277,26 @@ router.post(
         await refreshStaffPresence(staffId);
         action = "check_out";
       } else {
-        // Check-in
+        // Check-in (for OFF_SITE: the garment leaves the shop)
+        let routeChange = null;
+        if (stage === OFF_SITE_STAGE && req.body.offSiteFor) {
+          const cps = await prisma.stageCheckpoint.findMany({ where: { orderItemId: item.id } });
+          const sendFor = resolveRequestedStage(req.body.offSiteFor, stageSequence);
+          if (!stageSequence.includes(sendFor) || isGarmentCompleteStage(sendFor)) {
+            return res.status(400).json({ message: `${sendFor} cannot be sent off-site.` });
+          }
+          const next = nextExpectedStage(cps, stageSequence, offSiteStages);
+          if (next !== OFF_SITE_STAGE) {
+            if (next !== sendFor) {
+              return res.status(400).json({
+                message: `Only the next stage (${next}) can be sent off-site.`
+              });
+            }
+            offSiteStages = [...offSiteStages, sendFor];
+            routeChange = offSiteStages;
+          }
+        }
+
         const validation = await validateCheckIn(item.id, stage, stageSequence, {
           adminOverride,
           offSiteStages
@@ -271,23 +331,37 @@ router.post(
           }
         }
 
-        const staff = await assertStaffForStage(staffId, stage, { requireOnDuty: true });
+        const goingOffSite = stage === OFF_SITE_STAGE;
+        actor = await assertStaffForStage(staffId, stage, { requireOnDuty: true });
+        // The worker on an off-site trip is the outside person, not a staff
+        // record, so an off-site scan never ties up a registered worker.
+        const workerId = goingOffSite ? null : staffId;
 
-        const otherOpen = await prisma.stageCheckpoint.findFirst({
-          where: {
-            checkedInByStaffId: staffId,
-            checkedOutAt: null,
-            orderItemId: { not: item.id }
-          },
-          include: { orderItem: true }
-        });
-        if (otherOpen && !adminOverride) {
-          return res.status(400).json({
-            message: `${staff.name} is already working on ${otherOpen.orderItem?.orderId || "another garment"} (${otherOpen.stage}). Scan that item out first.`
+        if (workerId) {
+          const otherOpen = await prisma.stageCheckpoint.findFirst({
+            where: {
+              checkedInByStaffId: workerId,
+              checkedOutAt: null,
+              stage: { not: OFF_SITE_STAGE },
+              orderItemId: { not: item.id }
+            },
+            include: { orderItem: true }
           });
+          if (otherOpen && !adminOverride) {
+            return res.status(400).json({
+              message: `${actor.name} is already working on ${otherOpen.orderItem?.orderId || "another garment"} (${otherOpen.stage}). Scan that item out first.`
+            });
+          }
         }
 
+        const trip = goingOffSite ? offSiteTripData(req.body) : {};
         checkpoint = await prisma.$transaction(async (tx) => {
+          if (routeChange) {
+            await tx.orderItem.update({
+              where: { id: item.id },
+              data: { offSiteStages: routeChange, offSiteRouteCustom: true }
+            });
+          }
           if (validation.closeOffSite) {
             const openOff = await tx.stageCheckpoint.findFirst({
               where: { orderItemId: item.id, stage: OFF_SITE_STAGE, checkedOutAt: null }
@@ -308,24 +382,27 @@ router.post(
               orderItemId: item.id,
               stage,
               checkedInAt: new Date(),
-              checkedInByStaffId: staffId,
-              notes
+              checkedInByStaffId: workerId,
+              notes,
+              ...trip
             }
           });
-          await upsertAssignment(tx, {
-            staffId,
-            orderItemId: item.id,
-            stage,
-            userId: req.user.id
-          });
-          await tx.staffAssignment.updateMany({
-            where: { orderItemId: item.id, stage, staffId, completedAt: null },
-            data: {
-              distributedAt: new Date(),
-              receivedAt: new Date(),
-              distributedByUserId: req.user.id
-            }
-          });
+          if (workerId) {
+            await upsertAssignment(tx, {
+              staffId: workerId,
+              orderItemId: item.id,
+              stage,
+              userId: req.user.id
+            });
+            await tx.staffAssignment.updateMany({
+              where: { orderItemId: item.id, stage, staffId: workerId, completedAt: null },
+              data: {
+                distributedAt: new Date(),
+                receivedAt: new Date(),
+                distributedByUserId: req.user.id
+              }
+            });
+          }
           await syncOrderStatusFromItems(item.order, req.user.id, tx);
           const orderRow = await tx.order.findUnique({ where: { id: item.order } });
           await tx.productionLog.create({
@@ -336,13 +413,21 @@ router.post(
               action: "scan_in",
               fromStatus: stage,
               toStatus: stage,
-              notes: `Checked in to ${stage} — ${staff.name}`,
-              metadata: { stage, staffId, itemId: item.id, barcodeValue: item.barcodeValue }
+              notes: goingOffSite
+                ? `Sent off-site${trip.offSiteHandlerName ? ` with ${trip.offSiteHandlerName}` : ""}${routeChange ? ` for ${req.body.offSiteFor}` : ""}`
+                : `Checked in to ${stage} — ${actor?.name || req.user?.name || "manager"}`,
+              metadata: {
+                stage,
+                staffId: workerId,
+                itemId: item.id,
+                barcodeValue: item.barcodeValue,
+                ...(goingOffSite ? { offSiteFor: req.body.offSiteFor || null, ...trip } : {})
+              }
             }
           });
           return cp;
         });
-        await refreshStaffPresence(staffId);
+        await refreshStaffPresence(workerId);
         action = "check_in";
       }
 
@@ -355,9 +440,9 @@ router.post(
       const offSiteOut = action === "check_in" && stage === OFF_SITE_STAGE;
       const offSiteIn = action === "check_out" && stage === OFF_SITE_STAGE;
       const message = offSiteOut
-        ? "Scanned out to off-site"
+        ? "Sent off-site"
         : offSiteIn
-          ? "Scanned in from off-site"
+          ? "Back from off-site"
           : action === "check_in"
             ? `Checked in to ${stage}`
             : `Checked out of ${stage}`;
@@ -375,6 +460,73 @@ router.post(
       if (e.status) return res.status(e.status).json({ message: e.message });
       throw e;
     }
+  }
+);
+
+/**
+ * Change one garment's off-site route for a stage it has not reached yet:
+ * offSite=true sends that stage out, offSite=false keeps it in the shop.
+ * The clothing type's off-site stages stay a default only.
+ */
+router.post(
+  "/items/:id/off-site-route",
+  requireCapability("distribution"),
+  param("id").custom(isRecordId),
+  body("stage").isIn(ProductionStage),
+  body("offSite").isBoolean(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+    const item = await prisma.orderItem.findUnique({ where: { id: req.params.id } });
+    if (!item) return res.status(404).json({ message: "Order item not found" });
+
+    const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType);
+    const current = itemOffSiteStages(item, typeOffSite);
+    const stage = resolveRequestedStage(req.body.stage, stageSequence);
+    const wantOffSite = req.body.offSite === true || req.body.offSite === "true";
+
+    if (!stageSequence.includes(stage) || isGarmentCompleteStage(stage)) {
+      return res.status(400).json({ message: `${stage} is not an off-site-able step for this garment.` });
+    }
+    const cps = await prisma.stageCheckpoint.findMany({ where: { orderItemId: item.id } });
+    if (openOffSiteCheckpoint(cps)) {
+      return res.status(400).json({ message: "Garment is off-site now. Change the route after it returns." });
+    }
+    // Only steps the garment has not reached can change.
+    const next = nextExpectedStage(cps, stageSequence, current);
+    const pending = pendingOffSiteWindow(cps, stageSequence, current);
+    const frontier =
+      next === OFF_SITE_STAGE && pending?.stages?.length
+        ? stageSequence.indexOf(pending.stages[0])
+        : stageSequence.indexOf(next);
+    if (frontier < 0 || stageSequence.indexOf(stage) < frontier || findCheckpoint(cps, stage, stageSequence)) {
+      return res.status(400).json({ message: `${stage} is already done or in progress.` });
+    }
+
+    const has = current.includes(stage);
+    if (has === wantOffSite) {
+      return res.json({ ok: true, offSiteStages: current, scanDetails: await buildScanDetails(item.id) });
+    }
+    const updatedStages = wantOffSite ? [...current, stage] : current.filter((st) => st !== stage);
+    await prisma.$transaction(async (tx) => {
+      await tx.orderItem.update({
+        where: { id: item.id },
+        data: { offSiteStages: updatedStages, offSiteRouteCustom: true }
+      });
+      const orderRow = await tx.order.findUnique({ where: { id: item.order } });
+      await tx.productionLog.create({
+        data: {
+          orderId: orderRow?.orderId || item.orderId,
+          mongoOrderId: item.order,
+          userId: req.user.id,
+          action: "off_site_route",
+          notes: wantOffSite ? `${stage} will be done off-site` : `${stage} will be done in shop`,
+          metadata: { itemId: item.id, stage, offSite: wantOffSite, offSiteStages: updatedStages }
+        }
+      });
+    });
+    res.json({ ok: true, offSiteStages: updatedStages, scanDetails: await buildScanDetails(item.id) });
   }
 );
 

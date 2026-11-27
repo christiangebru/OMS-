@@ -6,6 +6,7 @@ import { rankStaffForAssignment } from "./assignmentScore.js";
 import { s } from "./serialize.js";
 import { operationalItemBarcode, operationalPartBarcode } from "./barcode.js";
 import { isTopLevelItem, findCheckpoint, stageMatchesStep } from "./productionModel.js";
+import { itemOffSiteStages, offSiteTripSummary } from "./offSite.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -75,8 +76,8 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
   for (const { item, order } of items) {
     const seqInfo = await seqFor(item.clothingType);
     const cps = cpByItem.get(item.id) || [];
-    const currentStage = deriveCurrentStage(cps, seqInfo.stageSequence, item.offSiteStages || seqInfo.offSiteStages);
-    const nextStage = nextExpectedStage(cps, seqInfo.stageSequence, item.offSiteStages || seqInfo.offSiteStages);
+    const currentStage = deriveCurrentStage(cps, seqInfo.stageSequence, itemOffSiteStages(item, seqInfo.offSiteStages));
+    const nextStage = nextExpectedStage(cps, seqInfo.stageSequence, itemOffSiteStages(item, seqInfo.offSiteStages));
     const open = cps.find((c) => c.checkedInAt && !c.checkedOutAt);
     const assignment = asgByItemStage.get(`${item.id}:${nextStage}`) || null;
     const days = daysUntil(order.requiredCompletionDate);
@@ -143,6 +144,7 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
       nextStage,
       location: open?.stage === "OFF_SITE" ? "off_site" : "in_shop",
       offSite: open?.stage === "OFF_SITE",
+      offSiteTrip: open?.stage === "OFF_SITE" ? offSiteTripSummary(open) : null,
       stageSequence: seqInfo.stageSequence,
       inProgress,
       openStage: open?.stage || null,

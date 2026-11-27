@@ -2,7 +2,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionStage, Staff, StaffRole, StaffStatus } from "@/lib/types";
-import { PRODUCTION_STAGES } from "@/lib/types";
+import { SKILL_STAGES } from "@/lib/types";
 import { PageHeader, EmptyState, ErrorState, Skeleton } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -178,7 +178,7 @@ export function StaffPage() {
           aria-label="Stage skill"
         >
           <option value="">All stages</option>
-          {PRODUCTION_STAGES.map((s) => (
+          {SKILL_STAGES.map((s) => (
             <option key={s} value={s}>
               {stageLabel(s)}
             </option>

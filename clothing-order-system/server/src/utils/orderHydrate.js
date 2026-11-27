@@ -5,6 +5,7 @@ import { storedImagePath } from "./publicImage.js";
 import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./stageSequence.js";
 import { boardStatusFrom } from "./stageTimeline.js";
 import { isGarmentCompleteStage, isTopLevelItem, parentReadyForAssembly } from "./productionModel.js";
+import { itemOffSiteStages } from "./offSite.js";
 
 export function balanceRemaining(order) {
   const total = Number(order.totalAgreedPrice) || 0;
@@ -155,7 +156,7 @@ async function itemPresence(items, checkpoints, assignments) {
   const map = new Map();
   for (const it of items) {
     const { stageSequence, offSiteStages } = await resolveStageSequence(it.clothingType, it.clothingCode);
-    const itemOff = it.offSiteStages?.length ? it.offSiteStages : offSiteStages;
+    const itemOff = itemOffSiteStages(it, offSiteStages);
     const cps = cpsByItem.get(it.id) || [];
     const nextStage = nextExpectedStage(cps, stageSequence, itemOff);
     const assignment =

@@ -244,6 +244,9 @@ export interface DashboardSummary {
   mostOrderedClothingType: { type: string; quantity: number } | null;
 }
 
+/** Workstation work a staff member can be skilled in (states/locations are not skills). */
+export const SKILL_STAGES: ProductionStage[] = ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
+
 export const PRODUCTION_STAGES: ProductionStage[] = [
   "RECEIVED",
   "SEWING_CUTTING",
@@ -255,6 +258,17 @@ export const PRODUCTION_STAGES: ProductionStage[] = [
   "PACKAGING",
   "DELIVERED"
 ];
+
+/** Off-site trip: who took the garment is free text, not a staff record. */
+export interface OffSiteTrip {
+  checkpointId?: string;
+  sentAt?: string;
+  returnedAt?: string | null;
+  handlerName: string;
+  handlerPhone: string;
+  expectedReturnAt?: string | null;
+  overdue?: boolean;
+}
 
 export interface ScanDetails {
   scanKind?: "item" | "order";
@@ -350,6 +364,13 @@ export interface ScanDetails {
     locationKind?: "in_shop" | "off_site" | "order";
     offSite?: boolean;
     returnStage?: ProductionStage | null;
+    offSiteTrip?: OffSiteTrip | null;
+    offSiteTrips?: OffSiteTrip[];
+    offSiteStages?: string[];
+    offSiteOptions?: {
+      sendNextStage: ProductionStage | null;
+      plannedStages: ProductionStage[];
+    };
     managerCommand?: string;
     allowedActions?: Array<{ code: string; label: string }>;
     incompleteItems?: Array<{
@@ -589,6 +610,7 @@ export interface QueueItem {
   openStage?: string | null;
   location?: "in_shop" | "off_site";
   offSite?: boolean;
+  offSiteTrip?: OffSiteTrip | null;
   boardStatus: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | "off_site";
   inProgress?: boolean;
   assignment?: {
