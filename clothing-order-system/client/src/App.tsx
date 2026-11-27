@@ -37,6 +37,7 @@ const ProductionFloorPage = lazy(() =>
 const DistributionPage = lazy(() =>
   import("@/pages/DistributionPage").then((m) => ({ default: m.DistributionPage }))
 );
+const UsersPage = lazy(() => import("@/pages/UsersPage").then((m) => ({ default: m.UsersPage })));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
 
 function Boot() {
@@ -107,6 +108,12 @@ function LabelsOnly({ children }: { children: ReactElement }) {
 function ProductionOnly({ children }: { children: ReactElement }) {
   const { user } = useAuth();
   if (!canSee(user?.role, "production")) return <Navigate to="/" replace />;
+  return children;
+}
+
+function AdminOnly({ children }: { children: ReactElement }) {
+  const { user } = useAuth();
+  if (!canSee(user?.role, "users")) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -195,6 +202,14 @@ export default function App() {
               <LabelsOnly>
                 <LabelsWorkspacePage />
               </LabelsOnly>
+            }
+          />
+          <Route
+            path="users"
+            element={
+              <AdminOnly>
+                <UsersPage />
+              </AdminOnly>
             }
           />
           <Route path="*" element={<NotFoundPage />} />

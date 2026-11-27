@@ -14,6 +14,9 @@ import { CameraScanPane } from "@/components/CameraScanPane";
 import { SmartImage } from "@/components/SmartImage";
 import clsx from "clsx";
 
+/** Locations and order steps: no workstation worker needed. */
+const STAFF_OPTIONAL: string[] = ["RECEIVED", "OFF_SITE", "SHOWROOM", "READY", "PACKAGING", "DELIVERED"];
+
 export function ScanPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -25,11 +28,24 @@ export function ScanPage() {
   const [details, setDetails] = useState<ScanDetails | null>(null);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Off-site trip: who takes the garment is free text, never a staff record.
+  const [sendOffSite, setSendOffSite] = useState(false);
+  const [tripName, setTripName] = useState("");
+  const [tripPhone, setTripPhone] = useState("");
+  const [tripDue, setTripDue] = useState("");
 
   const action = details?.production?.action;
   const actionStage = (details?.production?.actionStage ||
     details?.timing.nextExpectedStage ||
     "SEWING_CUTTING") as ProductionStage;
+  const offSiteOptions = details?.production?.offSiteOptions;
+  const canSendOffSite = action === "check_in" && Boolean(offSiteOptions?.sendNextStage);
+  const sendingOffSite = sendOffSite && canSendOffSite;
+  /** Stage actually scanned: OFF_SITE when the manager sends the next stage out. */
+  const scanStage: ProductionStage = sendingOffSite ? "OFF_SITE" : actionStage;
+  const isOrderLevel = details?.scanKind === "order" || !details?.item;
+  const leavingForOffSite = action === "check_in" && scanStage === "OFF_SITE";
+  const staffRequired = !isOrderLevel && !STAFF_OPTIONAL.includes(scanStage);
   const manager = isManagerRole(user?.role);
   const floor = isFloorRole(user?.role);
   const canCheck = manager || floor;
@@ -46,13 +62,20 @@ export function ScanPage() {
   }, [searchParams]);
 
   useEffect(() => {
+    setSendOffSite(false);
+    setTripName("");
+    setTripPhone("");
+    setTripDue("");
+  }, [details?.item?._id, details?.production?.actionStage, action]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const data = await apiJson<Staff[]>(
-          actionStage === "OFF_SITE"
+          STAFF_OPTIONAL.includes(scanStage)
             ? `/api/staff?includeInactive=false`
-            : `/api/staff?stage=${encodeURIComponent(actionStage)}&includeInactive=false`
+            : `/api/staff?stage=${encodeURIComponent(scanStage)}&includeInactive=false`
         );
         if (!cancelled) {
           setStaffList(data);
@@ -67,7 +90,7 @@ export function ScanPage() {
     return () => {
       cancelled = true;
     };
-  }, [actionStage, details?.production?.assignment?.staff?._id, details?.production?.currentWorker?._id]);
+  }, [scanStage, details?.production?.assignment?.staff?._id, details?.production?.currentWorker?._id]);
 
   async function lookupBarcode(value: string) {
     const v = value.trim();
@@ -98,7 +121,7 @@ export function ScanPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!canCheck || !barcode.trim() || !staffId) return;
+    if (!canCheck || !barcode.trim() || (staffRequired && !staffId)) return;
     setBusy(true);
     setFeedback(null);
     try {
@@ -111,10 +134,18 @@ export function ScanPage() {
         method: "POST",
         body: JSON.stringify({
           barcodeValue: barcode.trim(),
-          stage: actionStage,
-          staffId,
+          stage: scanStage,
+          staffId: leavingForOffSite ? undefined : staffId || undefined,
           notes,
-          adminOverride
+          adminOverride,
+          ...(sendingOffSite ? { offSiteFor: actionStage } : {}),
+          ...(leavingForOffSite
+            ? {
+                offSiteHandlerName: tripName.trim(),
+                offSiteHandlerPhone: tripPhone.trim(),
+                expectedReturnAt: tripDue || undefined
+              }
+            : {})
         })
       });
       setFeedback({ ok: true, message: result.message });
@@ -122,45 +153,37 @@ export function ScanPage() {
       setNotes("");
     } catch (ex) {
       const message = ex instanceof ApiError ? ex.message : "Scan failed";
-      setFeedback({ ok: false, message });
+      // Refresh first: lookupBarcode clears feedback, and the error must stay visible.
       if (barcode.trim()) await lookupBarcode(barcode);
+      setFeedback({ ok: false, message });
     } finally {
       setBusy(false);
     }
   }
 
-  async function receiveAssignment() {
-    const id = details?.production?.assignment?._id;
-    if (!id) return;
+  /** Keep planned off-site stages in the shop for this garment only. */
+  async function keepInShop() {
+    const stages = offSiteOptions?.plannedStages || [];
+    if (!details?.item?._id || !stages.length) return;
     setBusy(true);
     try {
-      await apiJson(`/api/production/assignments/${id}/receive`, { method: "POST" });
+      for (const stage of stages) {
+        await apiJson(`/api/production/items/${details.item._id}/off-site-route`, {
+          method: "POST",
+          body: JSON.stringify({ stage, offSite: false })
+        });
+      }
       await lookupBarcode(barcode);
-      setFeedback({ ok: true, message: "Garment received" });
+      setFeedback({ ok: true, message: `${stages.map((st) => stageLabel(st)).join(", ")} will be done in the shop` });
     } catch (e) {
-      setFeedback({ ok: false, message: e instanceof ApiError ? e.message : "Could not mark received" });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handoverAssignment() {
-    const id = details?.production?.assignment?._id;
-    if (!id) return;
-    setBusy(true);
-    try {
-      await apiJson(`/api/production/assignments/${id}/distribute`, { method: "POST" });
-      await lookupBarcode(barcode);
-      setFeedback({ ok: true, message: "Marked handed over" });
-    } catch (e) {
-      setFeedback({ ok: false, message: e instanceof ApiError ? e.message : "Could not mark handed over" });
+      setFeedback({ ok: false, message: e instanceof ApiError ? e.message : "Could not change the route" });
     } finally {
       setBusy(false);
     }
   }
 
   const codes = new Set((details?.production?.allowedActions || []).map((a) => a.code));
-  const isOrderScan = details?.scanKind === "order" || !details?.item;
+  const isOrderScan = isOrderLevel;
   const offSite =
     details?.production?.offSite ||
     details?.production?.locationKind === "off_site" ||
@@ -173,9 +196,11 @@ export function ScanPage() {
         : action === "blocked"
           ? "Cannot pack yet"
           : action === "check_out" && offSite
-            ? "Scan in from off-site"
-            : action === "check_in" && actionStage === "OFF_SITE"
-              ? "Scan out to off-site"
+            ? "Back from off-site"
+            : sendingOffSite
+              ? `Send ${stageLabel(actionStage)} off-site`
+              : action === "check_in" && actionStage === "OFF_SITE"
+                ? "Send off-site"
               : action === "check_out"
                 ? `Scan out / complete ${stageLabel(actionStage)}`
                 : actionStage === "READY"
@@ -305,6 +330,11 @@ export function ScanPage() {
                 <p className="mt-1 capitalize text-ink">
                   {stageLabel(details.production?.nextStage || details.timing.nextExpectedStage)}
                 </p>
+                {details.production?.offSiteTrip?.handlerPhone && (
+                  <p className="mt-1 text-xs text-amber-800">
+                    Phone: {details.production.offSiteTrip.handlerPhone}
+                  </p>
+                )}
                 {details.production?.managerCommand && (
                   <p className="mt-3 bg-accent-soft px-3 py-2 text-sm text-accent">
                     {details.production.managerCommand}
@@ -314,15 +344,50 @@ export function ScanPage() {
 
               {canCheck && (
                 <div className="border border-line bg-surface space-y-3 p-4">
+                  {leavingForOffSite ? (
+                    <div className="space-y-2 bg-amber-50 p-3">
+                      <p className="text-xs font-semibold text-amber-900">
+                        Who is taking it? All optional — for responsibility only.
+                      </p>
+                      <input
+                        value={tripName}
+                        onChange={(e) => setTripName(e.target.value)}
+                        className="ui-input mt-0"
+                        placeholder="Name of person taking it"
+                        maxLength={120}
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          value={tripPhone}
+                          onChange={(e) => setTripPhone(e.target.value)}
+                          className="ui-input mt-0"
+                          placeholder="Phone"
+                          inputMode="tel"
+                          maxLength={40}
+                        />
+                        <label className="text-[11px] text-ink-muted">
+                          Expected back
+                          <input
+                            type="date"
+                            value={tripDue}
+                            onChange={(e) => setTripDue(e.target.value)}
+                            className="ui-input mt-0"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  ) : (
                   <label className="block text-sm">
-                    <span className="ui-label">{offSite || isOrderScan ? "Staff" : "Workstation worker"}</span>
+                    <span className="ui-label">
+                      {staffRequired ? "Workstation worker" : "Staff (optional)"}
+                    </span>
                     <select
-                      required
+                      required={staffRequired}
                       value={staffId}
                       onChange={(e) => setStaffId(e.target.value)}
                       className="ui-input"
                     >
-                      <option value="">Select worker…</option>
+                      <option value="">{staffRequired ? "Select worker…" : "No worker"}</option>
                       {staffList.map((s) => (
                         <option key={s._id} value={s._id}>
                           {s.name} · {s.activeAssignmentCount || 0} queued
@@ -330,6 +395,7 @@ export function ScanPage() {
                       ))}
                     </select>
                   </label>
+                  )}
                   <input
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
@@ -348,23 +414,35 @@ export function ScanPage() {
                     </label>
                   )}
                   <div className="flex flex-col gap-2">
-                    {canOverride && codes.has("handover") && (
-                      <Button type="button" variant="secondary" disabled={busy} onClick={handoverAssignment}>
-                        Hand to workstation
+                    {canOverride && canSendOffSite && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={busy}
+                        onClick={() => setSendOffSite((v) => !v)}
+                      >
+                        {sendingOffSite
+                          ? `Keep ${stageLabel(actionStage)} in the shop`
+                          : `Send ${stageLabel(actionStage)} off-site instead`}
                       </Button>
                     )}
-                    {codes.has("receive") && (
-                      <Button type="button" variant="secondary" disabled={busy} onClick={receiveAssignment}>
-                        Confirm received
-                      </Button>
-                    )}
+                    {canOverride &&
+                      action === "check_in" &&
+                      actionStage === "OFF_SITE" &&
+                      (offSiteOptions?.plannedStages?.length || 0) > 0 && (
+                        <Button type="button" variant="secondary" disabled={busy} onClick={keepInShop}>
+                          Do{" "}
+                          {(offSiteOptions?.plannedStages || []).map((st) => stageLabel(st)).join(", ")} in the shop
+                          instead
+                        </Button>
+                      )}
                     {(codes.has("check_in") ||
                       codes.has("check_out") ||
                       codes.has("start_first") ||
                       codes.has("mark_ready") ||
                       codes.has("send_next")) &&
                       action !== "blocked" && (
-                      <Button type="submit" form="scan-form" disabled={busy || !staffId}>
+                      <Button type="submit" form="scan-form" disabled={busy || (staffRequired && !staffId)}>
                         {busy ? "Working…" : actionLabel}
                       </Button>
                     )}
@@ -410,7 +488,7 @@ export function ScanPage() {
                 />
               )}
 
-              {canOverride && details.item?._id && (
+              {canOverride && details.item?._id && !STAFF_OPTIONAL.includes(scanStage) && (
                 <SuggestedAssignments
                   orderItemId={details.item._id}
                   stage={actionStage}

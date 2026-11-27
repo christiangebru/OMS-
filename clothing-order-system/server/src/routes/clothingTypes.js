@@ -10,6 +10,7 @@ import {
 const router = Router();
 router.use(requireAuth);
 
+/** All types, including hidden ones (active=false); pickers filter. */
 router.get("/", async (_req, res) => {
   const configs = await prisma.clothingTypeConfig.findMany({ orderBy: { label: "asc" } });
   res.json(sMany(configs));

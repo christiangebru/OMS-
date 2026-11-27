@@ -6,7 +6,7 @@ import {
   CANONICAL_GARMENT_SEQUENCE
 } from "../constants/production.js";
 import { findClothingTypeConfig } from "./clothingTypeConfig.js";
-import { canonicalStage, aliasesForStage } from "./productionModel.js";
+import { canonicalStage, aliasesForStage, stageMatchesStep } from "./productionModel.js";
 import {
   OFF_SITE_STAGE,
   deriveCurrentStageWithOffSite,
@@ -120,7 +120,8 @@ export async function validateCheckIn(
   }
 
   const seq = stageSequence || SKIP_EMBROIDERY_SEQUENCE;
-  const effective = effectiveScanSequence(seq, offSiteStages);
+  const checkpoints = await prisma.stageCheckpoint.findMany({ where: { orderItemId } });
+  const effective = effectiveScanSequence(seq, offSiteStages, checkpoints);
   const resolved =
     targetStage === OFF_SITE_STAGE
       ? OFF_SITE_STAGE
@@ -140,7 +141,6 @@ export async function validateCheckIn(
     };
   }
 
-  const checkpoints = await prisma.stageCheckpoint.findMany({ where: { orderItemId } });
   const openOff = openOffSiteCheckpoint(checkpoints);
   const pending = pendingOffSiteWindow(checkpoints, seq, offSiteStages);
 
@@ -165,7 +165,7 @@ export async function validateCheckIn(
 
   const openOther = checkpoints.find((c) => {
     if (c.checkedOutAt) return false;
-    if (aliasesForStage(resolved).includes(c.stage)) return false;
+    if (stageMatchesStep(c.stage, resolved, seq)) return false;
     if (c.stage === OFF_SITE_STAGE && returningHere) return false;
     return true;
   });
@@ -177,7 +177,7 @@ export async function validateCheckIn(
   }
 
   const openSame = checkpoints.find(
-    (c) => !c.checkedOutAt && aliasesForStage(resolved).includes(c.stage)
+    (c) => !c.checkedOutAt && stageMatchesStep(c.stage, resolved, seq)
   );
   if (openSame) {
     return { ok: true, alreadyOpen: true, checkpoint: openSame };

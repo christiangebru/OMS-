@@ -43,7 +43,7 @@ Open `http://localhost:5173`.
 
 1. New **Web Service**, root directory `server` (or use the included `render.yaml` blueprint).
 2. Build: `npm install && npm run build` (generates the Prisma client).
-3. Start: `npm start` (starts Express immediately, then runs `prisma migrate deploy` in the background with a timeout). Render's Pre-Deploy Command is **not available on the free instance type**, so migrations cannot be a separate pre-deploy step on this plan. Prefer a Neon **unpooled** `DIRECT_URL` for migrations; the pooled `DATABASE_URL` is for app queries. `GET /health` is liveness (always 200 once listening); `GET /ready` reports the database.
+3. Start: `npm start` (starts Express immediately, then runs `prisma migrate deploy` in the background with a timeout). Render's Pre-Deploy Command is **not available on the free instance type**, so migrations cannot be a separate pre-deploy step on this plan. Prefer a Neon **unpooled** `DIRECT_URL` for migrations; the pooled `DATABASE_URL` is for app queries. `GET /health` is liveness (always 200 once listening); `GET /ready` reports the database and returns 503 if columns are missing or migrations are pending/failed — check it after each deploy.
 4. Set env: `DATABASE_URL` (Neon pooled connection string, `?sslmode=require`), optional `DIRECT_URL` (Neon unpooled), `JWT_SECRET`, `API_PUBLIC_URL` (your `https://…onrender.com`), `CORS_ORIGIN` (your Vercel URL, comma-separated if multiple).
 
 **Images:** Set Cloudinary (`CLOUDINARY_CLOUD_NAME` + `CLOUDINARY_UPLOAD_PRESET`) and/or S3-compatible vars (`S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, optional `S3_ENDPOINT` / `S3_PUBLIC_BASE_URL`). Local `server/uploads/` is the dev fallback when those are unset. Existing relative `uploads/…` paths still resolve.
@@ -70,6 +70,7 @@ Open `http://localhost:5173`.
 | GET/POST/PATCH | `/api/customers` | JWT |
 | POST | `/api/customers/:id/measurements` | JWT |
 | GET/POST/PATCH | `/api/staff` | JWT |
+| GET/POST/PATCH | `/api/users` | JWT (admin only — owner-managed logins) |
 | POST | `/api/staff/:id/deactivate` | JWT |
 | POST/DELETE | `/api/order-items/:id/images` | JWT |
 | GET | `/api/clothing-types` | JWT |
@@ -77,6 +78,7 @@ Open `http://localhost:5173`.
 | GET | `/api/production/lookup` | JWT |
 | GET | `/api/production/suggest-assignment` | JWT |
 | POST | `/api/production/assignments` | JWT |
+| POST | `/api/production/items/:id/off-site-route` | JWT (send a not-yet-reached stage off-site, or keep it in shop) |
 | GET | `/api/order-items/:id/timeline` | JWT |
 | GET | `/api/order-items/:id/scan-details` | JWT |
 | GET | `/api/staff/:id/workload` | JWT |

@@ -6,6 +6,7 @@ type SpecItem = Partial<OrderItem> & {
   clothingType?: string;
   clothingCode?: string;
   fabricType?: string;
+  innerFabricColor?: string;
   color?: string;
   notes?: string;
   neckType?: string;
@@ -70,6 +71,7 @@ export function SpecSheet({ item }: { item: SpecItem }) {
       <Block title="Fabric">
         <Row k="Fabric" v={val(item.fabricType)} />
         <Row k="Color" v={val(item.color)} />
+        <Row k="Geber (inner)" v={val(item.innerFabricColor)} />
       </Block>
       {accessory ? null : !trouser ? (
         <Block title={shirt ? "Shirt" : "Measurements"}>

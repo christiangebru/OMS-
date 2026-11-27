@@ -2,6 +2,7 @@ import { prisma } from "../db/prisma.js";
 import { deriveCurrentStage, resolveStageSequence } from "./stageSequence.js";
 import { orderStatusFromItemStages } from "./orderStatusSync.js";
 import { isTopLevelItem } from "./productionModel.js";
+import { itemOffSiteStages } from "./offSite.js";
 
 /**
  * Sync parent Order.productionStatus from per-garment completion.
@@ -30,8 +31,8 @@ export async function syncOrderStatusFromItems(orderId, userId = null, client = 
   for (const item of items) {
     if (!isTopLevelItem(item)) continue;
     const cps = byItem.get(item.id) || [];
-    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType);
-    const itemOffSite = item.offSiteStages?.length ? item.offSiteStages : offSiteStages;
+    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType, item.clothingCode);
+    const itemOffSite = itemOffSiteStages(item, offSiteStages);
     garmentStates.push({
       ...item,
       stage: deriveCurrentStage(cps, stageSequence, itemOffSite)

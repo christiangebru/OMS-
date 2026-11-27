@@ -8,7 +8,13 @@ import {
 } from "./stageSequence.js";
 import { buildStageStates, inferScanAction, inferNextAction, boardStatusFrom } from "./stageTimeline.js";
 import { WORKSTATION_STAGES, skillStageVariants } from "../constants/production.js";
-import { operationalItemBarcode, operationalPartBarcode, parseOperationalBarcode } from "./barcode.js";
+import {
+  operationalItemBarcode,
+  operationalPartBarcode,
+  parseOperationalBarcode,
+  normalizeBarcodeInput,
+  legacyOrderTails
+} from "./barcode.js";
 import { storedImagePath } from "./publicImage.js";
 import {
   OFF_SITE_STAGE,
@@ -18,7 +24,8 @@ import {
   openOffSiteCheckpoint,
   pendingOffSiteWindow
 } from "./offSite.js";
-import { isGarmentCompleteStage, isTopLevelItem } from "./productionModel.js";
+import { isGarmentCompleteStage, isTopLevelItem, findCheckpoint, stageMatchesStep } from "./productionModel.js";
+import { itemOffSiteStages, offSiteTripSummary } from "./offSite.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -61,7 +68,8 @@ export function managerCommandFor({
   location
 }) {
   if (location === "off_site" || open?.stage === OFF_SITE_STAGE) {
-    return "Garment is off-site. Scan in when it returns.";
+    const who = open?.offSiteHandlerName ? ` with ${open.offSiteHandlerName}` : "";
+    return `Garment is off-site${who}. Scan in when it returns.`;
   }
   if (nextStage === OFF_SITE_STAGE) {
     return "Scan out to off-site.";
@@ -222,8 +230,8 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   const siblingDetails = await Promise.all(
     siblingSource.map(async (sib) => {
       const cps = cpByItem.get(sib.id) || [];
-      const seq = await resolveStageSequence(sib.clothingType);
-      const off = sib.offSiteStages?.length ? sib.offSiteStages : seq.offSiteStages;
+      const seq = await resolveStageSequence(sib.clothingType, sib.clothingCode);
+      const off = itemOffSiteStages(sib, seq.offSiteStages);
       const idx = sib.itemIndex || 1;
       return {
         _id: sib.id,
@@ -259,7 +267,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     }
   }
 
-  const offSiteStages = item.offSiteStages?.length ? item.offSiteStages : seqInfo.offSiteStages || [];
+  const offSiteStages = itemOffSiteStages(item, seqInfo.offSiteStages);
   const currentStage = deriveCurrentStage(checkpoints, seqInfo.stageSequence, offSiteStages);
   const nextStage = nextExpectedStage(checkpoints, seqInfo.stageSequence, offSiteStages);
   const loc = garmentLocation(checkpoints);
@@ -336,7 +344,31 @@ export async function buildScanDetails(orderItemIdOrDoc) {
     returnStage: pendingWindow?.returnStage
   });
 
-  const locationFromOffSite = offSiteLabel;
+  const openTrip = offSiteTripSummary(openOffSiteCheckpoint(checkpoints));
+  const tripBits = openTrip
+    ? [
+        openTrip.handlerName ? `with ${openTrip.handlerName}` : "",
+        openTrip.expectedReturnAt
+          ? `due back ${new Date(openTrip.expectedReturnAt).toISOString().slice(0, 10)}`
+          : ""
+      ].filter(Boolean)
+    : [];
+  const offSiteOptions = {
+    // In-shop stage that could go out instead (manager's choice, per garment).
+    sendNextStage:
+      !open &&
+      nextStage &&
+      nextStage !== OFF_SITE_STAGE &&
+      seqInfo.stageSequence.includes(nextStage) &&
+      !isGarmentCompleteStage(nextStage)
+        ? nextStage
+        : null,
+    // Planned off-site stages that could be kept in shop instead.
+    plannedStages: !open && nextStage === OFF_SITE_STAGE ? pendingWindow?.stages || [] : []
+  };
+  const locationFromOffSite = openTrip
+    ? ["Off-site", ...tripBits].join(" · ")
+    : offSiteLabel;
   const locationLabelResolved =
     locationFromOffSite ||
     (open
@@ -362,6 +394,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       clothingType: item.clothingType,
       fabricType: item.fabricType,
       color: item.color,
+      innerFabricColor: item.innerFabricColor || "",
       size: item.size,
       audience: item.audience || "",
       setChoice: item.setChoice || "",
@@ -428,13 +461,14 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       }),
       stageStates,
       assignment: assignmentSummary(openAssignment),
-      assignmentChain: effectiveScanSequence(seqInfo.stageSequence, offSiteStages).map((stage) => {
-        const asg = allAssignments.find((a) => a.stage === stage) || null;
+      assignmentChain: effectiveScanSequence(seqInfo.stageSequence, offSiteStages, checkpoints).map((stage) => {
+        const asg =
+          allAssignments.find((a) => stageMatchesStep(a.stage, stage, seqInfo.stageSequence)) || null;
         const cp =
           stage === OFF_SITE_STAGE
             ? openOffSiteCheckpoint(checkpoints) ||
               checkpoints.filter((c) => c.stage === OFF_SITE_STAGE).at(-1)
-            : checkpoints.find((c) => c.stage === stage);
+            : findCheckpoint(checkpoints, stage, seqInfo.stageSequence);
         let status = "waiting";
         if (stage === OFF_SITE_STAGE) {
           if (openOffSiteCheckpoint(checkpoints)) status = "in_progress";
@@ -467,6 +501,10 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       locationKind: loc,
       offSite: loc === "off_site",
       returnStage: pendingWindow?.returnStage || null,
+      offSiteTrip: openTrip,
+      offSiteTrips: checkpoints.filter((c) => c.stage === OFF_SITE_STAGE).map(offSiteTripSummary),
+      offSiteOptions,
+      offSiteStages,
       managerCommand: managerCommandFor({
         open,
         currentStage: open?.stage || currentStage,
@@ -506,26 +544,63 @@ async function findGarmentByOperationalIndex(orderId, itemIndex, orderPk = null)
   return top[idx - 1] || (top.length === 1 ? top[0] : null);
 }
 
+/**
+ * Older order whose short code (shown or printed) ends in `tail`.
+ * Throws 409 when the tail is shared by more than one older order.
+ */
+async function findLegacyOrderByTail(tail) {
+  const t = String(tail || "").toUpperCase();
+  if (!t) return null;
+  const legacy = await prisma.$queryRaw`
+    SELECT id, "orderId" FROM orders WHERE "orderId" !~ '^ORD-[0-9]+$'`;
+  const asNumber = /^\d+$/.test(t) ? String(Number(t)) : null;
+  const hits = legacy.filter((o) => {
+    const tails = legacyOrderTails(o.orderId);
+    return tails.includes(t) || (asNumber && tails.includes(asNumber));
+  });
+  if (hits.length > 1) {
+    throw Object.assign(
+      new Error(`More than one older order matches ${t}. Scan the label or type the full order number.`),
+      { status: 409 }
+    );
+  }
+  return hits.length ? prisma.order.findUnique({ where: { id: hits[0].id } }) : null;
+}
+
+function notFound(raw) {
+  return Object.assign(
+    new Error(`Barcode not found: no order or garment has the code "${String(raw).trim()}". Check the code printed under the barcode (for example ORD-1001 or ORD-1001-1).`),
+    { status: 404 }
+  );
+}
+
 export async function resolveScanTarget(barcodeValue) {
-  const value = String(barcodeValue || "").trim();
-  if (!value) {
+  const raw = String(barcodeValue || "").trim();
+  if (!raw) {
     throw Object.assign(new Error("Barcode value is required"), { status: 400 });
   }
+  const value = normalizeBarcodeInput(raw);
 
   const parsed = parseOperationalBarcode(value);
   if (parsed?.kind === "order") {
-    const order = await prisma.order.findFirst({
-      where: {
-        OR: [
-          { barcodeValue: { equals: value, mode: "insensitive" } },
-          { orderId: { equals: `ORD-${parsed.orderNumber}`, mode: "insensitive" } }
-        ]
-      }
-    });
-    if (!order) {
-      throw Object.assign(new Error("Barcode not found"), { status: 404 });
-    }
+    const order =
+      (await prisma.order.findFirst({
+        where: {
+          OR: [
+            { barcodeValue: { equals: value, mode: "insensitive" } },
+            { orderId: { equals: `ORD-${parsed.orderNumber}`, mode: "insensitive" } }
+          ]
+        }
+      })) || (await findLegacyOrderByTail(parsed.orderNumber));
+    if (!order) throw notFound(raw);
     return { kind: "order", order };
+  }
+
+  // Short code of an older order as the app shows it, e.g. ORD-6AC0.
+  const shortLegacy = value.match(/^ORD-([A-Z0-9]{1,8})$/);
+  if (shortLegacy) {
+    const legacyOrder = await findLegacyOrderByTail(shortLegacy[1]);
+    if (legacyOrder) return { kind: "order", order: legacyOrder };
   }
 
   const itemHit = await prisma.orderItem.findFirst({
@@ -545,8 +620,13 @@ export async function resolveScanTarget(barcodeValue) {
     }
   }
 
-  const item = await resolveItemByBarcode(value);
-  return { kind: "item", item };
+  try {
+    const item = await resolveItemByBarcode(value);
+    return { kind: "item", item };
+  } catch (e) {
+    if (e.status === 404) throw notFound(raw);
+    throw e;
+  }
 }
 
 export async function buildOrderScanDetails(orderOrDoc) {
@@ -697,7 +777,7 @@ export async function resolveItemByBarcode(barcodeValue) {
   }
 
   const simple = value.match(/^ORD-(\d+)-(\d+)$/i);
-  const partMatch = value.match(/^ORD-(\d+)-(\d+)-([A-Z]{2})$/i);
+  const partMatch = value.match(/^ORD-(\d+)-(\d+)-([A-Z]{2,4})$/i);
   if (partMatch) {
     const order = await prisma.order.findFirst({
       where: { orderId: { equals: `ORD-${partMatch[1]}`, mode: "insensitive" } }
@@ -727,17 +807,10 @@ export async function resolveItemByBarcode(barcodeValue) {
     if (found) return found;
   }
 
+  // Older orders: labels print ORD-<last 4 digits>-n, the app shows ORD-<last 4>-n.
   const tailForm = value.match(/^ORD-([A-Z0-9]+)-(\d+)$/i);
-  if (tailForm && !simple) {
-    const tail = tailForm[1].toUpperCase();
-    const orders = await prisma.order.findMany({
-      where: { orderId: { contains: tail, mode: "insensitive" } },
-      take: 20
-    });
-    const matchOrder = orders.find((o) => {
-      const compact = String(o.orderId).replace(/^ORD-/i, "").replace(/-/g, "").toUpperCase();
-      return compact.endsWith(tail) || compact === tail;
-    });
+  if (tailForm) {
+    const matchOrder = await findLegacyOrderByTail(tailForm[1]);
     if (matchOrder) {
       const found = await findGarmentByOperationalIndex(matchOrder.orderId, Number(tailForm[2]), matchOrder.id);
       if (found) return found;

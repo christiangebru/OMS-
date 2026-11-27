@@ -141,6 +141,7 @@ function normalizeItemPayload(item) {
     clothingType: String(item.clothingType).trim(),
     fabricType: String(item.fabricType).trim(),
     color: String(item.color).trim(),
+    innerFabricColor: item.innerFabricColor != null ? String(item.innerFabricColor).trim().slice(0, 40) : undefined,
     quantity: qty,
     notes: item.notes ? String(item.notes) : "",
     neckType: item.neckType || "oval",

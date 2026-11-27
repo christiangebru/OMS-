@@ -24,57 +24,69 @@ export const ProductionStage = [
 ];
 
 /**
- * The atelier names are the canonical names used for staff skills.  The order
- * workflow still recognises its older CUTTING/SEWING/READY names, so callers
- * that persist skills should normalise them through this map first.
+ * THE stage-name rulebook. Every stage comparison (checkpoints, assignments,
+ * skills, scans) goes through canonicalStage / stageAliases below.
+ *
+ * Legacy name → atelier name. SEWING_CUTTING (first preparation) and
+ * FINAL_SEWING (joining the parts) are different work: neither qualifies for
+ * the other.
  */
-export const SkillStageAliases = {
+export const LEGACY_STAGE_CANONICAL = {
   CUTTING: "SEWING_CUTTING",
   SEWING: "SEWING_CUTTING",
   READY: "SHOWROOM"
 };
 
-export const SkillProductionStage = [
-  "RECEIVED",
-  "SEWING_CUTTING",
-  "EMBROIDERY",
-  "FINAL_SEWING",
-  "FINISHING",
-  "OFF_SITE",
-  "SHOWROOM",
-  "PACKAGING",
-  "DELIVERED"
-];
+/** @deprecated kept for existing imports; same as LEGACY_STAGE_CANONICAL. */
+export const SkillStageAliases = LEGACY_STAGE_CANONICAL;
 
-export function normalizeSkillStage(stage) {
-  return SkillStageAliases[stage] || stage;
+export function canonicalStage(stage) {
+  if (!stage) return stage;
+  return LEGACY_STAGE_CANONICAL[stage] || stage;
 }
 
 /**
- * Given a stage, return all DB values that satisfy this stage requirement,
- * ensuring legacy CUTTING and SEWING records are recognized when filtering
- * for SEWING_CUTTING, while preserving stage boundaries for specific legacy stages.
+ * Stored stage values that count as `stage`.
+ * - Atelier name: itself plus every legacy name that maps to it
+ *   (SEWING_CUTTING → SEWING_CUTTING, CUTTING, SEWING).
+ * - Legacy name: itself plus its atelier name only, so a legacy route that
+ *   still lists CUTTING and SEWING as separate steps keeps them separate.
  */
+export function stageAliases(stage) {
+  if (!stage) return [];
+  if (LEGACY_STAGE_CANONICAL[stage]) return [stage, LEGACY_STAGE_CANONICAL[stage]];
+  const legacy = Object.keys(LEGACY_STAGE_CANONICAL).filter(
+    (name) => LEGACY_STAGE_CANONICAL[name] === stage
+  );
+  return [stage, ...legacy];
+}
+
+/**
+ * Stored stage values that belong to route step `step`. Names that are their
+ * own step in `stageSequence` are excluded, so they are never double-counted.
+ */
+export function stepStageNames(step, stageSequence = []) {
+  const seq = Array.isArray(stageSequence) ? stageSequence : [];
+  return stageAliases(step).filter((name) => name === step || !seq.includes(name));
+}
+
+export function stageMatchesStep(storedStage, step, stageSequence = []) {
+  return stepStageNames(step, stageSequence).includes(storedStage);
+}
+
+/**
+ * Skills are workstation work only. RECEIVED, OFF_SITE, SHOWROOM, PACKAGING and
+ * DELIVERED are states or locations the manager scans, not skills.
+ */
+export const SkillProductionStage = ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
+
+export function normalizeSkillStage(stage) {
+  return canonicalStage(stage);
+}
+
+/** Skill rows (by stored stage) that qualify a worker for `stage`. */
 export function skillStageVariants(stage) {
-  if (stage === "SEWING_CUTTING") {
-    return ["SEWING_CUTTING", "CUTTING", "SEWING"];
-  }
-  if (stage === "CUTTING") {
-    return ["CUTTING", "SEWING_CUTTING"];
-  }
-  if (stage === "SEWING") {
-    return ["SEWING", "SEWING_CUTTING"];
-  }
-  if (stage === "SHOWROOM") {
-    return ["SHOWROOM", "READY"];
-  }
-  if (stage === "READY") {
-    return ["READY", "SHOWROOM"];
-  }
-  if (stage === "FINAL_SEWING") {
-    return ["FINAL_SEWING", "SEWING", "SEWING_CUTTING"];
-  }
-  return [stage];
+  return stageAliases(stage);
 }
 
 /** Display / timeline sequence (no duplicate legacy aliases). */
@@ -106,6 +118,9 @@ export const SKIP_EMBROIDERY_SEQUENCE = CANONICAL_GARMENT_SEQUENCE.filter((s) =>
 export const OrderPriority = ["NORMAL", "RUSH", "VIP"];
 
 export const StaffRole = ["TAILOR", "EMBROIDERER", "FINISHER", "CUTTER", "PACKER", "MANAGER"];
+
+/** In-shop workstations in atelier terms (legacy names fold into these). */
+export const CANONICAL_WORKSTATION_STAGES = ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
 
 /** Stages that represent a physical workstation (workers of the same stage). */
 export const WORKSTATION_STAGES = ["SEWING_CUTTING", "CUTTING", "SEWING", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];

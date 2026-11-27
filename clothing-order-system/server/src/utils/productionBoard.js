@@ -5,7 +5,8 @@ import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./s
 import { rankStaffForAssignment } from "./assignmentScore.js";
 import { s } from "./serialize.js";
 import { operationalItemBarcode, operationalPartBarcode } from "./barcode.js";
-import { isTopLevelItem } from "./productionModel.js";
+import { isTopLevelItem, findCheckpoint, stageMatchesStep } from "./productionModel.js";
+import { itemOffSiteStages, offSiteTripSummary } from "./offSite.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -64,19 +65,20 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
   }
 
   const seqCache = new Map();
-  async function seqFor(clothingType) {
-    if (!seqCache.has(clothingType)) {
-      seqCache.set(clothingType, await resolveStageSequence(clothingType));
+  async function seqFor(clothingType, clothingCode) {
+    const cacheKey = `${clothingType}|${clothingCode || ""}`;
+    if (!seqCache.has(cacheKey)) {
+      seqCache.set(cacheKey, await resolveStageSequence(clothingType, clothingCode));
     }
-    return seqCache.get(clothingType);
+    return seqCache.get(cacheKey);
   }
 
   const rows = [];
   for (const { item, order } of items) {
-    const seqInfo = await seqFor(item.clothingType);
+    const seqInfo = await seqFor(item.clothingType, item.clothingCode);
     const cps = cpByItem.get(item.id) || [];
-    const currentStage = deriveCurrentStage(cps, seqInfo.stageSequence, item.offSiteStages || seqInfo.offSiteStages);
-    const nextStage = nextExpectedStage(cps, seqInfo.stageSequence, item.offSiteStages || seqInfo.offSiteStages);
+    const currentStage = deriveCurrentStage(cps, seqInfo.stageSequence, itemOffSiteStages(item, seqInfo.offSiteStages));
+    const nextStage = nextExpectedStage(cps, seqInfo.stageSequence, itemOffSiteStages(item, seqInfo.offSiteStages));
     const open = cps.find((c) => c.checkedInAt && !c.checkedOutAt);
     const assignment = asgByItemStage.get(`${item.id}:${nextStage}`) || null;
     const days = daysUntil(order.requiredCompletionDate);
@@ -94,11 +96,13 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
     const itemIndex = item.itemIndex || Math.max(1, siblings.findIndex((it) => it.id === item.id) + 1);
     if (item.itemKind === "part" && item.assembledAt) continue;
     const chainAsg = chainByItem.get(item.id) || [];
+    const itemOff = itemOffSiteStages(item, seqInfo.offSiteStages);
     const path = seqInfo.stageSequence
       .filter((s) => s !== "DELIVERED")
       .map((stage) => {
-        const a = chainAsg.filter((x) => x.stage === stage).at(-1) || null;
-        const cp = cps.find((c) => c.stage === stage);
+        const a =
+          chainAsg.filter((x) => stageMatchesStep(x.stage, stage, seqInfo.stageSequence)).at(-1) || null;
+        const cp = findCheckpoint(cps, stage, seqInfo.stageSequence);
         let status = "waiting";
         if (cp?.checkedOutAt) status = "completed";
         else if (cp && !cp.checkedOutAt) status = "in_progress";
@@ -106,7 +110,8 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
         return {
           stage,
           status,
-          staffName: a?.staff?.name || null
+          staffName: a?.staff?.name || null,
+          offSite: itemOff.includes(stage)
         };
       });
 
@@ -126,6 +131,7 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
       clothingCode: item.clothingCode,
       fabricType: item.fabricType,
       color: item.color,
+      innerFabricColor: item.innerFabricColor || "",
       size: item.size,
       difficultyLevel: item.difficultyLevel,
       orderId: order.orderId,
@@ -142,6 +148,7 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
       nextStage,
       location: open?.stage === "OFF_SITE" ? "off_site" : "in_shop",
       offSite: open?.stage === "OFF_SITE",
+      offSiteTrip: open?.stage === "OFF_SITE" ? offSiteTripSummary(open) : null,
       stageSequence: seqInfo.stageSequence,
       inProgress,
       openStage: open?.stage || null,

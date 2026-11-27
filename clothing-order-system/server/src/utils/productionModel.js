@@ -1,35 +1,20 @@
 import {
   CANONICAL_GARMENT_SEQUENCE,
   FULL_STAGE_SEQUENCE,
-  SKIP_EMBROIDERY_SEQUENCE
+  SKIP_EMBROIDERY_SEQUENCE,
+  ProductionStage,
+  canonicalStage as rulebookCanonical,
+  stageAliases,
+  stepStageNames,
+  stageMatchesStep
 } from "../constants/production.js";
 
-export const STAGE_CANONICAL = {
-  CUTTING: "SEWING_CUTTING",
-  SEWING: "SEWING_CUTTING",
-  SEWING_CUTTING: "SEWING_CUTTING",
-  READY: "SHOWROOM",
-  SHOWROOM: "SHOWROOM",
-  PACKAGING: "PACKAGING",
-  FINAL_SEWING: "FINAL_SEWING",
-  EMBROIDERY: "EMBROIDERY",
-  FINISHING: "FINISHING",
-  RECEIVED: "RECEIVED",
-  DELIVERED: "DELIVERED",
-  OFF_SITE: "OFF_SITE"
-};
+export { stepStageNames, stageMatchesStep };
 
-export const STAGE_ALIASES = {
-  SEWING_CUTTING: ["SEWING_CUTTING", "CUTTING", "SEWING"],
-  SHOWROOM: ["SHOWROOM", "READY"],
-  PACKAGING: ["PACKAGING"],
-  FINAL_SEWING: ["FINAL_SEWING"],
-  EMBROIDERY: ["EMBROIDERY"],
-  FINISHING: ["FINISHING"],
-  RECEIVED: ["RECEIVED"],
-  DELIVERED: ["DELIVERED"],
-  OFF_SITE: ["OFF_SITE"]
-};
+/** Derived from the rulebook in constants/production.js (kept for existing imports). */
+export const STAGE_CANONICAL = Object.fromEntries(
+  [...ProductionStage].map((stage) => [stage, rulebookCanonical(stage)])
+);
 
 export const PART_CATALOG = {
   WR: { code: "WR", label: "Wrist" },
@@ -41,13 +26,11 @@ export const PART_CATALOG = {
 export const GARMENT_COMPLETE_STAGES = new Set(["SHOWROOM", "READY", "PACKAGING", "DELIVERED"]);
 
 export function canonicalStage(stage) {
-  if (!stage) return stage;
-  return STAGE_CANONICAL[stage] || stage;
+  return rulebookCanonical(stage);
 }
 
 export function aliasesForStage(stage) {
-  const canon = canonicalStage(stage);
-  return STAGE_ALIASES[canon] || [stage, canon].filter(Boolean);
+  return stageAliases(stage);
 }
 
 export function stagesMatch(a, b) {
@@ -56,17 +39,25 @@ export function stagesMatch(a, b) {
   return canonicalStage(a) === canonicalStage(b);
 }
 
+/** Skill rows that qualify a worker for `stage` (same rule as everywhere else). */
 export function skillStagesFor(stage) {
-  const canon = canonicalStage(stage);
-  if (canon === "SEWING_CUTTING") return ["SEWING_CUTTING", "CUTTING", "SEWING"];
-  if (canon === "SHOWROOM") return ["SHOWROOM", "READY"];
-  if (canon === "FINAL_SEWING") return ["FINAL_SEWING", "SEWING"];
-  return [...new Set([stage, canon])];
+  return stageAliases(stage);
 }
 
-export function findCheckpoint(checkpoints = [], stage) {
-  const aliases = aliasesForStage(stage);
-  return checkpoints.find((c) => aliases.includes(c.stage)) || null;
+/**
+ * Checkpoint for route step `stage`. With `stageSequence`, names that are their
+ * own step in that route are not borrowed. Prefers an open checkpoint, then the
+ * most recent one (so a redone stage reflects the latest attempt).
+ */
+export function findCheckpoint(checkpoints = [], stage, stageSequence = []) {
+  const names = stepStageNames(stage, stageSequence);
+  const matches = checkpoints.filter((c) => names.includes(c.stage));
+  if (!matches.length) return null;
+  const open = matches.find((c) => !c.checkedOutAt);
+  if (open) return open;
+  return [...matches].sort(
+    (a, b) => new Date(b.checkedInAt || 0) - new Date(a.checkedInAt || 0)
+  )[0];
 }
 
 export function isGarmentCompleteStage(stage) {
@@ -132,7 +123,7 @@ export function isPartReadyForAssembly(checkpoints, stageSequence) {
     return checkpoints.some((c) => c.checkedOutAt);
   }
   return prior.every((stage) => {
-    const cp = findCheckpoint(checkpoints, stage);
+    const cp = findCheckpoint(checkpoints, stage, stageSequence);
     return Boolean(cp?.checkedOutAt);
   });
 }

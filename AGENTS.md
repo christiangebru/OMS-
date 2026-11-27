@@ -82,5 +82,8 @@ Three processes are needed for full end-to-end use:
 - Uploaded images are stored on local disk under `server/uploads/` (auto-created). This is
   **ephemeral on Render** (lost on redeploy/restart) — production needs S3/Cloudinary.
 - Render **free** web services cannot run a Pre-Deploy Command (locked / ignored). Production
-  `npm start` therefore runs `prisma migrate deploy` before listening. Use `npm run dev` locally
-  so watch-mode restarts do not re-run migrations.
+  `npm start` (`src/start.js`) starts listening first, then runs `prisma migrate deploy` in the
+  background with a timeout; a failed or timed-out migrate only logs. `GET /ready` returns 503
+  with `schema.missingColumns` / `pendingMigrations` / `failedMigrations` when the live database
+  does not match the build — check it after every deploy (`/health` stays 200 regardless).
+  Use `npm run dev` locally so watch-mode restarts do not re-run migrations.

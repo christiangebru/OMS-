@@ -5,6 +5,7 @@ import { hydrateOrder } from "./orderHydrate.js";
 import { syncOrderStatusFromItems } from "./syncOrderFromStages.js";
 import { s } from "./serialize.js";
 import { deriveCurrentStage, resolveStageSequence } from "./stageSequence.js";
+import { itemOffSiteStages } from "./offSite.js";
 
 export function isOrderContainerBarcode(value) {
   const parsed = parseOperationalBarcode(value);
@@ -34,8 +35,8 @@ export async function assertOrderReadyToPack(order, client = prisma) {
   }
   const incomplete = [];
   for (const item of top) {
-    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType);
-    const itemOff = item.offSiteStages?.length ? item.offSiteStages : offSiteStages;
+    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType, item.clothingCode);
+    const itemOff = itemOffSiteStages(item, offSiteStages);
     const stage = deriveCurrentStage(byItem.get(item.id) || [], stageSequence, itemOff);
     if (!isGarmentCompleteStage(stage)) {
       incomplete.push({

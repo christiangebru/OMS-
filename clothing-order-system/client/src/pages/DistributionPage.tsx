@@ -9,15 +9,16 @@ import { Button } from "@/components/ui/Button";
 import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import clsx from "clsx";
 
+/** States and locations: nobody to assign (off-site goes to an outside person). */
+const NO_WORKER_STAGES: string[] = ["RECEIVED", "OFF_SITE", "SHOWROOM", "READY", "PACKAGING", "DELIVERED"];
+
 export function DistributionPage() {
   const [board, setBoard] = useState<ProductionQueue | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [stage, setStage] = useState<ProductionStage | "ALL">("ALL");
   const [busy, setBusy] = useState<string | null>(null);
   const [manual, setManual] = useState<Record<string, string>>({});
-  const [lane, setLane] = useState<
-    "ALL" | "waiting" | "assigned" | "distributed" | "received" | "in_progress"
-  >("ALL");
+  const [lane, setLane] = useState<"ALL" | "waiting" | "received" | "off_site" | "in_progress">("ALL");
   const hydrated = useRef(false);
 
   const load = useCallback(async () => {
@@ -38,7 +39,13 @@ export function DistributionPage() {
 
   const items = (board?.items || []).filter((i) => {
     const stageOk = stage === "ALL" ? true : i.nextStage === stage || i.openStage === stage;
-    const laneOk = lane === "ALL" ? true : i.boardStatus === lane;
+    // "Received" = route assigned, waiting for its scan-in (the scan is the hand-over).
+    const laneOk =
+      lane === "ALL"
+        ? true
+        : lane === "received"
+          ? ["assigned", "distributed", "received"].includes(i.boardStatus)
+          : i.boardStatus === lane;
     return stageOk && laneOk;
   }) as Array<QueueItem & { openStage?: string | null }>;
 
@@ -80,43 +87,13 @@ export function DistributionPage() {
     }
   }
 
-  async function distribute(item: QueueItem) {
-    if (!item.assignment?._id) return;
-    setBusy(item.itemId);
-    try {
-      await apiJson(`/api/production/assignments/${item.assignment._id}/distribute`, {
-        method: "POST"
-      });
-      await load();
-    } catch (e) {
-      setErr(describeApiError(e, "Distribute failed"));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function receive(item: QueueItem) {
-    if (!item.assignment?._id) return;
-    setBusy(item.itemId);
-    try {
-      await apiJson(`/api/production/assignments/${item.assignment._id}/receive`, {
-        method: "POST"
-      });
-      await load();
-    } catch (e) {
-      setErr(describeApiError(e, "Receive failed"));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   const waiting = board?.summary.itemsWaiting ?? 0;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Distribution"
-        description="Recommend a worker, assign, then hand the garment over. Assignment and handover are separate events."
+        description="Recommend a worker and assign the route. Scanning the garment in is the hand-over."
         actions={
           <Button type="button" variant="secondary" onClick={load}>
             Refresh
@@ -130,11 +107,17 @@ export function DistributionPage() {
         <Skeleton className="h-40" />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label="Waiting assignment" value={waiting} />
-            <Stat label="Assigned" value={board.summary.itemsAssigned} />
-            <Stat label="Handed over" value={board.summary.itemsDistributed} />
-            <Stat label="Received" value={board.summary.itemsReceived || 0} />
+            <Stat
+              label="Received (route set)"
+              value={
+                (board.summary.itemsAssigned || 0) +
+                (board.summary.itemsDistributed || 0) +
+                (board.summary.itemsReceived || 0)
+              }
+            />
+            <Stat label="Off-site" value={board.items.filter((i) => i.boardStatus === "off_site").length} />
             <Stat label="Checked in" value={board.summary.itemsInProgress} />
           </div>
 
@@ -144,6 +127,7 @@ export function DistributionPage() {
                 ["ALL", "All lanes"],
                 ["waiting", "Unassigned"],
                 ["received", "Received"],
+                ["off_site", "Off-site"],
                 ["in_progress", "In progress"]
               ] as const
             ).map(([value, label]) => (
@@ -197,6 +181,7 @@ export function DistributionPage() {
                         {stageLabel(item.nextStage)} · {boardStatusLabel(item.boardStatus)}
                         {item.assignment?.staff ? ` · ${item.assignment.staff.name}` : ""}
                       </p>
+                      <OffSiteTripLine item={item} />
                       {item.recommended && item.boardStatus === "waiting" && (
                         <p className="mt-1 text-[11px] text-ink-muted">
                           Recommended: {item.recommended.staff.name}
@@ -213,8 +198,6 @@ export function DistributionPage() {
                       onManual={(id, value) => setManual((m) => ({ ...m, [id]: value }))}
                       onAssign={assign}
                       onAssignManual={assignManual}
-                      onDistribute={distribute}
-                      onReceive={receive}
                     />
                   </li>
                 ))}
@@ -286,6 +269,8 @@ export function DistributionPage() {
                                     `Skill ${item.recommended.staff.skillLevel}/5 · ${item.recommended.staff.activeAssignmentCount} active`)}
                               </p>
                             </div>
+                          ) : NO_WORKER_STAGES.includes(item.nextStage) || item.boardStatus === "off_site" ? (
+                            <span className="text-xs text-ink-muted">No worker needed</span>
                           ) : (
                             <span className="text-xs text-ink-muted">No eligible worker</span>
                           )}
@@ -305,6 +290,7 @@ export function DistributionPage() {
                           {item.assignment?.staff && (
                             <p className="mt-1 text-xs text-ink-muted">{item.assignment.staff.name}</p>
                           )}
+                          <OffSiteTripLine item={item} />
                         </td>
                         <td className="text-right">
                           <LaneActions
@@ -315,8 +301,6 @@ export function DistributionPage() {
                             onManual={(id, value) => setManual((m) => ({ ...m, [id]: value }))}
                             onAssign={assign}
                             onAssignManual={assignManual}
-                            onDistribute={distribute}
-                            onReceive={receive}
                             align="end"
                           />
                         </td>
@@ -342,8 +326,6 @@ function LaneActions({
   onManual,
   onAssign,
   onAssignManual,
-  onDistribute,
-  onReceive,
   align = "start"
 }: {
   item: QueueItem;
@@ -353,8 +335,6 @@ function LaneActions({
   onManual: (id: string, value: string) => void;
   onAssign: (item: QueueItem, ranking: StaffRanking, followed: boolean) => void;
   onAssignManual: (item: QueueItem) => void;
-  onDistribute: (item: QueueItem) => void;
-  onReceive: (item: QueueItem) => void;
   align?: "start" | "end";
 }) {
   return (
@@ -364,12 +344,12 @@ function LaneActions({
           Assign {item.recommended.staff.name.split(" ")[0]}
         </Button>
       )}
-      {item.boardStatus === "received" && (
+      {["assigned", "distributed", "received"].includes(item.boardStatus) && (
         <Link
           to={`/scan?barcode=${encodeURIComponent(item.labelBarcode || item.barcodeValue)}`}
           className="rounded-control bg-accent px-3 py-1.5 text-center text-xs font-semibold text-white"
         >
-          Scan in — hand off
+          Scan in to hand over
         </Link>
       )}
       {item.boardStatus === "waiting" && (
@@ -428,6 +408,21 @@ function LaneActions({
   );
 }
 
+function OffSiteTripLine({ item }: { item: QueueItem }) {
+  const trip = item.offSiteTrip;
+  if (!trip) return null;
+  const bits = [
+    trip.handlerName ? `with ${trip.handlerName}` : "no name recorded",
+    trip.handlerPhone || "",
+    trip.expectedReturnAt ? `due back ${formatDate(trip.expectedReturnAt)}` : ""
+  ].filter(Boolean);
+  return (
+    <p className={clsx("mt-1 text-[11px]", trip.overdue ? "font-semibold text-red-700" : "text-amber-800")}>
+      Off-site · {bits.join(" · ")}
+    </p>
+  );
+}
+
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="ui-card px-4 py-3">
@@ -447,7 +442,9 @@ function PathStrip({ path }: { path?: QueueItem["path"] }) {
             {i === 0 ? "Give to" : "then"}
           </span>
           <span className="capitalize">{stageLabel(p.stage)}</span>
-          <span className="text-ink">{p.staffName ? `→ ${p.staffName}` : "→ —"}</span>
+          <span className={p.offSite ? "text-amber-800" : "text-ink"}>
+            {p.offSite ? "→ off-site" : p.staffName ? `→ ${p.staffName}` : "→ —"}
+          </span>
         </li>
       ))}
     </ol>

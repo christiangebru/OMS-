@@ -13,11 +13,11 @@ export async function attachStaffBoard(prisma, staffList) {
     }),
     prisma.staffAssignment.groupBy({
       by: ["staffId"],
-      where: { staffId: { in: ids }, completedAt: { not: null } },
+      where: { staffId: { in: ids }, completedAt: { not: null }, reassignedAt: null },
       _count: { _all: true }
     }),
     prisma.stageCheckpoint.findMany({
-      where: { checkedInByStaffId: { in: ids }, checkedOutAt: null },
+      where: { checkedInByStaffId: { in: ids }, checkedOutAt: null, stage: { notIn: ["RECEIVED", "OFF_SITE"] } },
       include: { orderItem: true }
     })
   ]);

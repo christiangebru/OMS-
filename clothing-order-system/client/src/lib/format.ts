@@ -8,7 +8,7 @@ export function shortOrderId(id?: string | null) {
 /** Printed / spoken garment barcode. Never a UUID, CUID, or ITM-* blob. */
 export function labelBarcode(orderId?: string | null, index = 1, stored?: string | null, partCode?: string | null) {
   const n = Math.max(1, Number(index) || 1);
-  if (stored && /^ORD-\d+-\d+-[A-Z]{2}$/i.test(stored)) return stored.toUpperCase();
+  if (stored && /^ORD-\d+-\d+-[A-Z]{2,4}$/i.test(stored)) return stored.toUpperCase();
   if (stored && /^ORD-\d+-\d+$/i.test(stored) && !partCode) return stored.toUpperCase();
   const seq = String(orderId || "").match(/^ORD-(\d+)$/i);
   const base = seq ? `ORD-${seq[1]}-${n}` : `${shortOrderId(orderId)}-${n}`;
