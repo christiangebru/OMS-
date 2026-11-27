@@ -454,7 +454,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       }),
       stageStates,
       assignment: assignmentSummary(openAssignment),
-      assignmentChain: effectiveScanSequence(seqInfo.stageSequence, offSiteStages).map((stage) => {
+      assignmentChain: effectiveScanSequence(seqInfo.stageSequence, offSiteStages, checkpoints).map((stage) => {
         const asg =
           allAssignments.find((a) => stageMatchesStep(a.stage, stage, seqInfo.stageSequence)) || null;
         const cp =

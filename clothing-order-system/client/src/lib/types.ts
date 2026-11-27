@@ -623,7 +623,7 @@ export interface QueueItem {
   } | null;
   recommended?: StaffRanking | null;
   labelBarcode?: string;
-  path?: Array<{ stage: ProductionStage; status: string; staffName?: string | null }>;
+  path?: Array<{ stage: ProductionStage; status: string; staffName?: string | null; offSite?: boolean }>;
 }
 
 export interface ProductionQueue {

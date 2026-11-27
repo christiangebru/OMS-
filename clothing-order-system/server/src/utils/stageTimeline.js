@@ -48,7 +48,7 @@ export function buildStageStates(checkpoints = [], stageSequence = [], options =
       : assignment
         ? [assignment]
         : [];
-  const windows = offSiteWindows(sequence, offSiteStages);
+  const windows = offSiteWindows(sequence, offSiteStages, checkpoints);
   const tripsDone = completedOffSiteTrips(checkpoints).length;
   const openOff = openOffSiteCheckpoint(checkpoints);
 

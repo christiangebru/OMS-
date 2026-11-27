@@ -42,6 +42,9 @@ router.use(requireAuth);
 /** Stages that are a location or order step, not a workstation: no worker or skill needed. */
 const STAFF_OPTIONAL_STAGES = new Set(["RECEIVED", "OFF_SITE", "SHOWROOM", "READY", "PACKAGING", "DELIVERED"]);
 
+/** Open checkpoints at these never count as a worker's active garment. */
+const NOT_WORKSTATION_WORK = ["RECEIVED", "OFF_SITE"];
+
 function staffOptionalFor(stage) {
   return STAFF_OPTIONAL_STAGES.has(stage) || STAFF_OPTIONAL_STAGES.has(canonicalStage(stage));
 }
@@ -82,7 +85,7 @@ async function refreshStaffPresence(staffId, client = prisma) {
   const staff = await client.staff.findUnique({ where: { id: staffId } });
   if (!staff || staff.status === "OFF_DUTY") return;
   const open = await client.stageCheckpoint.count({
-    where: { checkedInByStaffId: staffId, checkedOutAt: null, stage: { not: OFF_SITE_STAGE } }
+    where: { checkedInByStaffId: staffId, checkedOutAt: null, stage: { notIn: NOT_WORKSTATION_WORK } }
   });
   const next = open > 0 ? "BUSY" : "AVAILABLE";
   if (staff.status !== next) {
@@ -342,7 +345,7 @@ router.post(
             where: {
               checkedInByStaffId: workerId,
               checkedOutAt: null,
-              stage: { not: OFF_SITE_STAGE },
+              stage: { notIn: NOT_WORKSTATION_WORK },
               orderItemId: { not: item.id }
             },
             include: { orderItem: true }
@@ -355,6 +358,10 @@ router.post(
         }
 
         const trip = goingOffSite ? offSiteTripData(req.body) : {};
+        if (goingOffSite) {
+          const cpsNow = await prisma.stageCheckpoint.findMany({ where: { orderItemId: item.id } });
+          trip.coveredStages = pendingOffSiteWindow(cpsNow, stageSequence, offSiteStages)?.stages || [];
+        }
         checkpoint = await prisma.$transaction(async (tx) => {
           if (routeChange) {
             await tx.orderItem.update({

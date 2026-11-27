@@ -319,6 +319,8 @@ model StageCheckpoint {
   offSiteHandlerName  String    @default("")
   offSiteHandlerPhone String    @default("")
   expectedReturnAt    DateTime?
+  /// OFF_SITE trips: route stages this trip covered (trip boundary for later trips).
+  coveredStages       String[]  @default([])
 
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
 

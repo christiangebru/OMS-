@@ -9,6 +9,9 @@ import { Button } from "@/components/ui/Button";
 import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import clsx from "clsx";
 
+/** States and locations: nobody to assign (off-site goes to an outside person). */
+const NO_WORKER_STAGES: string[] = ["RECEIVED", "OFF_SITE", "SHOWROOM", "READY", "PACKAGING", "DELIVERED"];
+
 export function DistributionPage() {
   const [board, setBoard] = useState<ProductionQueue | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -266,6 +269,8 @@ export function DistributionPage() {
                                     `Skill ${item.recommended.staff.skillLevel}/5 · ${item.recommended.staff.activeAssignmentCount} active`)}
                               </p>
                             </div>
+                          ) : NO_WORKER_STAGES.includes(item.nextStage) || item.boardStatus === "off_site" ? (
+                            <span className="text-xs text-ink-muted">No worker needed</span>
                           ) : (
                             <span className="text-xs text-ink-muted">No eligible worker</span>
                           )}
@@ -437,7 +442,9 @@ function PathStrip({ path }: { path?: QueueItem["path"] }) {
             {i === 0 ? "Give to" : "then"}
           </span>
           <span className="capitalize">{stageLabel(p.stage)}</span>
-          <span className="text-ink">{p.staffName ? `→ ${p.staffName}` : "→ —"}</span>
+          <span className={p.offSite ? "text-amber-800" : "text-ink"}>
+            {p.offSite ? "→ off-site" : p.staffName ? `→ ${p.staffName}` : "→ —"}
+          </span>
         </li>
       ))}
     </ol>

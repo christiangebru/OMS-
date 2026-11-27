@@ -95,6 +95,7 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
     const itemIndex = item.itemIndex || Math.max(1, siblings.findIndex((it) => it.id === item.id) + 1);
     if (item.itemKind === "part" && item.assembledAt) continue;
     const chainAsg = chainByItem.get(item.id) || [];
+    const itemOff = itemOffSiteStages(item, seqInfo.offSiteStages);
     const path = seqInfo.stageSequence
       .filter((s) => s !== "DELIVERED")
       .map((stage) => {
@@ -108,7 +109,8 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
         return {
           stage,
           status,
-          staffName: a?.staff?.name || null
+          staffName: a?.staff?.name || null,
+          offSite: itemOff.includes(stage)
         };
       });
 

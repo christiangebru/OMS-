@@ -36,7 +36,7 @@ export function AssignmentChain({
       return { stage, staffId: existing?.staff?._id || "" };
     });
     setPath(initial);
-  }, [orderItemId, scan?.item?._id]);
+  }, [orderItemId, scan?.item?._id, sequence.join(",")]);
 
   useEffect(() => {
     let cancelled = false;

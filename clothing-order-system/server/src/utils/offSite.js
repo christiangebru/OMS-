@@ -25,17 +25,26 @@ export function stageIsOffSiteWork(stage, offSiteStages = []) {
  * Consecutive off-site work stages become one physical trip.
  * Return stage is the next in-shop stage after the window (scan-in on return).
  */
-export function offSiteWindows(stageSequence = [], offSiteStages = []) {
+export function offSiteWindows(stageSequence = [], offSiteStages = [], checkpoints = []) {
   const set = offSiteSet(offSiteStages);
   if (!set.size) return [];
   const seq = Array.isArray(stageSequence) ? stageSequence.filter((s) => s !== "RECEIVED") : [];
+  const breaks = tripBreaks(checkpoints);
   const windows = [];
   let current = null;
-  for (const stage of seq) {
+  for (let i = 0; i < seq.length; i += 1) {
+    const stage = seq[i];
     const canon = canonicalStage(stage) || stage;
     if (set.has(stage) || set.has(canon)) {
       if (!current) current = { stages: [stage], returnStage: null };
       else current.stages.push(stage);
+      // A trip that already happened covered exactly these stages: the
+      // garment came back, so a later off-site stage is a new trip.
+      if (breaks.has(stage)) {
+        current.returnStage = seq[i + 1] || null;
+        windows.push(current);
+        current = null;
+      }
     } else if (current) {
       current.returnStage = stage;
       windows.push(current);
@@ -48,13 +57,24 @@ export function offSiteWindows(stageSequence = [], offSiteStages = []) {
   return windows;
 }
 
+/** Last stage each recorded trip covered (trip boundaries). */
+export function tripBreaks(checkpoints = []) {
+  const out = new Set();
+  for (const c of checkpoints || []) {
+    if (isOffSiteStageName(c.stage) && Array.isArray(c.coveredStages) && c.coveredStages.length) {
+      out.add(c.coveredStages[c.coveredStages.length - 1]);
+    }
+  }
+  return out;
+}
+
 /**
  * Scan sequence with OFF_SITE standing in for each off-site window.
  * In-shop stages that happen off-site are not fake workstations.
  */
-export function effectiveScanSequence(stageSequence = [], offSiteStages = []) {
+export function effectiveScanSequence(stageSequence = [], offSiteStages = [], checkpoints = []) {
   const seq = Array.isArray(stageSequence) ? stageSequence.filter((s) => s !== "RECEIVED") : [];
-  const windows = offSiteWindows(seq, offSiteStages);
+  const windows = offSiteWindows(seq, offSiteStages, checkpoints);
   if (!windows.length) return [...seq];
   const covered = new Set(windows.flatMap((w) => w.stages));
   const out = [];
@@ -85,7 +105,7 @@ export function completedOffSiteTrips(checkpoints = []) {
 }
 
 export function currentOffSiteWindow(checkpoints, stageSequence, offSiteStages) {
-  const windows = offSiteWindows(stageSequence, offSiteStages);
+  const windows = offSiteWindows(stageSequence, offSiteStages, checkpoints);
   if (!windows.length) return null;
   const open = openOffSiteCheckpoint(checkpoints);
   const done = completedOffSiteTrips(checkpoints).length;
@@ -98,7 +118,7 @@ export function currentOffSiteWindow(checkpoints, stageSequence, offSiteStages) 
 }
 
 export function pendingOffSiteWindow(checkpoints, stageSequence, offSiteStages) {
-  const windows = offSiteWindows(stageSequence, offSiteStages);
+  const windows = offSiteWindows(stageSequence, offSiteStages, checkpoints);
   const done = completedOffSiteTrips(checkpoints).length;
   if (openOffSiteCheckpoint(checkpoints)) return windows[Math.min(done, windows.length - 1)] || null;
   return windows[done] || null;
@@ -122,7 +142,7 @@ export function locationLabel(checkpoints, nextStage) {
  * Next scan target, treating off-site as a real location between in-shop stages.
  */
 export function nextExpectedStageWithOffSite(checkpoints, stageSequence, offSiteStages = []) {
-  const seq = effectiveScanSequence(stageSequence, offSiteStages);
+  const seq = effectiveScanSequence(stageSequence, offSiteStages, checkpoints);
   if (openOffSiteCheckpoint(checkpoints)) return OFF_SITE_STAGE;
 
   let tripIdx = 0;
@@ -159,7 +179,7 @@ export function deriveCurrentStageWithOffSite(checkpoints, stageSequence, offSit
  * Prior stages on the effective sequence that must be complete before check-in.
  */
 export function priorEffectiveStagesComplete(checkpoints, targetStage, stageSequence, offSiteStages = []) {
-  const seq = effectiveScanSequence(stageSequence, offSiteStages);
+  const seq = effectiveScanSequence(stageSequence, offSiteStages, checkpoints);
   const resolved =
     seq.includes(targetStage) || targetStage === OFF_SITE_STAGE
       ? targetStage
@@ -218,6 +238,7 @@ export function offSiteTripSummary(cp) {
     handlerName: cp.offSiteHandlerName || "",
     handlerPhone: cp.offSiteHandlerPhone || "",
     expectedReturnAt: cp.expectedReturnAt || null,
+    coveredStages: cp.coveredStages || [],
     overdue: Boolean(
       !cp.checkedOutAt && cp.expectedReturnAt && new Date(cp.expectedReturnAt).getTime() < Date.now()
     )

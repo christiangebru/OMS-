@@ -120,7 +120,8 @@ export async function validateCheckIn(
   }
 
   const seq = stageSequence || SKIP_EMBROIDERY_SEQUENCE;
-  const effective = effectiveScanSequence(seq, offSiteStages);
+  const checkpoints = await prisma.stageCheckpoint.findMany({ where: { orderItemId } });
+  const effective = effectiveScanSequence(seq, offSiteStages, checkpoints);
   const resolved =
     targetStage === OFF_SITE_STAGE
       ? OFF_SITE_STAGE
@@ -140,7 +141,6 @@ export async function validateCheckIn(
     };
   }
 
-  const checkpoints = await prisma.stageCheckpoint.findMany({ where: { orderItemId } });
   const openOff = openOffSiteCheckpoint(checkpoints);
   const pending = pendingOffSiteWindow(checkpoints, seq, offSiteStages);
 

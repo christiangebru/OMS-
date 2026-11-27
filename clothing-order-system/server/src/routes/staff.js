@@ -151,7 +151,7 @@ router.get("/:id/workload", param("id").custom(isRecordId), async (req, res) => 
     where: {
       OR: [{ checkedInByStaffId: staff.id }, { checkedOutByStaffId: staff.id }],
       checkedOutAt: { not: null },
-      stage: { not: "OFF_SITE" }
+      stage: { notIn: ["RECEIVED", "OFF_SITE"] }
     },
     orderBy: { checkedOutAt: "desc" },
     take: 50
@@ -165,7 +165,7 @@ router.get("/:id/workload", param("id").custom(isRecordId), async (req, res) => 
     : null;
 
   const openNow = await prisma.stageCheckpoint.findMany({
-    where: { checkedInByStaffId: staff.id, checkedOutAt: null, stage: { not: "OFF_SITE" } },
+    where: { checkedInByStaffId: staff.id, checkedOutAt: null, stage: { notIn: ["RECEIVED", "OFF_SITE"] } },
     include: { orderItem: true }
   });
 

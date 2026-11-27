@@ -17,7 +17,7 @@ export async function attachStaffBoard(prisma, staffList) {
       _count: { _all: true }
     }),
     prisma.stageCheckpoint.findMany({
-      where: { checkedInByStaffId: { in: ids }, checkedOutAt: null, stage: { not: "OFF_SITE" } },
+      where: { checkedInByStaffId: { in: ids }, checkedOutAt: null, stage: { notIn: ["RECEIVED", "OFF_SITE"] } },
       include: { orderItem: true }
     })
   ]);

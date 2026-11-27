@@ -79,6 +79,41 @@ describe("workflow fixes", () => {
       expect(back.body.scanDetails.timing.nextExpectedStage).toBe("FINAL_SEWING");
     });
 
+    it("treats a second off-site stage right after a finished trip as a new trip", async () => {
+      const { item } = await seedOrderWithItem({ clothingType: "thobe" });
+      const bc = item.barcodeValue;
+      expect((await scan(app, token, { barcodeValue: bc, stage: "OFF_SITE", offSiteFor: "SEWING_CUTTING" })).status).toBe(200);
+      expect((await scan(app, token, { barcodeValue: bc, stage: "OFF_SITE" })).status).toBe(200);
+
+      // Final sewing sits right after Sewing & cutting; it must not merge into the finished trip.
+      const second = await scan(app, token, {
+        barcodeValue: bc,
+        stage: "OFF_SITE",
+        offSiteFor: "FINAL_SEWING",
+        offSiteHandlerName: "Second vendor"
+      });
+      expect(second.status).toBe(200);
+      expect(second.body.scanDetails.production.offSiteTrip.coveredStages).toEqual(["FINAL_SEWING"]);
+
+      const back = await scan(app, token, { barcodeValue: bc, stage: "OFF_SITE" });
+      expect(back.status).toBe(200);
+      expect(back.body.scanDetails.timing.nextExpectedStage).toBe("FINISHING");
+      const trips = await prisma.stageCheckpoint.findMany({
+        where: { orderItemId: item._id, stage: "OFF_SITE" },
+        orderBy: { checkedInAt: "asc" }
+      });
+      expect(trips.map((t) => t.coveredStages)).toEqual([["SEWING_CUTTING"], ["FINAL_SEWING"]]);
+    });
+
+    it("still sends adjacent planned off-site stages as one trip (trousers)", async () => {
+      const { item } = await seedOrderWithItem({ clothingType: "pants" });
+      const sent = await scan(app, token, { barcodeValue: item.barcodeValue, stage: "OFF_SITE" });
+      expect(sent.status).toBe(200);
+      expect(sent.body.scanDetails.production.offSiteTrip.coveredStages).toEqual(["SEWING_CUTTING", "FINAL_SEWING"]);
+      const back = await scan(app, token, { barcodeValue: item.barcodeValue, stage: "OFF_SITE" });
+      expect(back.body.scanDetails.timing.nextExpectedStage).toBe("FINISHING");
+    });
+
     it("only lets the next stage be sent off-site", async () => {
       const { item } = await seedOrderWithItem({ clothingType: "thobe" });
       const res = await scan(app, token, {

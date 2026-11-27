@@ -153,8 +153,9 @@ export function ScanPage() {
       setNotes("");
     } catch (ex) {
       const message = ex instanceof ApiError ? ex.message : "Scan failed";
-      setFeedback({ ok: false, message });
+      // Refresh first: lookupBarcode clears feedback, and the error must stay visible.
       if (barcode.trim()) await lookupBarcode(barcode);
+      setFeedback({ ok: false, message });
     } finally {
       setBusy(false);
     }
@@ -487,7 +488,7 @@ export function ScanPage() {
                 />
               )}
 
-              {canOverride && details.item?._id && (
+              {canOverride && details.item?._id && !STAFF_OPTIONAL.includes(scanStage) && (
                 <SuggestedAssignments
                   orderItemId={details.item._id}
                   stage={actionStage}
