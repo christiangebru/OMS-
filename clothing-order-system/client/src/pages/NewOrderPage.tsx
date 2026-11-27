@@ -48,7 +48,7 @@ import { useToast } from "@/context/ToastContext";
 import clsx from "clsx";
 
 type Phase = "customer" | "garments" | "edit" | "schedule" | "review";
-type EditStep = 0 | 1 | 2 | 3 | 4 | 5;
+type EditStep = 0 | 1 | 2 | 3 | 4;
 type GarmentWizard = "list" | "category" | "options";
 
 type Draft = {
@@ -57,6 +57,7 @@ type Draft = {
   clothingCode: string;
   fabricType: string;
   color: string;
+  innerFabricColor: string;
   notes: string;
   neckType: NeckType;
   handType: HandType;
@@ -75,7 +76,21 @@ type Draft = {
   itemKind?: ItemKind;
 };
 
-const EDIT_LABELS = ["Type", "Reuse", "Fit", "Specs", "Images", "Price"];
+const EDIT_LABELS = ["Type", "Reuse", "Fit", "Specs", "Photos & price"];
+const LAST_EDIT_STEP: EditStep = 4;
+
+/** Habesha garments use two fabrics; colours are a short fixed list. */
+const FABRIC_OPTIONS = ["Menen (cotton)", "Wool"];
+const COLOR_OPTIONS = ["White", "Beige", "Black", "Brown"];
+/** Inner fabric (Geber) colour. */
+const GEBER_OPTIONS = ["Beige", "White"];
+
+/** Garment types offered for women / girls: active, not an accessory, female fit. */
+function femaleGarmentTypes(types: ClothingTypeConfig[]) {
+  return types.filter(
+    (t) => t.active !== false && t.itemKind !== "accessory" && t.measurementProfile === "female"
+  );
+}
 
 function newKey() {
   return `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -88,6 +103,7 @@ function emptyDraft(): Draft {
     clothingCode: "",
     fabricType: "",
     color: "",
+    innerFabricColor: "",
     notes: "",
     neckType: "oval",
     handType: "normal",
@@ -145,6 +161,7 @@ function draftFromItem(src: OrderItem, category?: MeasurementCategory): Draft {
     clothingCode: src.clothingCode,
     fabricType: src.fabricType,
     color: src.color,
+    innerFabricColor: src.innerFabricColor || "",
     notes: src.notes,
     neckType: src.neckType,
     handType: src.handType,
@@ -192,6 +209,7 @@ function toPayloadItem(d: Draft) {
     clothingType: d.clothingType,
     fabricType: d.fabricType || "unspecified",
     color: d.color || "unspecified",
+    innerFabricColor: d.itemKind === "accessory" ? "" : d.innerFabricColor || "",
     quantity: 1,
     notes: d.notes,
     neckType: d.neckType,
@@ -212,26 +230,33 @@ function toPayloadItem(d: Draft) {
   };
 }
 
-function firstEditStep(d: Draft): EditStep {
-  if (d.itemKind === "accessory") return 3;
-  if (d.clothingType.trim()) return 1;
-  return 0;
+/** Steps that apply to this garment (skipped ones are hidden, not just greyed). */
+/**
+ * Steps that apply to this garment; skipped ones are hidden, not greyed out.
+ * Type: only when not chosen yet (or when editing a saved garment).
+ * Reuse: only when the customer has earlier garments. Fit: only with measurements.
+ */
+function editStepsFor(d: Draft, hasPrevious: boolean, includeType = false): EditStep[] {
+  const accessory = d.itemKind === "accessory";
+  const steps: EditStep[] = [];
+  if (!d.clothingType.trim() || (includeType && !accessory)) steps.push(0);
+  if (hasPrevious && !accessory) steps.push(1);
+  if (!accessory && d.measureScope !== "none") steps.push(2);
+  steps.push(3, 4);
+  return steps;
 }
 
-function nextEditStep(d: Draft, step: EditStep): EditStep {
-  let n = Math.min(5, step + 1) as EditStep;
-  if (n === 2 && (d.itemKind === "accessory" || d.measureScope === "none")) n = 3;
-  return n;
+function firstEditStep(d: Draft, hasPrevious: boolean, includeType = false): EditStep {
+  return editStepsFor(d, hasPrevious, includeType)[0];
 }
 
-function prevEditStep(d: Draft, step: EditStep): EditStep | "cancel" {
-  const first = firstEditStep(d);
-  if (step <= first) return "cancel";
-  let p = (step - 1) as EditStep;
-  if (p === 2 && (d.itemKind === "accessory" || d.measureScope === "none")) {
-    p = (first < 2 ? first : 1) as EditStep;
-  }
-  return p < first ? "cancel" : p;
+function nextEditStep(d: Draft, step: EditStep, hasPrevious: boolean, includeType = false): EditStep {
+  return editStepsFor(d, hasPrevious, includeType).find((s) => s > step) ?? LAST_EDIT_STEP;
+}
+
+function prevEditStep(d: Draft, step: EditStep, hasPrevious: boolean, includeType = false): EditStep | "cancel" {
+  const earlier = editStepsFor(d, hasPrevious, includeType).filter((s) => s < step);
+  return earlier.length ? earlier[earlier.length - 1] : "cancel";
 }
 
 export function NewOrderPage() {
@@ -268,6 +293,8 @@ export function NewOrderPage() {
   const [pendingMaleSet, setPendingMaleSet] = useState<"" | "shirt" | "trouser" | "both">("");
   const [pendingAccessories, setPendingAccessories] = useState<Array<"belt" | "netela">>([]);
   const [collectQueue, setCollectQueue] = useState<Draft[]>([]);
+  const [collectTotal, setCollectTotal] = useState(0);
+  const [pendingFemaleType, setPendingFemaleType] = useState("");
   const [partLabelMode, setPartLabelMode] = useState<"none" | "all" | "selected">("none");
 
   useEffect(() => {
@@ -315,6 +342,10 @@ export function NewOrderPage() {
     [customer]
   );
 
+  const hasPrevious = previousItems.length > 0;
+  /** Editing an already-saved garment: let the type be changed too. */
+  const includeType = Boolean(editing && drafts.some((d) => d.key === editing.key));
+  const femaleTypes = useMemo(() => femaleGarmentTypes(types), [types]);
   const agreed = drafts.reduce((s, d) => s + (Number(d.unitPrice) || 0), 0);
   const balance = balanceRemaining(agreed, deposit);
 
@@ -322,7 +353,9 @@ export function NewOrderPage() {
     setPendingAudience(null);
     setPendingMaleSet("");
     setPendingAccessories([]);
+    setPendingFemaleType("");
     setCollectQueue([]);
+    setCollectTotal(0);
   }
 
   function beginAdd() {
@@ -335,6 +368,7 @@ export function NewOrderPage() {
     setPendingAudience(id);
     setPendingMaleSet("");
     setPendingAccessories([]);
+    setPendingFemaleType("");
     setGarmentWizard("options");
   }
 
@@ -357,8 +391,11 @@ export function NewOrderPage() {
         )
       ];
     }
+    const picked = femaleTypes.find((t) => t.key === pendingFemaleType);
     const main: Draft = {
       ...emptyDraft(),
+      clothingType: picked?.label || "",
+      clothingCode: picked ? String(picked.key).toUpperCase() : "",
       category: audienceMeasureCategory(pendingAudience),
       size: audienceSize(pendingAudience),
       audience: pendingAudience,
@@ -374,8 +411,9 @@ export function NewOrderPage() {
     const [first, ...rest] = items;
     if (!first) return;
     setCollectQueue(rest);
+    setCollectTotal(items.length);
     setEditing(first);
-    setEditStep(firstEditStep(first));
+    setEditStep(firstEditStep(first, hasPrevious));
     setReuseMode("scratch");
     setPhase("edit");
   }
@@ -389,13 +427,15 @@ export function NewOrderPage() {
   function optionsReady() {
     if (!pendingAudience) return false;
     if (isMaleAudience(pendingAudience)) return Boolean(pendingMaleSet);
-    return true;
+    // Women / girls: pick the main garment here (skips the separate Type step).
+    return Boolean(pendingFemaleType) || femaleTypes.length === 0;
   }
 
   function beginEdit(d: Draft) {
     setCollectQueue([]);
+    setCollectTotal(0);
     setEditing({ ...d, measureValues: { ...d.measureValues }, images: [...(d.images || [])] });
-    setEditStep(0);
+    setEditStep(firstEditStep(d, hasPrevious, true));
     setReuseMode("scratch");
     setPhase("edit");
   }
@@ -415,7 +455,7 @@ export function NewOrderPage() {
       category: editing.audience ? audienceMeasureCategory(editing.audience) : next.category
     });
     setReuseMode("previous");
-    setEditStep(2);
+    setEditStep(nextEditStep(editing, 1, hasPrevious, includeType));
   }
 
   function saveEditing() {
@@ -427,11 +467,12 @@ export function NewOrderPage() {
       copy[idx] = editing;
       return copy;
     });
+    push(`${editing.clothingType} saved`, "ok");
     if (collectQueue.length) {
       const [next, ...rest] = collectQueue;
       setCollectQueue(rest);
       setEditing(next);
-      setEditStep(firstEditStep(next));
+      setEditStep(firstEditStep(next, hasPrevious));
       setReuseMode("scratch");
       return;
     }
@@ -444,6 +485,7 @@ export function NewOrderPage() {
   function cancelEditing() {
     setEditing(null);
     setCollectQueue([]);
+    setCollectTotal(0);
     setGarmentWizard(drafts.length ? "list" : "category");
     setPhase("garments");
   }
@@ -544,21 +586,19 @@ export function NewOrderPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         title="New order"
-        description="Customer first. Add every garment, then set due date and deposit."
+        description="Customer, then garments, then due date and deposit."
       />
 
       <ol className="flex flex-wrap gap-1.5">
         {[
           { id: "customer", label: "Customer" },
           { id: "garments", label: "Garments" },
-          { id: "schedule", label: "Schedule" },
-          { id: "review", label: "Review" }
+          { id: "review", label: "Due date & finish" }
         ].map((s, i) => {
           const active = phase === s.id || (s.id === "garments" && phase === "edit");
           const done =
             (s.id === "customer" && phase !== "customer") ||
-            (s.id === "garments" && (phase === "schedule" || phase === "review")) ||
-            (s.id === "schedule" && phase === "review");
+            (s.id === "garments" && phase === "review");
           return (
             <li key={s.id}>
               <button
@@ -569,8 +609,7 @@ export function NewOrderPage() {
                     setGarmentWizard(drafts.length ? "list" : "category");
                     setPhase("garments");
                   }
-                  if (s.id === "schedule" && drafts.length) setPhase("schedule");
-                  if (s.id === "review" && drafts.length && due) setPhase("review");
+                  if (s.id === "review" && drafts.length) setPhase("review");
                 }}
                 className={clsx(
                   "min-h-11 rounded-control px-3 py-2 text-[11px] font-medium",
@@ -784,7 +823,7 @@ export function NewOrderPage() {
             {garmentWizard === "options" && pendingAudience && (
               <fieldset>
                 <legend className="ui-label">
-                  {isMaleAudience(pendingAudience) ? "Shirt, trouser, or both" : "Belt and netela"}
+                  {isMaleAudience(pendingAudience) ? "Shirt, trouser, or both" : "Garment, plus belt or netela"}
                 </legend>
                 {isMaleAudience(pendingAudience) ? (
                   <>
@@ -811,10 +850,29 @@ export function NewOrderPage() {
                   </>
                 ) : (
                   <>
-                    <p className="mt-1 text-xs text-ink-muted">
-                      Accessories are independent items. You will still add the main garment (for example kemis).
-                    </p>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {femaleTypes.length > 0 && (
+                      <>
+                        <p className="mt-2 text-xs font-semibold text-ink">Garment</p>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          {femaleTypes.map((t) => (
+                            <button
+                              key={t.key}
+                              type="button"
+                              className={clsx(
+                                "min-h-14 rounded-control px-3 text-left text-sm font-medium",
+                                pendingFemaleType === t.key ? "bg-accent text-white" : "bg-canvas text-ink-muted"
+                              )}
+                              onClick={() => setPendingFemaleType(t.key)}
+                            >
+                              {t.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    <p className="mt-4 text-xs font-semibold text-ink">Accessories (optional)</p>
+                    <p className="mt-1 text-xs text-ink-muted">Each one is its own item with its own label.</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       {FEMALE_ACCESSORY_OPTIONS.map((opt) => {
                         const on = pendingAccessories.includes(opt.id);
                         return (
@@ -841,7 +899,7 @@ export function NewOrderPage() {
                         ? `Selected accessories will be added as separate items${
                             pendingAccessories.length === 2 ? " (belt and netela)." : "."
                           }`
-                        : "You can continue with a named garment only."}
+                        : "No accessories — just the garment."}
                     </p>
                   </>
                 )}
@@ -864,16 +922,35 @@ export function NewOrderPage() {
 
         {phase === "edit" && editing && (
           <div className="space-y-4">
+            <div className="rounded-control bg-canvas px-3 py-2">
+              <p className="text-sm font-semibold text-ink">
+                {collectTotal > 1
+                  ? `Item ${collectTotal - collectQueue.length} of ${collectTotal}: `
+                  : drafts.some((d) => d.key === editing.key)
+                    ? "Editing: "
+                    : "Adding: "}
+                {editing.clothingType || "new garment"}
+              </p>
+              {drafts.filter((d) => d.key !== editing.key).length > 0 && (
+                <p className="mt-0.5 text-xs text-ink-muted">
+                  Already in this order:{" "}
+                  {drafts
+                    .filter((d) => d.key !== editing.key)
+                    .map((d) => `${d.clothingType} ✓`)
+                    .join(" · ")}
+                </p>
+              )}
+            </div>
             <ol className="flex flex-wrap gap-1">
-              {EDIT_LABELS.map((label, i) => (
-                <li key={label}>
+              {editStepsFor(editing, hasPrevious, includeType).map((i) => (
+                <li key={EDIT_LABELS[i]}>
                   <span
                     className={clsx(
                       "rounded-control px-2 py-0.5 text-[10px] font-medium",
                       i === editStep ? "bg-accent text-white" : i < editStep ? "bg-accent-soft text-accent" : "bg-canvas text-ink-faint"
                     )}
                   >
-                    {label}
+                    {EDIT_LABELS[i]}
                   </span>
                 </li>
               ))}
@@ -883,14 +960,14 @@ export function NewOrderPage() {
               <div className="space-y-2">
                 {editing.audience && isFemaleAudience(editing.audience) ? (
                   <p className="text-xs text-ink-muted">
-                    Name the main garment (kemis, dress, abaya). Belt and netela were chosen on the previous screen.
+                    Pick the garment. Belt and netela were chosen on the previous screen.
                   </p>
                 ) : null}
                 <ClothingTypePicker
                   types={
                     editing.audience && isFemaleAudience(editing.audience) && editing.itemKind !== "accessory"
-                      ? types.filter((t) => t.itemKind !== "accessory")
-                      : types
+                      ? femaleTypes
+                      : types.filter((t) => t.active !== false)
                   }
                   value={editing.clothingType}
                 onChange={(t) =>
@@ -1022,30 +1099,27 @@ export function NewOrderPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <Labeled label="Fabric">
                   <ChipRow
-                    options={["cotton", "linen", "wool", "silk", "polyester", "viscose"]}
+                    options={FABRIC_OPTIONS}
                     value={editing.fabricType}
                     onPick={(v) => setEditing((d) => (d ? { ...d, fabricType: v } : d))}
                   />
-                  <input
-                    className="ui-input"
-                    value={editing.fabricType}
-                    onChange={(e) => setEditing((d) => (d ? { ...d, fabricType: e.target.value } : d))}
-                    placeholder="Or type a fabric"
-                  />
                 </Labeled>
-                <Labeled label="Color">
+                <Labeled label="Fabric color">
                   <ChipRow
-                    options={["white", "black", "cream", "navy", "beige", "grey", "brown", "olive"]}
+                    options={COLOR_OPTIONS}
                     value={editing.color}
                     onPick={(v) => setEditing((d) => (d ? { ...d, color: v } : d))}
                   />
-                  <input
-                    className="ui-input"
-                    value={editing.color}
-                    onChange={(e) => setEditing((d) => (d ? { ...d, color: e.target.value } : d))}
-                    placeholder="Or type a color"
-                  />
                 </Labeled>
+                {editing.itemKind === "accessory" ? null : (
+                  <Labeled label="Inner fabric (Geber) color">
+                    <ChipRow
+                      options={GEBER_OPTIONS}
+                      value={editing.innerFabricColor}
+                      onPick={(v) => setEditing((d) => (d ? { ...d, innerFabricColor: v } : d))}
+                    />
+                  </Labeled>
+                )}
                 {editing.itemKind === "accessory" || editing.measureScope === "lower" ? null : (
                   <>
                 <Labeled label="Collar / neck">
@@ -1084,29 +1158,32 @@ export function NewOrderPage() {
             )}
 
             {editStep === 4 && (
-              <ImageGalleryUploader
-                images={editing.images || []}
-                onChange={(images: OrderItemImage[]) => setEditing((d) => (d ? { ...d, images } : d))}
-                onError={setErr}
-              />
-            )}
-
-            {editStep === 5 && (
-              <Labeled label="Agreed price for this garment">
-                <input
-                  className="ui-input tabular"
-                  type="number"
-                  min={0}
-                  value={editing.unitPrice}
-                  onChange={(e) => setEditing((d) => (d ? { ...d, unitPrice: Number(e.target.value) } : d))}
-                />
-              </Labeled>
+              <div className="space-y-4">
+                <Labeled label="Agreed price for this garment">
+                  <input
+                    className="ui-input tabular"
+                    type="number"
+                    min={0}
+                    inputMode="numeric"
+                    value={editing.unitPrice || ""}
+                    placeholder="0"
+                    onChange={(e) => setEditing((d) => (d ? { ...d, unitPrice: Number(e.target.value) } : d))}
+                  />
+                </Labeled>
+                <div>
+                  <ImageGalleryUploader
+                    images={editing.images || []}
+                    onChange={(images: OrderItemImage[]) => setEditing((d) => (d ? { ...d, images } : d))}
+                    onError={setErr}
+                  />
+                </div>
+              </div>
             )}
           </div>
         )}
 
-        {phase === "schedule" && (
-          <div className="grid gap-3 sm:grid-cols-2">
+        {phase === "review" && (
+          <div className="mb-6 grid gap-3 sm:grid-cols-2">
             <Labeled label="Due date">
               <input className="ui-input" type="date" required value={due} onChange={(e) => setDue(e.target.value)} />
             </Labeled>
@@ -1279,7 +1356,7 @@ export function NewOrderPage() {
             <Button type="button" variant="secondary" onClick={() => setPhase("customer")}>
               Back
             </Button>
-            <Button type="button" disabled={!drafts.length} onClick={() => setPhase("schedule")}>
+            <Button type="button" disabled={!drafts.length} onClick={() => setPhase("review")}>
               Continue
             </Button>
           </>
@@ -1315,18 +1392,18 @@ export function NewOrderPage() {
               type="button"
               variant="secondary"
               onClick={() => {
-                const prev = prevEditStep(editing, editStep);
+                const prev = prevEditStep(editing, editStep, hasPrevious, includeType);
                 if (prev === "cancel") cancelEditing();
                 else setEditStep(prev);
               }}
             >
               Back
             </Button>
-            {editStep < 5 ? (
+            {editStep < LAST_EDIT_STEP ? (
               <Button
                 type="button"
                 disabled={!canEditNext()}
-                onClick={() => setEditStep(nextEditStep(editing, editStep))}
+                onClick={() => setEditStep(nextEditStep(editing, editStep, hasPrevious, includeType))}
               >
                 Continue
               </Button>
@@ -1343,7 +1420,7 @@ export function NewOrderPage() {
             )}
           </>
         )}
-        {phase === "schedule" && (
+        {phase === "review" && (
           <>
             <Button
               type="button"
@@ -1355,18 +1432,12 @@ export function NewOrderPage() {
             >
               Back
             </Button>
-            <Button type="button" disabled={!due} onClick={() => setPhase("review")}>
-              Continue
-            </Button>
-          </>
-        )}
-        {phase === "review" && (
-          <>
-            <Button type="button" variant="secondary" onClick={() => setPhase("schedule")}>
-              Back
-            </Button>
             <Button type="button" disabled={busy || !drafts.length || !due} onClick={create}>
-              {busy ? "Creating…" : `Create order · ${drafts.length} garment${drafts.length === 1 ? "" : "s"}`}
+              {busy
+                ? "Creating…"
+                : !due
+                  ? "Set a due date first"
+                  : `Create order · ${drafts.length} garment${drafts.length === 1 ? "" : "s"}`}
             </Button>
           </>
         )}
@@ -1387,14 +1458,15 @@ function ChipRow({
   return (
     <div className="mb-2 flex flex-wrap gap-1.5">
       {options.map((opt) => {
-        const on = value.trim().toLowerCase() === opt;
+        const on = value.trim().toLowerCase() === opt.toLowerCase();
         return (
           <button
             key={opt}
             type="button"
-            onClick={() => onPick(opt)}
+            aria-pressed={on}
+            onClick={() => onPick(on ? "" : opt)}
             className={clsx(
-              "rounded-control px-2.5 py-1 text-xs capitalize",
+              "min-h-10 rounded-control px-3 py-1.5 text-sm",
               on ? "bg-accent text-white" : "bg-canvas text-ink-muted hover:text-ink"
             )}
           >

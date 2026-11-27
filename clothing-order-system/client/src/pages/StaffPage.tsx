@@ -31,7 +31,8 @@ export function StaffPage() {
     name: "",
     phone: "",
     role: "TAILOR" as StaffRole,
-    skillLevel: 3
+    skillLevel: 3,
+    skills: [] as ProductionStage[]
   });
 
   const load = useCallback(async () => {
@@ -111,7 +112,7 @@ export function StaffPage() {
         body: JSON.stringify(form)
       });
       setShowForm(false);
-      setForm({ name: "", phone: "", role: "TAILOR", skillLevel: 3 });
+      setForm({ name: "", phone: "", role: "TAILOR", skillLevel: 3, skills: [] });
       await load();
     } catch (ex) {
       setErr(ex instanceof ApiError ? ex.message : "Create failed");
@@ -229,6 +230,33 @@ export function StaffPage() {
             ))}
           </select>
           <Button type="submit">Create</Button>
+          <fieldset className="sm:col-span-4">
+            <legend className="ui-label">What can they do? (skill level can be set later on their page)</legend>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {SKILL_STAGES.map((st) => {
+                const on = form.skills.includes(st);
+                return (
+                  <button
+                    key={st}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        skills: on ? f.skills.filter((x) => x !== st) : [...f.skills, st]
+                      }))
+                    }
+                    className={clsx(
+                      "min-h-10 rounded-control px-3 py-1.5 text-sm",
+                      on ? "bg-accent text-white" : "border border-line bg-surface text-ink-muted"
+                    )}
+                  >
+                    {stageLabel(st)}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
         </form>
       )}
 

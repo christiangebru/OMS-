@@ -38,6 +38,42 @@ const STATUSES: ProductionStatus[] = [
 ];
 const PRIORITIES: OrderPriority[] = ["NORMAL", "RUSH", "VIP"];
 
+const FABRIC_OPTIONS = ["Menen (cotton)", "Wool"];
+const COLOR_OPTIONS = ["White", "Beige", "Black", "Brown"];
+const GEBER_OPTIONS = ["Beige", "White"];
+
+/** Fixed choices; an older free-text value stays selectable so it is never lost. */
+function ChoiceSelect({
+  options,
+  value,
+  onChange,
+  required
+}: {
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+  required?: boolean;
+}) {
+  const legacy =
+    value && value !== "unspecified" && !options.some((o) => o.toLowerCase() === value.toLowerCase());
+  return (
+    <select
+      required={required}
+      className="ui-input mt-0"
+      value={legacy || !value || value === "unspecified" ? value : options.find((o) => o.toLowerCase() === value.toLowerCase())}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value={value === "unspecified" ? "unspecified" : ""}>Not set</option>
+      {legacy && <option value={value}>{value}</option>}
+      {options.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function emptyItem(): OrderItem {
   return {
     clothingCode: "",
@@ -202,6 +238,7 @@ export function OrderEditPage() {
       clothingType: src.clothingType,
       fabricType: src.fabricType,
       color: src.color,
+      innerFabricColor: src.innerFabricColor || "",
       quantity: 1,
       notes: src.notes,
       neckType: src.neckType,
@@ -252,6 +289,7 @@ export function OrderEditPage() {
         clothingType: it.clothingType,
         fabricType: it.fabricType,
         color: it.color,
+        innerFabricColor: it.innerFabricColor || "",
         quantity: Number(it.quantity),
         notes: it.notes,
         neckType: it.neckType,
@@ -601,7 +639,7 @@ export function OrderEditPage() {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="sm:col-span-2 lg:col-span-3">
                   <ClothingTypePicker
-                    types={clothingTypes}
+                    types={clothingTypes.filter((t) => t.active !== false)}
                     value={it.clothingType}
                     onChange={(t) =>
                       updateItem(index, {
@@ -619,20 +657,27 @@ export function OrderEditPage() {
                     className="ui-input"
                   />
                 </Field>
-                <Field label="Fabric type" small>
-                  <input
+                <Field label="Fabric" small>
+                  <ChoiceSelect
                     required
+                    options={FABRIC_OPTIONS}
                     value={it.fabricType}
-                    onChange={(e) => updateItem(index, { fabricType: e.target.value })}
-                    className="ui-input mt-0"
+                    onChange={(v) => updateItem(index, { fabricType: v })}
                   />
                 </Field>
-                <Field label="Color" small>
-                  <input
+                <Field label="Fabric color" small>
+                  <ChoiceSelect
                     required
+                    options={COLOR_OPTIONS}
                     value={it.color}
-                    onChange={(e) => updateItem(index, { color: e.target.value })}
-                    className="ui-input mt-0"
+                    onChange={(v) => updateItem(index, { color: v })}
+                  />
+                </Field>
+                <Field label="Geber (inner) color" small>
+                  <ChoiceSelect
+                    options={GEBER_OPTIONS}
+                    value={it.innerFabricColor || ""}
+                    onChange={(v) => updateItem(index, { innerFabricColor: v })}
                   />
                 </Field>
                 <Field label="Quantity" small>

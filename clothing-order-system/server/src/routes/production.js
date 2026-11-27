@@ -206,7 +206,7 @@ router.post(
       }
 
       const item = target.item;
-      const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType);
+      const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType, item.clothingCode);
       let offSiteStages = itemOffSiteStages(item, typeOffSite);
       const stage = resolveRequestedStage(req.body.stage, [...stageSequence, OFF_SITE_STAGE]);
 
@@ -488,7 +488,7 @@ router.post(
     const item = await prisma.orderItem.findUnique({ where: { id: req.params.id } });
     if (!item) return res.status(404).json({ message: "Order item not found" });
 
-    const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType);
+    const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType, item.clothingCode);
     const current = itemOffSiteStages(item, typeOffSite);
     const stage = resolveRequestedStage(req.body.stage, stageSequence);
     const wantOffSite = req.body.offSite === true || req.body.offSite === "true";

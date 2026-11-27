@@ -118,6 +118,7 @@ router.get("/:id", param("id").custom(isRecordId), async (req, res) => {
         clothingType: it.clothingType,
         fabricType: it.fabricType,
         color: it.color,
+        innerFabricColor: it.innerFabricColor || "",
         quantity: it.quantity,
         notes: it.notes,
         neckType: it.neckType,

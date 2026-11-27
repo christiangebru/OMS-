@@ -224,7 +224,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   const siblingDetails = await Promise.all(
     siblingSource.map(async (sib) => {
       const cps = cpByItem.get(sib.id) || [];
-      const seq = await resolveStageSequence(sib.clothingType);
+      const seq = await resolveStageSequence(sib.clothingType, sib.clothingCode);
       const off = itemOffSiteStages(sib, seq.offSiteStages);
       const idx = sib.itemIndex || 1;
       return {
@@ -388,6 +388,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       clothingType: item.clothingType,
       fabricType: item.fabricType,
       color: item.color,
+      innerFabricColor: item.innerFabricColor || "",
       size: item.size,
       audience: item.audience || "",
       setChoice: item.setChoice || "",

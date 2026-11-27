@@ -145,6 +145,8 @@ model OrderItem {
   clothingType       String
   fabricType         String
   color              String
+  /// Colour of the inner fabric (Geber): beige | white | "" (not set).
+  innerFabricColor   String    @default("")
   quantity           Int
   notes              String    @default("")
   neckType           String
@@ -221,6 +223,8 @@ model ClothingTypeConfig {
   compactLabel       Boolean  @default(false)
   /// female | male | kids | none
   measurementProfile String   @default("")
+  /// false = hidden from new-order pickers; kept so old orders still resolve.
+  active             Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

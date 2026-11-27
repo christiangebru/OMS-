@@ -21,7 +21,8 @@ export async function seedClothingTypes() {
         partCodes: c.partCodes || [],
         offSiteStages: c.offSiteStages || [],
         compactLabel: Boolean(c.compactLabel),
-        measurementProfile: c.measurementProfile || ""
+        measurementProfile: c.measurementProfile || "",
+        active: c.active !== false
       },
       update: {
         label: c.label,
@@ -31,7 +32,8 @@ export async function seedClothingTypes() {
         partCodes: c.partCodes || [],
         offSiteStages: c.offSiteStages || [],
         compactLabel: Boolean(c.compactLabel),
-        measurementProfile: c.measurementProfile || ""
+        measurementProfile: c.measurementProfile || "",
+        active: c.active !== false
       }
     });
   }

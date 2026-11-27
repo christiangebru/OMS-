@@ -54,6 +54,16 @@ export function StaffDetailPage() {
   const [skillMap, setSkillMap] = useState<Partial<Record<ProductionStage, number>>>({});
   const [tab, setTab] = useState<"identity" | "skills" | "work">("work");
   const hydrated = useRef(false);
+  // Unsaved skill toggles must survive the 25 s live refresh (and the refresh
+  // on returning to the window), which used to wipe them before Save.
+  const skillsDirty = useRef(false);
+  const [skillsUnsaved, setSkillsUnsaved] = useState(false);
+
+  function editSkills(update: (prev: Partial<Record<ProductionStage, number>>) => Partial<Record<ProductionStage, number>>) {
+    skillsDirty.current = true;
+    setSkillsUnsaved(true);
+    setSkillMap(update);
+  }
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -63,10 +73,14 @@ export function StaffDetailPage() {
         apiJson<Workload>(`/api/staff/${id}/workload`)
       ]);
       setStaff(data);
-      const map: Partial<Record<ProductionStage, number>> = {};
-      for (const d of data.skillDetails || []) map[d.stage] = d.level;
-      for (const s of data.skills || []) if (map[s] == null) map[s] = data.skillLevel || 3;
-      setSkillMap(map);
+      if (!skillsDirty.current) {
+        const map: Partial<Record<ProductionStage, number>> = {};
+        for (const d of data.skillDetails || []) map[d.stage] = d.level;
+        for (const s of data.skills || []) if (map[s] == null) map[s] = data.skillLevel || 3;
+        setSkillMap(map);
+      }
+      // A worker with no skills can't be assigned anything: open the Skills tab.
+      if (!hydrated.current && !(data.skills || []).length) setTab("skills");
       setWork(wl);
       hydrated.current = true;
       setErr(null);
@@ -109,6 +123,8 @@ export function StaffDetailPage() {
         if (savedMap[stage] == null) savedMap[stage] = updated.skillLevel || 3;
       }
       setSkillMap(savedMap);
+      skillsDirty.current = false;
+      setSkillsUnsaved(false);
       const missingStages = requestedSkills
         .map(({ stage }) => stage)
         .filter((stage) => savedMap[stage as ProductionStage] == null);
@@ -157,6 +173,20 @@ export function StaffDetailPage() {
           value={work?.averageStageDurationMs != null ? formatDuration(work.averageStageDurationMs) : "—"}
         />
       </div>
+
+      <p className="text-sm text-ink-muted">
+        Skills:{" "}
+        {(staff.skillDetails || []).length ? (
+          (staff.skillDetails || []).map((d) => `${stageLabel(d.stage)} ${d.level}/5`).join(" · ")
+        ) : (
+          <span className="font-semibold text-amber-800">none yet — this worker can't be assigned work</span>
+        )}{" "}
+        {canManage && tab !== "skills" && (
+          <button type="button" className="font-semibold text-accent" onClick={() => setTab("skills")}>
+            Edit skills
+          </button>
+        )}
+      </p>
 
       <div className="flex gap-2">
         {(["work", "skills", "identity"] as const).map((key) => (
@@ -258,7 +288,9 @@ export function StaffDetailPage() {
 
       {tab === "skills" && (
         <section className="ui-card space-y-4 p-5">
-          <p className="text-sm text-ink-muted">Turn on stages this worker can run, then set skill from 1 to 5.</p>
+          <p className="text-sm text-ink-muted">
+            Tap each stage this worker can do, set how good they are (1–5 stars), then press Save skills.
+          </p>
           <ul className="space-y-3">
             {SKILL_STAGES.map((stage) => {
               const level = skillMap[stage];
@@ -268,7 +300,7 @@ export function StaffDetailPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      setSkillMap((prev) => {
+                      editSkills((prev) => {
                         const next = { ...prev };
                         if (on) delete next[stage];
                         else next[stage] = 3;
@@ -289,7 +321,8 @@ export function StaffDetailPage() {
                         <button
                           key={n}
                           type="button"
-                          onClick={() => setSkillMap((prev) => ({ ...prev, [stage]: n }))}
+                          aria-label={`${stageLabel(stage)} level ${n}`}
+                          onClick={() => editSkills((prev) => ({ ...prev, [stage]: n }))}
                           className={n <= (level || 0) ? "text-accent" : "text-line"}
                         >
                           ★
@@ -301,9 +334,12 @@ export function StaffDetailPage() {
               );
             })}
           </ul>
-          <Button type="button" onClick={saveSkills} disabled={!canManage}>
-            Save skills
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button type="button" onClick={saveSkills} disabled={!canManage}>
+              Save skills
+            </Button>
+            {skillsUnsaved && <span className="text-xs font-semibold text-amber-800">Not saved yet</span>}
+          </div>
         </section>
       )}
 

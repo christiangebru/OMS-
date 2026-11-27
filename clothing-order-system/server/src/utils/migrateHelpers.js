@@ -8,8 +8,19 @@ const PLAIN_SEQ = [...SKIP_EMBROIDERY_SEQUENCE];
 
 export const DEFAULT_CLOTHING_TYPE_SEEDS = [
   {
+    key: "dress",
+    label: "Dress",
+    stageSequence: PLAIN_SEQ,
+    includesEmbroidery: false,
+    itemKind: "garment",
+    partCodes: ["WR", "UB", "LB"],
+    offSiteStages: [],
+    compactLabel: false,
+    measurementProfile: "female"
+  },
+  {
     key: "womens_dress",
-    label: "Women's dress",
+    label: "Dress (embroidered)",
     stageSequence: EMBROIDERY_SEQ,
     includesEmbroidery: true,
     itemKind: "garment",
@@ -20,6 +31,7 @@ export const DEFAULT_CLOTHING_TYPE_SEEDS = [
   },
   {
     key: "thobe_embroidered",
+    active: false,
     label: "Thobe (embroidered)",
     stageSequence: EMBROIDERY_SEQ,
     includesEmbroidery: true,
@@ -31,6 +43,7 @@ export const DEFAULT_CLOTHING_TYPE_SEEDS = [
   },
   {
     key: "thobe",
+    active: false,
     label: "Thobe",
     stageSequence: PLAIN_SEQ,
     includesEmbroidery: false,
@@ -42,6 +55,7 @@ export const DEFAULT_CLOTHING_TYPE_SEEDS = [
   },
   {
     key: "abaya_embroidered",
+    active: false,
     label: "Abaya (embroidered)",
     stageSequence: EMBROIDERY_SEQ,
     includesEmbroidery: true,
@@ -53,6 +67,7 @@ export const DEFAULT_CLOTHING_TYPE_SEEDS = [
   },
   {
     key: "abaya",
+    active: false,
     label: "Abaya",
     stageSequence: PLAIN_SEQ,
     includesEmbroidery: false,
@@ -64,7 +79,7 @@ export const DEFAULT_CLOTHING_TYPE_SEEDS = [
   },
   {
     key: "shirt",
-    label: "Men's shirt",
+    label: "Shirt",
     stageSequence: EMBROIDERY_SEQ,
     includesEmbroidery: true,
     itemKind: "garment",
@@ -76,7 +91,7 @@ export const DEFAULT_CLOTHING_TYPE_SEEDS = [
   },
   {
     key: "pants",
-    label: "Men's trouser",
+    label: "Trouser",
     stageSequence: ["SEWING_CUTTING", "FINAL_SEWING", "FINISHING", "SHOWROOM"],
     includesEmbroidery: false,
     itemKind: "garment",
@@ -87,6 +102,7 @@ export const DEFAULT_CLOTHING_TYPE_SEEDS = [
   },
   {
     key: "kids_garment",
+    active: false,
     label: "Kids garment",
     stageSequence: PLAIN_SEQ,
     includesEmbroidery: false,

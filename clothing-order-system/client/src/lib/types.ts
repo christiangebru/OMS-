@@ -73,6 +73,7 @@ export interface OrderItem {
   clothingType: string;
   fabricType: string;
   color: string;
+  innerFabricColor?: string;
   quantity: number;
   notes: string;
   neckType: NeckType;
@@ -455,6 +456,8 @@ export interface ClothingTypeConfig {
   offSiteStages?: string[];
   compactLabel?: boolean;
   measurementProfile?: string;
+  /** false = hidden from new-order pickers (kept for old orders). */
+  active?: boolean;
 }
 
 export interface DashboardOperations {

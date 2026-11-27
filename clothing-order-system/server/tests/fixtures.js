@@ -23,6 +23,7 @@ export async function seedClothingTypes() {
       partCodes: c.partCodes || [],
       offSiteStages: c.offSiteStages || [],
       compactLabel: Boolean(c.compactLabel),
+      active: c.active !== false,
       measurementProfile: c.measurementProfile || ""
     }))
   });

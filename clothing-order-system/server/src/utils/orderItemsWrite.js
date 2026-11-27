@@ -43,6 +43,7 @@ async function createPartRows(order, parent, partCodes, client) {
         clothingType: parent.clothingType,
         fabricType: parent.fabricType,
         color: parent.color,
+        innerFabricColor: parent.innerFabricColor || "",
         quantity: 1,
         notes: `${partLabel(code)} of ${parent.clothingType}`,
         neckType: parent.neckType,
@@ -95,6 +96,7 @@ export async function createItemsForOrder(order, itemPayloads, client, { partLab
         clothingType: fields.clothingType,
         fabricType: fields.fabricType,
         color: fields.color,
+        innerFabricColor: fields.innerFabricColor || "",
         quantity: fields.quantity,
         notes: fields.notes,
         neckType: fields.neckType,
@@ -211,6 +213,7 @@ export async function upsertItemsForOrder(order, itemPayloads, client, { partLab
         difficultyLevel: fields.difficultyLevel
       };
       if (fields.audience !== undefined) data.audience = fields.audience;
+      if (fields.innerFabricColor !== undefined) data.innerFabricColor = fields.innerFabricColor;
       if (fields.setChoice !== undefined) data.setChoice = fields.setChoice;
       if (fields.offSiteStages) data.offSiteStages = fields.offSiteStages;
       await client.orderItem.update({ where: { id }, data });
