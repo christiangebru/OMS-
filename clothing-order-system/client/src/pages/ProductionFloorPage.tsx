@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { apiJson, ApiError } from "@/lib/api";
 import type { ProductionQueue, QueueItem } from "@/lib/types";
 import { PRODUCTION_STAGES } from "@/lib/types";
-import { boardStatusLabel, daysLabel, shortOrderId, stageLabel } from "@/lib/format";
+import { boardStatusLabel, daysLabel, stageLabel } from "@/lib/format";
 import { PageHeader, ErrorState, Skeleton, Badge, EmptyState } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { FilterChips } from "@/components/ui/FilterChips";
@@ -11,6 +11,7 @@ import { useAuth } from "@/context/AuthContext";
 import { isManagerRole, isFloorRole } from "@/lib/roles";
 import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import clsx from "clsx";
+import { byUrgency, groupBoard, groupStatus, itemCode, type BoardGroup } from "@/lib/boardGroups";
 
 export function ProductionFloorPage() {
   const { user } = useAuth();
@@ -59,17 +60,18 @@ export function ProductionFloorPage() {
     { id: "overdue", label: "Overdue" }
   ];
 
+  const groups = groupBoard(items).sort(byUrgency);
   const filtered =
     filter === "ALL"
-      ? items
+      ? groups
       : filter === "overdue"
-        ? items.filter((i) => i.overdue)
-        : items.filter((i) => stageOf(i) === filter);
+        ? groups.filter((g) => g.lead.overdue)
+        : groups.filter((g) => g.stage === filter);
 
   const columns = (filter === "ALL" ? visibleStages : [filter === "overdue" ? null : filter].filter(Boolean) as string[])
-    .filter((s) => filtered.some((i) => stageOf(i) === s) || (filter === "ALL" && !["RECEIVED", "DELIVERED"].includes(s)) || filter === s);
+    .filter((s) => filtered.some((g) => g.stage === s) || (filter === "ALL" && !["RECEIVED", "DELIVERED"].includes(s)) || filter === s);
 
-  const showColumns = filter === "overdue" ? visibleStages.filter((s) => filtered.some((i) => stageOf(i) === s)) : columns;
+  const showColumns = filter === "overdue" ? visibleStages.filter((s) => filtered.some((g) => g.stage === s)) : columns;
 
   return (
     <div className="space-y-5">
@@ -94,14 +96,14 @@ export function ProductionFloorPage() {
           <div className="lg:hidden">
             <div className="space-y-2">
               {filtered.map((g) => (
-                <FloorCard key={g.itemId} g={g} />
+                <FloorCard key={g.key} g={g} />
               ))}
             </div>
           </div>
           <div className="hidden -mx-4 overflow-x-auto px-4 lg:block">
             <div className="flex min-w-max gap-3 pb-2 xl:grid xl:min-w-0" style={{ gridTemplateColumns: `repeat(${Math.max(showColumns.length, 1)}, minmax(0, 1fr))` }}>
               {showColumns.map((stage) => {
-                const cards = filtered.filter((i) => stageOf(i) === stage);
+                const cards = filtered.filter((g) => g.stage === stage);
                 return (
                   <section key={stage} className="w-[220px] shrink-0 xl:w-auto">
                     <div className="mb-2 flex items-baseline justify-between gap-2">
@@ -110,7 +112,7 @@ export function ProductionFloorPage() {
                     </div>
                     <ul className="space-y-2">
                       {cards.map((g) => (
-                        <li key={g.itemId}>
+                        <li key={g.key}>
                           <FloorCard g={g} />
                         </li>
                       ))}
@@ -135,44 +137,81 @@ export function ProductionFloorPage() {
   );
 }
 
-function FloorCard({ g }: { g: QueueItem }) {
+const STATUS_TONE: Record<string, "urgent" | "warn" | "progress" | "ok"> = {
+  off_site: "warn",
+  to_send: "warn",
+  waiting: "warn",
+  in_progress: "progress"
+};
+
+function FloorCard({ g }: { g: BoardGroup }) {
+  const lead = g.lead;
+  const status = groupStatus(g);
+  const workers = [...new Set(g.rows.map((r) => r.assignment?.staff?.name).filter(Boolean))];
+  const trip = g.rows.find((r) => r.offSiteTrip)?.offSiteTrip;
   return (
-    <article className={clsx("border border-line bg-surface p-2.5", g.overdue && "border-red-200")}>
-      <p className="truncate text-xs font-semibold text-ink">{g.clothingType}</p>
-      <p className="truncate text-[11px] text-ink-muted">{g.customer?.name || "—"}</p>
-      <p className="mt-0.5 font-mono text-[10px] text-ink-faint">{g.barcodeValue}</p>
-      <p className="text-[10px] text-ink-faint">{shortOrderId(g.orderId)}</p>
+    <article className={clsx("border border-line bg-surface p-2.5", lead.overdue && "border-red-200")}>
+      <p className="truncate text-xs font-semibold text-ink">{g.title}</p>
+      <p className="truncate text-[11px] text-ink-muted">{lead.customer?.name || "—"}</p>
+      <p className="mt-0.5 font-mono text-[10px] text-ink-faint">{g.code}</p>
+      {g.isParts && (
+        <div className="mt-1.5">
+          <ul className="flex flex-wrap gap-1" aria-label="Parts at this stage">
+            {g.rows.map((r) => (
+              <li key={r.itemId}>
+                <Link
+                  to={`/scan?barcode=${encodeURIComponent(itemCode(r))}`}
+                  title={`${itemCode(r)} · ${boardStatusLabel(r.boardStatus)}`}
+                  className={clsx(
+                    "inline-block rounded-sm border px-1.5 py-0.5 font-mono text-[10px] font-semibold",
+                    r.boardStatus === "in_progress"
+                      ? "border-accent bg-accent-soft text-accent"
+                      : "border-line text-ink-muted hover:text-ink"
+                  )}
+                >
+                  {r.partCode}
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {g.partsTotal > 0 && (
+            <p className="mt-1 text-[10px] text-ink-faint">
+              {g.rows.length} of {g.partsTotal} parts here
+              {g.partsReady ? ` · ${g.partsReady} ready to join` : ""}
+            </p>
+          )}
+        </div>
+      )}
       <div className="mt-1.5 flex flex-wrap items-center gap-1">
-        <Badge
-          tone={
-            g.overdue ? "urgent" : g.boardStatus === "off_site" ? "warn" : g.boardStatus === "in_progress" ? "progress" : g.boardStatus === "waiting" ? "warn" : "ok"
-          }
-        >
-          {boardStatusLabel(g.boardStatus)}
-        </Badge>
-        {g.priority && g.priority !== "NORMAL" && <Badge tone="warn">{g.priority}</Badge>}
+        <Badge tone={lead.overdue ? "urgent" : STATUS_TONE[status] || "ok"}>{boardStatusLabel(status)}</Badge>
+        {lead.priority && lead.priority !== "NORMAL" && <Badge tone="warn">{lead.priority}</Badge>}
       </div>
       <p className="mt-1 truncate text-[11px] text-ink-muted">
-        {g.assignment?.staff?.name || "Unassigned"}
-        {g.overdue ? " · overdue" : ` · ${daysLabel(g.daysRemaining, g.overdue)}`}
+        {trip
+          ? trip.handlerName
+            ? `With ${trip.handlerName}`
+            : "Away"
+          : status === "to_send"
+            ? "Not sent yet"
+            : workers.join(", ") || "Unassigned"}
+        {lead.overdue ? " · overdue" : ` · ${daysLabel(lead.daysRemaining, lead.overdue)}`}
       </p>
       <div className="mt-1.5 flex gap-3">
-        <Link to={`/garments/${encodeURIComponent(g.itemId)}`} className="text-[11px] font-semibold text-accent">
+        <Link to={`/garments/${encodeURIComponent(lead.itemId)}`} className="text-[11px] font-semibold text-accent">
           Open
         </Link>
-        <Link
-          to={`/scan?barcode=${encodeURIComponent(g.barcodeValue)}`}
-          className="text-[11px] font-semibold text-accent"
-        >
-          Scan
-        </Link>
+        {status === "to_send" ? (
+          <Link to="/off-site" className="text-[11px] font-semibold text-accent">
+            Send
+          </Link>
+        ) : (
+          !g.isParts && (
+            <Link to={`/scan?barcode=${encodeURIComponent(itemCode(lead))}`} className="text-[11px] font-semibold text-accent">
+              Scan
+            </Link>
+          )
+        )}
       </div>
     </article>
   );
-}
-
-function stageOf(item: QueueItem) {
-  return item.inProgress || item.boardStatus === "in_progress"
-    ? item.openStage || item.currentStage || item.nextStage
-    : item.nextStage;
 }

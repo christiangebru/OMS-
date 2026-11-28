@@ -170,4 +170,102 @@ describe("real production routes", () => {
       expect(shirt.outsourced).toBe(false);
     });
   });
+
+  describe("netela and fringe twisting (kuchet)", () => {
+    const netela = (code, label) => ({ ...base, clothingCode: code, clothingType: label, setChoice: "netela" });
+
+    it("embroidered netela: embroidery and finishing in-house, then fringe twisting off-site", async () => {
+      const res = await createOrder([netela("NETELA", "Netela — embroidered")]);
+      expect(res.status).toBe(201);
+      const item = res.body.items[0];
+      expect(item.outsourced).toBe(false);
+      const l = await lookup(item.labelBarcode || item.barcodeValue);
+      expect(l.body.scanDetails.timing.stageSequence).toEqual(["EMBROIDERY", "FINISHING", "FRINGE_TWISTING", "SHOWROOM"]);
+
+      const worker = await createStaff({ name: "Emb", stages: ["EMBROIDERY", "FINISHING"] });
+      for (const st of ["EMBROIDERY", "FINISHING"]) {
+        expect((await scan(item.labelBarcode, st, worker._id)).status).toBe(200);
+        expect((await scan(item.labelBarcode, st, worker._id)).status).toBe(200);
+      }
+      // Fringe twisting can't be moved in-shop.
+      const after = await lookup(item.labelBarcode);
+      expect(after.body.scanDetails.timing.nextExpectedStage).toBe("OFF_SITE");
+      expect(after.body.scanDetails.production.offSiteOptions.plannedStages).toEqual([]);
+      const keep = await request(app)
+        .post(`/api/production/items/${item._id}/off-site-route`)
+        .set(auth(token))
+        .send({ stage: "FRINGE_TWISTING", offSite: false });
+      expect(keep.status).toBe(400);
+
+      const list = await request(app).get("/api/off-site").set(auth(token));
+      expect(list.body.toSend).toHaveLength(1);
+      expect(list.body.toSend[0].offSiteFor).toEqual(["FRINGE_TWISTING"]);
+      expect(list.body.toSend[0].message).toContain("Work: Fringe twisting (kuchet)");
+      expect(list.body.toSend[0].message).not.toContain("Sizes");
+
+      const id = item._id;
+      expect((await request(app).post(`/api/off-site/items/${id}/send`).set(auth(token)).send({ offSiteHandlerName: "Tsehay" })).status).toBe(200);
+      const back = await request(app).post(`/api/off-site/items/${id}/back`).set(auth(token)).send({});
+      expect(back.body.completed).toBe(true);
+    });
+
+    it("tilet netela without embroidery only goes out for fringe twisting", async () => {
+      const res = await createOrder([netela("NETELA_TILET", "Netela — tilet, no embroidery")]);
+      expect(res.status).toBe(201);
+      const item = res.body.items[0];
+      expect(item.outsourced).toBe(true);
+      expect(item.awaitingMaker).toBe(true);
+      const list = await request(app).get("/api/off-site").set(auth(token));
+      expect(list.body.toSend[0].message).toContain("Work: Fringe twisting (kuchet)");
+    });
+
+    it("tilet with embroidery follows the embroidered route", async () => {
+      const res = await createOrder([netela("NETELA_TILET_EMBROIDERED", "Netela — tilet with embroidery")]);
+      expect(res.status).toBe(201);
+      const l = await lookup(res.body.items[0].labelBarcode);
+      expect(l.body.scanDetails.timing.stageSequence).toEqual(["EMBROIDERY", "FINISHING", "FRINGE_TWISTING", "SHOWROOM"]);
+    });
+  });
+
+  describe("production board", () => {
+    const queue = async () => (await request(app).get("/api/production/queue?lite=1").set(auth(token))).body;
+
+    it("a garment made as parts waits for them, then appears at final sewing", async () => {
+      const res = await createOrder(
+        [{ ...base, clothingCode: "DRESS", clothingType: "Dress — upper body embroidery only", selectedPartCodes: ["WR", "UB", "LB"] }],
+        { partLabelMode: "all" }
+      );
+      const dress = res.body.items.find((i) => i.itemKind !== "part");
+      const parts = res.body.items.filter((i) => i.itemKind === "part");
+      let q = await queue();
+      let row = q.items.find((r) => r.itemId === dress._id);
+      expect(row.boardStatus).toBe("waiting_parts");
+      expect(row.parts).toMatchObject({ total: 3, ready: 0 });
+      expect(q.summary.itemsWaiting).toBe(3); // the parts, not the dress
+      expect(q.summary.itemsWaitingForParts).toBe(1);
+
+      const worker = await createStaff({ name: "All", stages: ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING"] });
+      for (const p of parts) {
+        const stages = p.partCode === "LB" ? ["SEWING_CUTTING"] : ["SEWING_CUTTING", "EMBROIDERY"];
+        for (const st of stages) {
+          await scan(p.labelBarcode, st, worker._id);
+          await scan(p.labelBarcode, st, worker._id);
+        }
+      }
+      q = await queue();
+      row = q.items.find((r) => r.itemId === dress._id);
+      expect(row.boardStatus).toBe("waiting");
+      expect(row.nextStage).toBe("FINAL_SEWING");
+      expect(q.items.filter((r) => r.parentItemId === dress._id).every((r) => r.boardStatus === "ready_for_assembly")).toBe(true);
+      expect(q.byStage.FINAL_SEWING.items.map((r) => r.itemId)).toEqual([dress._id]);
+    });
+
+    it("a garment whose next step is off-site is 'to send', not unassigned", async () => {
+      await createOrder([{ ...base, clothingCode: "NETELA_TILET", clothingType: "Netela — tilet, no embroidery", setChoice: "netela" }]);
+      const q = await queue();
+      expect(q.items[0].boardStatus).toBe("to_send");
+      expect(q.summary.itemsToSend).toBe(1);
+      expect(q.summary.itemsWaiting).toBe(0);
+    });
+  });
 });

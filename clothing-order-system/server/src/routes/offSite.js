@@ -44,6 +44,13 @@ function codeFor(item, order) {
 function rowFor(item, order, customer, cps, route, neededBy) {
   const open = openOffSiteCheckpoint(cps);
   const code = codeFor(item, order);
+  const outsourced = isOutsourcedRoute(route.stageSequence, route.offSiteStages);
+  const covered = open?.coveredStages?.length
+    ? open.coveredStages
+    : pendingOffSiteWindow(cps, route.stageSequence, route.offSiteStages)?.stages || [];
+  // A maker who makes the whole garment (trouser) needs no work list; anyone
+  // doing one step (cutting, fringe twisting) is told which.
+  const work = outsourced && covered.includes("SEWING_CUTTING") ? [] : covered;
   return {
     itemId: item.id,
     code,
@@ -55,12 +62,13 @@ function rowFor(item, order, customer, cps, route, neededBy) {
     notes: item.notes || "",
     due: order.requiredCompletionDate,
     priority: order.priority || "NORMAL",
-    outsourced: isOutsourcedRoute(route.stageSequence, route.offSiteStages),
+    outsourced,
     trip: offSiteTripSummary(open),
     message: buildMakerMessage({
       code,
       customerName: customer?.name,
       clothingType: item.clothingType,
+      work,
       measurements: item.measurements,
       notes: item.notes,
       neededBy: open?.expectedReturnAt || neededBy || order.requiredCompletionDate
@@ -69,35 +77,29 @@ function rowFor(item, order, customer, cps, route, neededBy) {
 }
 
 router.get("/", async (_req, res) => {
-  // Away now: every open off-site trip.
-  const openTrips = await prisma.stageCheckpoint.findMany({
-    where: { stage: OFF_SITE_STAGE, checkedOutAt: null },
-    select: { orderItemId: true }
-  });
-  // Waiting to be sent: outsourced garments never started, in open orders.
-  const unstarted = await prisma.orderItem.findMany({
-    where: {
-      checkpoints: { none: {} },
-      NOT: { offSiteStages: { isEmpty: true } },
-      orderRel: { productionStatus: { not: "delivered" } }
-    },
-    select: { id: true }
-  });
-  const ids = [...new Set([...openTrips.map((c) => c.orderItemId), ...unstarted.map((i) => i.id)])];
-  if (!ids.length) return res.json({ away: [], toSend: [] });
-
+  // Every garment in an open order that is away now, or whose next step is an
+  // off-site trip (outsourced garments, the shirt's cutting, netela fringes…).
   const items = await prisma.orderItem.findMany({
-    where: { id: { in: ids } },
+    where: {
+      // Parts already joined into their garment travel with it.
+      NOT: { itemKind: "part", assembledAt: { not: null } },
+      orderRel: { productionStatus: { notIn: ["delivered", "ready_for_pickup"] } }
+    },
     include: { checkpoints: true, orderRel: { include: { customer: true } } }
   });
   const away = [];
   const toSend = [];
   for (const it of items) {
-    const order = it.orderRel;
+    const cps = it.checkpoints;
+    const awayNow = Boolean(openOffSiteCheckpoint(cps));
+    if (!awayNow && cps.some((c) => !c.checkedOutAt)) continue; // being worked on in the shop
     const route = await routeFor(it);
-    const row = rowFor(it, order, order.customer, it.checkpoints, route);
+    if (!awayNow && !route.offSiteStages.length) continue;
+    if (!awayNow && nextExpectedStage(cps, route.stageSequence, route.offSiteStages) !== OFF_SITE_STAGE) continue;
+    const row = rowFor(it, it.orderRel, it.orderRel.customer, cps, route);
     if (row.trip) away.push(row);
-    else if (row.outsourced && nextExpectedStage(it.checkpoints, route.stageSequence, route.offSiteStages) === OFF_SITE_STAGE) {
+    else {
+      row.offSiteFor = (pendingOffSiteWindow(cps, route.stageSequence, route.offSiteStages)?.stages || []);
       toSend.push(row);
     }
   }

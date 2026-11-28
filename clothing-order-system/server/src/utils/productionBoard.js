@@ -5,13 +5,22 @@ import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./s
 import { rankStaffForAssignment } from "./assignmentScore.js";
 import { s } from "./serialize.js";
 import { operationalItemBarcode, operationalPartBarcode } from "./barcode.js";
-import { isTopLevelItem, findCheckpoint, stageMatchesStep } from "./productionModel.js";
+import {
+  assemblyStage,
+  findCheckpoint,
+  isPartReadyForAssembly,
+  isTopLevelItem,
+  stageMatchesStep
+} from "./productionModel.js";
 import { itemOffSiteStages, offSiteTripSummary } from "./offSite.js";
 
 function daysUntil(date) {
   if (!date) return null;
   return (new Date(date).getTime() - Date.now()) / (24 * 60 * 60 * 1000);
 }
+
+/** Rows that are not work at any stage right now (shown inside their garment). */
+const NOT_ON_A_STAGE = new Set(["waiting_parts", "ready_for_assembly"]);
 
 function assignmentState(assignment) {
   if (!assignment) return "waiting";
@@ -64,6 +73,13 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
     chainByItem.get(a.orderItemId).push(a);
   }
 
+  const partsByParent = new Map();
+  for (const { item } of items) {
+    if (item.itemKind !== "part" || !item.parentItemId) continue;
+    if (!partsByParent.has(item.parentItemId)) partsByParent.set(item.parentItemId, []);
+    partsByParent.get(item.parentItemId).push(item);
+  }
+
   const seqCache = new Map();
   async function seqFor(clothingType, clothingCode, skipStages = []) {
     const cacheKey = `${clothingType}|${clothingCode || ""}|${(skipStages || []).join(",")}`;
@@ -77,17 +93,53 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
   for (const { item, order } of items) {
     const seqInfo = await seqFor(item.clothingType, item.clothingCode, item.skipStages);
     const cps = cpByItem.get(item.id) || [];
-    const currentStage = deriveCurrentStage(cps, seqInfo.stageSequence, itemOffSiteStages(item, seqInfo.offSiteStages));
-    const nextStage = nextExpectedStage(cps, seqInfo.stageSequence, itemOffSiteStages(item, seqInfo.offSiteStages));
+    const offStages = itemOffSiteStages(item, seqInfo.offSiteStages);
+    const currentStage = deriveCurrentStage(cps, seqInfo.stageSequence, offStages);
+    let nextStage = nextExpectedStage(cps, seqInfo.stageSequence, offStages);
     const open = cps.find((c) => c.checkedInAt && !c.checkedOutAt);
-    const assignment = asgByItemStage.get(`${item.id}:${nextStage}`) || null;
     const days = daysUntil(order.requiredCompletionDate);
     const overdue = days != null && days < 0;
     const inProgress = Boolean(open);
 
+    // Garment made as separate parts: the parts do the early stages; the
+    // garment itself only starts at assembly, once every part is ready.
+    const parts = item.itemKind === "part" ? [] : (partsByParent.get(item.id) || []).filter((p) => !p.assembledAt);
+    let partSummary = null;
+    let waitingForParts = false;
+    if (parts.length && !cps.length) {
+      const partStates = [];
+      for (const p of parts) {
+        const pSeq = (await seqFor(p.clothingType, p.clothingCode, p.skipStages)).stageSequence;
+        const pCps = cpByItem.get(p.id) || [];
+        const ready = isPartReadyForAssembly(pCps, pSeq);
+        const pOpen = pCps.find((c) => c.checkedInAt && !c.checkedOutAt);
+        partStates.push({
+          itemId: p.id,
+          partCode: p.partCode || "",
+          ready,
+          stage: ready ? null : pOpen?.stage || nextExpectedStage(pCps, pSeq, itemOffSiteStages(p, seqInfo.offSiteStages)),
+          inProgress: Boolean(pOpen)
+        });
+      }
+      partSummary = { total: partStates.length, ready: partStates.filter((p) => p.ready).length, parts: partStates };
+      const assembleAt = assemblyStage(seqInfo.stageSequence);
+      if (partSummary.ready === partSummary.total && assembleAt) {
+        nextStage = offStages.includes(assembleAt) ? "OFF_SITE" : assembleAt;
+      } else {
+        waitingForParts = true;
+      }
+    }
+    // A part whose own stages are done waits to be joined into the garment.
+    const readyForAssembly =
+      item.itemKind === "part" && !inProgress && isPartReadyForAssembly(cps, seqInfo.stageSequence);
+
+    const assignment = asgByItemStage.get(`${item.id}:${nextStage}`) || null;
     let boardStatus = "waiting";
     if (inProgress && open?.stage === "OFF_SITE") boardStatus = "off_site";
     else if (inProgress) boardStatus = "in_progress";
+    else if (waitingForParts) boardStatus = "waiting_parts";
+    else if (readyForAssembly) boardStatus = "ready_for_assembly";
+    else if (nextStage === "OFF_SITE") boardStatus = "to_send";
     else if (assignment) boardStatus = assignmentState(assignment);
 
     const siblings = [...(order.items || [])]
@@ -153,6 +205,8 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
       inProgress,
       openStage: open?.stage || null,
       boardStatus,
+      parts: partSummary,
+      readyForAssembly,
       assignment: assignment
         ? {
             _id: assignment.id,
@@ -201,7 +255,9 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
 
   const byStage = {};
   for (const stage of ProductionStage) {
-    const stageRows = rows.filter((r) => (r.inProgress ? r.openStage : r.nextStage) === stage);
+    const stageRows = rows.filter(
+      (r) => !NOT_ON_A_STAGE.has(r.boardStatus) && (r.inProgress ? r.openStage : r.nextStage) === stage
+    );
     byStage[stage] = {
       stage,
       waiting: stageRows.filter((r) => r.boardStatus === "waiting").length,
@@ -268,6 +324,9 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
       itemsDistributed: rows.filter((r) => r.boardStatus === "distributed").length,
       itemsReceived: rows.filter((r) => r.boardStatus === "received").length,
       itemsInProgress: rows.filter((r) => r.boardStatus === "in_progress").length,
+      itemsAway: rows.filter((r) => r.boardStatus === "off_site").length,
+      itemsToSend: rows.filter((r) => r.boardStatus === "to_send").length,
+      itemsWaitingForParts: rows.filter((r) => r.boardStatus === "waiting_parts").length,
       overdueItems: rows.filter((r) => r.overdue).length,
       todayCreated,
       dueToday,

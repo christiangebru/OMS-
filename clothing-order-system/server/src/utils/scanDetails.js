@@ -7,7 +7,7 @@ import {
   resolveStageSequence
 } from "./stageSequence.js";
 import { buildStageStates, inferScanAction, inferNextAction, boardStatusFrom } from "./stageTimeline.js";
-import { WORKSTATION_STAGES, skillStageVariants } from "../constants/production.js";
+import { OFF_SITE_ONLY_STAGES, WORKSTATION_STAGES, skillStageVariants } from "../constants/production.js";
 import {
   operationalItemBarcode,
   operationalPartBarcode,
@@ -364,7 +364,10 @@ export async function buildScanDetails(orderItemIdOrDoc) {
         ? nextStage
         : null,
     // Planned off-site stages that could be kept in shop instead.
-    plannedStages: !open && nextStage === OFF_SITE_STAGE ? pendingWindow?.stages || [] : []
+    plannedStages:
+      !open && nextStage === OFF_SITE_STAGE
+        ? (pendingWindow?.stages || []).filter((st) => !OFF_SITE_ONLY_STAGES.includes(st))
+        : []
   };
   const locationFromOffSite = openTrip
     ? ["Off-site", ...tripBits].join(" · ")

@@ -33,6 +33,8 @@ import {
 import {
   CLOTHING_AUDIENCE_OPTIONS,
   FEMALE_ACCESSORY_OPTIONS,
+  NETELA_KEYS,
+  type AccessoryKey,
   MALE_SET_OPTIONS,
   audienceItemGender,
   audienceMeasureCategory,
@@ -121,14 +123,18 @@ function emptyDraft(): Draft {
 
 function draftFromType(
   types: ClothingTypeConfig[],
-  key: "shirt" | "pants" | "belt" | "netela",
+  key: "shirt" | "pants" | AccessoryKey,
   audience: ClothingAudience,
   setChoice: ItemSetChoice
 ): Draft {
   const t = types.find((c) => c.key === key);
   const fallback =
-    key === "shirt" ? "Shirt" : key === "pants" ? "Trouser" : key === "belt" ? "Belt" : "Netela";
-  const accessory = t?.itemKind === "accessory" || key === "belt" || key === "netela";
+    key === "shirt"
+      ? "Shirt"
+      : key === "pants"
+        ? "Trouser"
+        : FEMALE_ACCESSORY_OPTIONS.find((o) => o.id === key)?.label || "Netela";
+  const accessory = t?.itemKind === "accessory" || key === "belt" || NETELA_KEYS.includes(key as AccessoryKey);
   const scope = accessory
     ? "none"
     : setChoice === "both"
@@ -292,7 +298,7 @@ export function NewOrderPage() {
   const [garmentWizard, setGarmentWizard] = useState<GarmentWizard>("category");
   const [pendingAudience, setPendingAudience] = useState<ClothingAudience | null>(null);
   const [pendingMaleSet, setPendingMaleSet] = useState<"" | "shirt" | "trouser" | "both">("");
-  const [pendingAccessories, setPendingAccessories] = useState<Array<"belt" | "netela">>([]);
+  const [pendingAccessories, setPendingAccessories] = useState<AccessoryKey[]>([]);
   const [collectQueue, setCollectQueue] = useState<Draft[]>([]);
   const [collectTotal, setCollectTotal] = useState(0);
   const [pendingFemaleType, setPendingFemaleType] = useState("");
@@ -404,7 +410,9 @@ export function NewOrderPage() {
       measureScope: "all",
       itemKind: "garment"
     };
-    const extras = pendingAccessories.map((key) => draftFromType(types, key, pendingAudience, key));
+    const extras = pendingAccessories.map((key) =>
+      draftFromType(types, key, pendingAudience, key === "belt" ? "belt" : "netela")
+    );
     return [main, ...extras];
   }
 
@@ -885,12 +893,17 @@ export function NewOrderPage() {
                               on ? "bg-accent text-white" : "bg-canvas text-ink-muted"
                             )}
                             onClick={() =>
-                              setPendingAccessories((list) =>
-                                on ? list.filter((id) => id !== opt.id) : [...list, opt.id]
-                              )
+                              setPendingAccessories((list) => {
+                                if (on) return list.filter((id) => id !== opt.id);
+                                // One netela per order: picking a kind replaces another kind.
+                                const rest = NETELA_KEYS.includes(opt.id)
+                                  ? list.filter((id) => !NETELA_KEYS.includes(id))
+                                  : list;
+                                return [...rest, opt.id];
+                              })
                             }
                           >
-                            {opt.label}
+                            {types.find((t) => t.key === opt.id)?.label || opt.label}
                           </button>
                         );
                       })}

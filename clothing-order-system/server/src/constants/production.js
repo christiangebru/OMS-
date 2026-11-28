@@ -16,6 +16,7 @@ export const ProductionStage = [
   "EMBROIDERY",
   "FINAL_SEWING",
   "FINISHING",
+  "FRINGE_TWISTING",
   "OFF_SITE",
   "PACKAGING",
   "READY",
@@ -96,10 +97,17 @@ export const FULL_STAGE_SEQUENCE = [
   "EMBROIDERY",
   "FINAL_SEWING",
   "FINISHING",
+  "FRINGE_TWISTING",
   "SHOWROOM",
   "PACKAGING",
   "DELIVERED"
 ];
+
+/**
+ * Steps only ever done by outside people (never a workstation or a skill).
+ * FRINGE_TWISTING ("kuchet"): twisting a netela's edge threads into fringes.
+ */
+export const OFF_SITE_ONLY_STAGES = ["FRINGE_TWISTING"];
 
 /** Physical off-site location — not a workstation and not RECEIVED. */
 export const OFF_SITE_STAGE = "OFF_SITE";

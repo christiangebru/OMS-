@@ -14,7 +14,7 @@ import { hydrateOrder } from "../utils/orderHydrate.js";
 import { buildProductionQueue } from "../utils/productionBoard.js";
 import { renderBarcodePng, renderBarcodeSvg } from "../utils/barcode.js";
 import { isRecordId } from "../utils/recordId.js";
-import { CANONICAL_WORKSTATION_STAGES, stageAliases } from "../constants/production.js";
+import { CANONICAL_WORKSTATION_STAGES, OFF_SITE_ONLY_STAGES, stageAliases } from "../constants/production.js";
 import {
   parentReadyForAssembly,
   skillStagesFor,
@@ -537,6 +537,9 @@ router.post(
 
     if (!stageSequence.includes(stage) || isGarmentCompleteStage(stage)) {
       return res.status(400).json({ message: `${stage} is not an off-site-able step for this garment.` });
+    }
+    if (!wantOffSite && OFF_SITE_ONLY_STAGES.includes(stage)) {
+      return res.status(400).json({ message: `${stage} is always done off-site.` });
     }
     const cps = await prisma.stageCheckpoint.findMany({ where: { orderItemId: item.id } });
     if (openOffSiteCheckpoint(cps)) {
