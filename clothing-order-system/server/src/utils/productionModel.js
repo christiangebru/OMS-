@@ -128,9 +128,12 @@ export function isPartReadyForAssembly(checkpoints, stageSequence) {
   });
 }
 
+/** Each part is judged on its own route (a part may skip a stage, e.g. EMBROIDERY). */
 export function parentReadyForAssembly(parts, checkpointsByItem, stageSequence) {
   if (!parts?.length) return false;
-  return parts.every((part) =>
-    isPartReadyForAssembly(checkpointsByItem.get(part.id) || [], stageSequence)
-  );
+  return parts.every((part) => {
+    const skip = part.skipStages || [];
+    const seq = skip.length ? stageSequence.filter((s) => !skip.includes(s)) : stageSequence;
+    return isPartReadyForAssembly(checkpointsByItem.get(part.id) || [], seq);
+  });
 }

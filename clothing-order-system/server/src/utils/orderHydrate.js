@@ -5,7 +5,12 @@ import { storedImagePath } from "./publicImage.js";
 import { deriveCurrentStage, nextExpectedStage, resolveStageSequence } from "./stageSequence.js";
 import { boardStatusFrom } from "./stageTimeline.js";
 import { isGarmentCompleteStage, isTopLevelItem, parentReadyForAssembly } from "./productionModel.js";
-import { itemOffSiteStages } from "./offSite.js";
+import {
+  itemOffSiteStages,
+  isOutsourcedRoute,
+  offSiteTripSummary,
+  openOffSiteCheckpoint
+} from "./offSite.js";
 
 export function balanceRemaining(order) {
   const total = Number(order.totalAgreedPrice) || 0;
@@ -155,7 +160,7 @@ async function itemPresence(items, checkpoints, assignments) {
   const asgByItem = groupBy(assignments, (a) => a.orderItemId);
   const map = new Map();
   for (const it of items) {
-    const { stageSequence, offSiteStages } = await resolveStageSequence(it.clothingType, it.clothingCode);
+    const { stageSequence, offSiteStages } = await resolveStageSequence(it.clothingType, it.clothingCode, it.skipStages);
     const itemOff = itemOffSiteStages(it, offSiteStages);
     const cps = cpsByItem.get(it.id) || [];
     const nextStage = nextExpectedStage(cps, stageSequence, itemOff);
@@ -175,6 +180,12 @@ async function itemPresence(items, checkpoints, assignments) {
           : "in_shop"
       }),
       workerName: assignment?.staff?.name || null,
+      outsourced: isOutsourcedRoute(stageSequence, itemOff),
+      // Outsourced and not back yet: no label exists for it yet.
+      awaitingMaker:
+        isOutsourcedRoute(stageSequence, itemOff) &&
+        !isGarmentCompleteStage(deriveCurrentStage(cps, stageSequence, itemOff)),
+      offSiteTrip: offSiteTripSummary(openOffSiteCheckpoint(cps)),
       readyForAssembly: parts.length
         ? parentReadyForAssembly(parts, cpsByItem, stageSequence) && !it.assembledAt
         : false
@@ -206,6 +217,9 @@ function assembleOrder(order, customer, items, images, checkpoints, presence = n
       nextStage: ops.nextStage ?? null,
       boardStatus: ops.boardStatus ?? null,
       workerName: ops.workerName ?? null,
+      outsourced: Boolean(ops.outsourced),
+      awaitingMaker: Boolean(ops.awaitingMaker),
+      offSiteTrip: ops.offSiteTrip ?? null,
       labelBarcode,
       readyForAssembly: Boolean(ops.readyForAssembly)
     };

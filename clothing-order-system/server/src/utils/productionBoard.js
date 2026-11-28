@@ -65,17 +65,17 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
   }
 
   const seqCache = new Map();
-  async function seqFor(clothingType, clothingCode) {
-    const cacheKey = `${clothingType}|${clothingCode || ""}`;
+  async function seqFor(clothingType, clothingCode, skipStages = []) {
+    const cacheKey = `${clothingType}|${clothingCode || ""}|${(skipStages || []).join(",")}`;
     if (!seqCache.has(cacheKey)) {
-      seqCache.set(cacheKey, await resolveStageSequence(clothingType, clothingCode));
+      seqCache.set(cacheKey, await resolveStageSequence(clothingType, clothingCode, skipStages));
     }
     return seqCache.get(cacheKey);
   }
 
   const rows = [];
   for (const { item, order } of items) {
-    const seqInfo = await seqFor(item.clothingType, item.clothingCode);
+    const seqInfo = await seqFor(item.clothingType, item.clothingCode, item.skipStages);
     const cps = cpByItem.get(item.id) || [];
     const currentStage = deriveCurrentStage(cps, seqInfo.stageSequence, itemOffSiteStages(item, seqInfo.offSiteStages));
     const nextStage = nextExpectedStage(cps, seqInfo.stageSequence, itemOffSiteStages(item, seqInfo.offSiteStages));

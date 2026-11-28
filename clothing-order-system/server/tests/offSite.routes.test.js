@@ -105,7 +105,7 @@ describe("off-site as a first-class scan location", () => {
     expect((await scan(app, token, bc, "FINISHING", id)).status).toBe(200);
   });
 
-  it("trouser: one off-site sewing trip, then in-shop stages with no second send-out", async () => {
+  it("trouser: made entirely off-site, comes back complete (straight to showroom)", async () => {
     const { item, staff } = await seedOrderWithItem({ clothingType: "pants" });
     const id = String(staff._id);
     const bc = item.barcodeValue;
@@ -116,10 +116,8 @@ describe("off-site as a first-class scan location", () => {
     const lookup = await request(app)
       .get(`/api/production/lookup?barcodeValue=${encodeURIComponent(bc)}`)
       .set(auth(token));
-    expect(lookup.body.scanDetails.timing.nextExpectedStage).toBe("FINISHING");
-
-    expect((await scan(app, token, bc, "FINISHING", id)).status).toBe(200);
-    expect((await scan(app, token, bc, "FINISHING", id)).status).toBe(200);
+    // Outsourced: no in-house stage after it comes back.
+    expect(lookup.body.scanDetails.timing.nextExpectedStage).toBe("SHOWROOM");
 
     const again = await scan(app, token, bc, "OFF_SITE", id);
     expect(again.status).toBe(400);

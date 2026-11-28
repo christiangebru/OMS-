@@ -55,8 +55,8 @@ describe("order entry", () => {
   it("uses common type names and hides retired types", async () => {
     const types = await prisma.clothingTypeConfig.findMany();
     const byKey = Object.fromEntries(types.map((t) => [t.key, t]));
-    expect(byKey.dress.label).toBe("Dress");
-    expect(byKey.womens_dress.label).toBe("Dress (embroidered)");
+    expect(byKey.dress.label).toBe("Dress — upper body embroidery only");
+    expect(byKey.womens_dress.label).toBe("Dress — full embroidery");
     expect(byKey.shirt.label).toBe("Shirt");
     expect(byKey.pants.label).toBe("Trouser");
     for (const k of ["abaya", "abaya_embroidered", "thobe", "thobe_embroidered", "kids_garment"]) {

@@ -9,23 +9,26 @@ const PLAIN_SEQ = [...SKIP_EMBROIDERY_SEQUENCE];
 export const DEFAULT_CLOTHING_TYPE_SEEDS = [
   {
     key: "dress",
-    label: "Dress",
-    stageSequence: PLAIN_SEQ,
-    includesEmbroidery: false,
+    label: "Dress — upper body embroidery only",
+    stageSequence: EMBROIDERY_SEQ,
+    includesEmbroidery: true,
     itemKind: "garment",
     partCodes: ["WR", "UB", "LB"],
+    // In-house embroidery by default; the lower body has no embroidery.
     offSiteStages: [],
+    partSkipStages: { LB: ["EMBROIDERY"] },
     compactLabel: false,
     measurementProfile: "female"
   },
   {
     key: "womens_dress",
-    label: "Dress (embroidered)",
+    label: "Dress — full embroidery",
     stageSequence: EMBROIDERY_SEQ,
     includesEmbroidery: true,
     itemKind: "garment",
     partCodes: ["WR", "UB", "LB"],
-    offSiteStages: ["EMBROIDERY"],
+    // Embroidery in-house by default; off-site is optional per garment.
+    offSiteStages: [],
     compactLabel: false,
     measurementProfile: "female"
   },
@@ -96,7 +99,8 @@ export const DEFAULT_CLOTHING_TYPE_SEEDS = [
     includesEmbroidery: false,
     itemKind: "garment",
     partCodes: [],
-    offSiteStages: ["SEWING_CUTTING", "FINAL_SEWING"],
+    // Made entirely by an outside maker (own material); comes back complete.
+    offSiteStages: ["SEWING_CUTTING", "FINAL_SEWING", "FINISHING"],
     compactLabel: false,
     measurementProfile: "male"
   },

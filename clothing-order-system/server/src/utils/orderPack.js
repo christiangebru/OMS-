@@ -35,7 +35,7 @@ export async function assertOrderReadyToPack(order, client = prisma) {
   }
   const incomplete = [];
   for (const item of top) {
-    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType, item.clothingCode);
+    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType, item.clothingCode, item.skipStages);
     const itemOff = itemOffSiteStages(item, offSiteStages);
     const stage = deriveCurrentStage(byItem.get(item.id) || [], stageSequence, itemOff);
     if (!isGarmentCompleteStage(stage)) {

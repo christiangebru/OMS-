@@ -22,7 +22,8 @@ export async function seedClothingTypes() {
         offSiteStages: c.offSiteStages || [],
         compactLabel: Boolean(c.compactLabel),
         measurementProfile: c.measurementProfile || "",
-        active: c.active !== false
+        active: c.active !== false,
+        partSkipStages: c.partSkipStages || {}
       },
       update: {
         label: c.label,
@@ -33,7 +34,8 @@ export async function seedClothingTypes() {
         offSiteStages: c.offSiteStages || [],
         compactLabel: Boolean(c.compactLabel),
         measurementProfile: c.measurementProfile || "",
-        active: c.active !== false
+        active: c.active !== false,
+        partSkipStages: c.partSkipStages || {}
       }
     });
   }

@@ -47,7 +47,7 @@ router.get("/:id/timeline", param("id").custom(isRecordId), async (req, res) => 
     : [];
   const staffMap = new Map(staffDocs.map((st) => [st.id, st]));
 
-  const { stageSequence } = await resolveStageSequence(item.clothingType, item.clothingCode);
+  const { stageSequence } = await resolveStageSequence(item.clothingType, item.clothingCode, item.skipStages);
   const order = await prisma.order.findUnique({
     where: { id: item.order },
     select: { requiredCompletionDate: true }

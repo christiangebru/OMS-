@@ -19,7 +19,7 @@ import { useToast } from "@/context/ToastContext";
 import clsx from "clsx";
 
 /** Page size for the browser print dialog, per print mode. */
-function PageSizeStyle({ mode }: { mode: PrintMode }) {
+export function PageSizeStyle({ mode }: { mode: PrintMode }) {
   const css =
     mode === "roll"
       ? "@media print { @page { size: 50mm 30mm; margin: 0; } }"
@@ -27,7 +27,7 @@ function PageSizeStyle({ mode }: { mode: PrintMode }) {
   return <style>{css}</style>;
 }
 
-function PrintModeToggle({ mode, onChange }: { mode: PrintMode; onChange: (m: PrintMode) => void }) {
+export function PrintModeToggle({ mode, onChange }: { mode: PrintMode; onChange: (m: PrintMode) => void }) {
   return (
     <div className="flex rounded-control border border-line bg-surface p-0.5 text-xs" role="group" aria-label="Print on">
       {(
@@ -54,7 +54,7 @@ function PrintModeToggle({ mode, onChange }: { mode: PrintMode; onChange: (m: Pr
 }
 
 /** Print-only: exactly the stickers being printed, flat, true size. */
-function PrintSheet({ labels, mode }: { labels: Label[]; mode: PrintMode }) {
+export function PrintSheet({ labels, mode }: { labels: Label[]; mode: PrintMode }) {
   return (
     <div className="label-sheet" data-mode={mode}>
       {labels.map((l) => (
@@ -64,7 +64,7 @@ function PrintSheet({ labels, mode }: { labels: Label[]; mode: PrintMode }) {
   );
 }
 
-function usePrintMode() {
+export function usePrintMode() {
   const [mode, setMode] = useState<PrintMode>(savedPrintMode);
   return [
     mode,

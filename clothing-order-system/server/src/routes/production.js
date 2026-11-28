@@ -25,7 +25,7 @@ import {
   isGarmentCompleteStage
 } from "../utils/productionModel.js";
 import { resolveRequestedStage } from "../utils/stageSequence.js";
-import { OFF_SITE_STAGE, openOffSiteCheckpoint, pendingOffSiteWindow } from "../utils/offSite.js";
+import { OFF_SITE_STAGE, openOffSiteCheckpoint, pendingOffSiteWindow, offSiteWindows } from "../utils/offSite.js";
 import { packOrder, deliverPackedOrder, packagingMessage } from "../utils/orderPack.js";
 import { itemOffSiteStages } from "../utils/offSite.js";
 
@@ -122,6 +122,40 @@ async function upsertAssignment(tx, { staffId, orderItemId, stage, suggestedStaf
   });
 }
 
+/**
+ * When a garment is assembled from its parts, its own earlier stages were done
+ * on the parts. Record them as closed on the garment (notes say so), so its
+ * route continues from final sewing instead of starting over.
+ */
+async function recordStagesDoneOnParts(tx, itemId, stageSequence, offSiteStages, assembleAt) {
+  const cps = await tx.stageCheckpoint.findMany({ where: { orderItemId: itemId } });
+  const prior = stageSequence.slice(0, Math.max(0, stageSequence.indexOf(assembleAt)));
+  const now = new Date();
+  const windows = offSiteWindows(stageSequence, offSiteStages, cps).filter((w) =>
+    w.stages.every((st) => prior.includes(st))
+  );
+  const tripsDone = cps.filter((c) => c.stage === OFF_SITE_STAGE).length;
+  for (const w of windows.slice(tripsDone)) {
+    await tx.stageCheckpoint.create({
+      data: {
+        orderItemId: itemId,
+        stage: OFF_SITE_STAGE,
+        checkedInAt: now,
+        checkedOutAt: now,
+        coveredStages: w.stages,
+        notes: "Done on parts"
+      }
+    });
+  }
+  const offSet = new Set(windows.flatMap((w) => w.stages));
+  for (const st of prior) {
+    if (offSet.has(st) || findCheckpoint(cps, st, stageSequence)) continue;
+    await tx.stageCheckpoint.create({
+      data: { orderItemId: itemId, stage: st, checkedInAt: now, checkedOutAt: now, notes: "Done on parts" }
+    });
+  }
+}
+
 function offSiteTripData(body) {
   const clip = (v, n) => String(v || "").trim().slice(0, n);
   const due = body.expectedReturnAt ? new Date(body.expectedReturnAt) : null;
@@ -206,7 +240,7 @@ router.post(
       }
 
       const item = target.item;
-      const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType, item.clothingCode);
+      const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType, item.clothingCode, item.skipStages);
       let offSiteStages = itemOffSiteStages(item, typeOffSite);
       const stage = resolveRequestedStage(req.body.stage, [...stageSequence, OFF_SITE_STAGE]);
 
@@ -300,9 +334,35 @@ router.post(
           }
         }
 
+        // Assembly (final sewing) of a garment that was made as separate parts:
+        // allowed once every part has finished its own route.
+        const assembleAt = assemblyStage(stageSequence);
+        let assemblingFromParts = false;
+        if (assembleAt && stage === assembleAt && !item.parentItemId) {
+          const parts = await prisma.orderItem.findMany({ where: { parentItemId: item.id } });
+          if (parts.length) {
+            const partCps = await prisma.stageCheckpoint.findMany({
+              where: { orderItemId: { in: parts.map((p) => p.id) } }
+            });
+            const byPart = new Map();
+            for (const cp of partCps) {
+              if (!byPart.has(cp.orderItemId)) byPart.set(cp.orderItemId, []);
+              byPart.get(cp.orderItemId).push(cp);
+            }
+            if (parentReadyForAssembly(parts, byPart, stageSequence)) {
+              assemblingFromParts = true;
+            } else if (!adminOverride) {
+              return res.status(400).json({
+                message: "Parts are not ready for assembly. Finish each part's stages first."
+              });
+            }
+          }
+        }
+
         const validation = await validateCheckIn(item.id, stage, stageSequence, {
           adminOverride,
-          offSiteStages
+          offSiteStages,
+          priorDoneByParts: assemblingFromParts
         });
         if (!validation.ok) {
           return res.status(400).json({ message: validation.message });
@@ -311,27 +371,6 @@ router.post(
           return res.status(400).json({
             message: `This garment is already checked into ${validation.checkpoint?.stage || stage}`
           });
-        }
-
-        const assembleAt = assemblyStage(stageSequence);
-        if (assembleAt && stage === assembleAt && !item.parentItemId && !adminOverride) {
-          const parts = await prisma.orderItem.findMany({ where: { parentItemId: item.id } });
-          if (parts.length) {
-            const partIds = parts.map((p) => p.id);
-            const partCps = await prisma.stageCheckpoint.findMany({
-              where: { orderItemId: { in: partIds } }
-            });
-            const byPart = new Map();
-            for (const cp of partCps) {
-              if (!byPart.has(cp.orderItemId)) byPart.set(cp.orderItemId, []);
-              byPart.get(cp.orderItemId).push(cp);
-            }
-            if (!parentReadyForAssembly(parts, byPart, stageSequence)) {
-              return res.status(400).json({
-                message: "Parts are not ready for assembly. Complete parallel part work first, or scan the parent after READY FOR ASSEMBLY."
-              });
-            }
-          }
         }
 
         const goingOffSite = stage === OFF_SITE_STAGE;
@@ -383,6 +422,9 @@ router.post(
                 }
               });
             }
+          }
+          if (assemblingFromParts) {
+            await recordStagesDoneOnParts(tx, item.id, stageSequence, offSiteStages, stage);
           }
           const cp = await tx.stageCheckpoint.create({
             data: {
@@ -488,7 +530,7 @@ router.post(
     const item = await prisma.orderItem.findUnique({ where: { id: req.params.id } });
     if (!item) return res.status(404).json({ message: "Order item not found" });
 
-    const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType, item.clothingCode);
+    const { stageSequence, offSiteStages: typeOffSite } = await resolveStageSequence(item.clothingType, item.clothingCode, item.skipStages);
     const current = itemOffSiteStages(item, typeOffSite);
     const stage = resolveRequestedStage(req.body.stage, stageSequence);
     const wantOffSite = req.body.offSite === true || req.body.offSite === "true";

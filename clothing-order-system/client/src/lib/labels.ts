@@ -58,6 +58,8 @@ export function labelsForOrder(order: Order): OrderLabels {
   const accessories: Label[] = [];
 
   top.forEach((it, i) => {
+    // Made by an outside maker and not back yet: its label is printed on return.
+    if (it.awaitingMaker) return;
     const code = itemCode(order, it, i + 1);
     if (!code) return;
     const label: Label = {

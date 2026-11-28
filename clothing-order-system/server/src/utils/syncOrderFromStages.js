@@ -31,7 +31,7 @@ export async function syncOrderStatusFromItems(orderId, userId = null, client = 
   for (const item of items) {
     if (!isTopLevelItem(item)) continue;
     const cps = byItem.get(item.id) || [];
-    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType, item.clothingCode);
+    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType, item.clothingCode, item.skipStages);
     const itemOffSite = itemOffSiteStages(item, offSiteStages);
     garmentStates.push({
       ...item,

@@ -132,7 +132,8 @@ function normalizeItemPayload(item) {
         waist: item.measurements.waist ? String(item.measurements.waist).trim() : "",
         shoulder: item.measurements.shoulder ? String(item.measurements.shoulder).trim() : "",
         arm: item.measurements.arm ? String(item.measurements.arm).trim() : "",
-        chest: item.measurements.chest ? String(item.measurements.chest).trim() : ""
+        chest: item.measurements.chest ? String(item.measurements.chest).trim() : "",
+        inseam: item.measurements.inseam ? String(item.measurements.inseam).trim() : ""
       }
     : undefined;
 

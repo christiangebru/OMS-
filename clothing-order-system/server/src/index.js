@@ -18,6 +18,7 @@ import clothingTypeRoutes from "./routes/clothingTypes.js";
 import productionRoutes from "./routes/production.js";
 import orderGroupRoutes from "./routes/orderGroups.js";
 import userRoutes from "./routes/users.js";
+import offSiteRoutes from "./routes/offSite.js";
 import { refreshStatisticSnapshot } from "./utils/stats.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +48,7 @@ app.get("/api/version", versionHandler());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/off-site", offSiteRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/order-items", orderItemRoutes);
