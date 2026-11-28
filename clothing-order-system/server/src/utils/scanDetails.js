@@ -26,6 +26,7 @@ import {
 } from "./offSite.js";
 import { isGarmentCompleteStage, isTopLevelItem, findCheckpoint, stageMatchesStep } from "./productionModel.js";
 import { itemOffSiteStages, offSiteTripSummary } from "./offSite.js";
+import { buildNextMove } from "./nextMove.js";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -518,7 +519,13 @@ export async function buildScanDetails(orderItemIdOrDoc) {
         location: loc
       }),
       allowedActions,
-      history
+      history,
+      move: await buildNextMove({
+        item,
+        checkpoints,
+        stageSequence: seqInfo.stageSequence,
+        offSiteStages
+      })
     }
   };
 }

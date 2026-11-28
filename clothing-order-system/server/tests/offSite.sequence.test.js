@@ -16,8 +16,10 @@ describe("off-site windows and scan sequence", () => {
   it("embroidery jobs: one window covering embroidery, return at final sewing", () => {
     const windows = offSiteWindows(EMBROIDERY_SEQ, ["EMBROIDERY"]);
     expect(windows).toEqual([{ stages: ["EMBROIDERY"], returnStage: "FINAL_SEWING" }]);
+    // The pattern is drawn in the shop before the embroidery goes out.
     expect(effectiveScanSequence(EMBROIDERY_SEQ, ["EMBROIDERY"])).toEqual([
       "SEWING_CUTTING",
+      "DESIGN",
       "OFF_SITE",
       "FINAL_SEWING",
       "FINISHING",
@@ -25,14 +27,15 @@ describe("off-site windows and scan sequence", () => {
     ]);
   });
 
-  it("male shirt: two separate trips (cut/prepare, then finish), return at embroidery then finishing", () => {
+  it("male shirt: two separate trips (cut/prepare, then finish), return at design then finishing", () => {
     const windows = offSiteWindows(SHIRT_SEQ, ["SEWING_CUTTING", "FINAL_SEWING"]);
     expect(windows).toEqual([
-      { stages: ["SEWING_CUTTING"], returnStage: "EMBROIDERY" },
+      { stages: ["SEWING_CUTTING"], returnStage: "DESIGN" },
       { stages: ["FINAL_SEWING"], returnStage: "FINISHING" }
     ]);
     expect(effectiveScanSequence(SHIRT_SEQ, ["SEWING_CUTTING", "FINAL_SEWING"])).toEqual([
       "OFF_SITE",
+      "DESIGN",
       "EMBROIDERY",
       "OFF_SITE",
       "FINISHING",

@@ -13,6 +13,7 @@ export const ProductionStage = [
   "CUTTING",
   "SEWING",
   "SEWING_CUTTING",
+  "DESIGN",
   "EMBROIDERY",
   "FINAL_SEWING",
   "FINISHING",
@@ -79,7 +80,7 @@ export function stageMatchesStep(storedStage, step, stageSequence = []) {
  * Skills are workstation work only. RECEIVED, OFF_SITE, SHOWROOM, PACKAGING and
  * DELIVERED are states or locations the manager scans, not skills.
  */
-export const SkillProductionStage = ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
+export const SkillProductionStage = ["SEWING_CUTTING", "DESIGN", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
 
 export function normalizeSkillStage(stage) {
   return canonicalStage(stage);
@@ -94,6 +95,7 @@ export function skillStageVariants(stage) {
 export const FULL_STAGE_SEQUENCE = [
   "RECEIVED",
   "SEWING_CUTTING",
+  "DESIGN",
   "EMBROIDERY",
   "FINAL_SEWING",
   "FINISHING",
@@ -115,23 +117,36 @@ export const OFF_SITE_STAGE = "OFF_SITE";
 /** Default garment path including embroidery. Pack/delivery are order-level. */
 export const CANONICAL_GARMENT_SEQUENCE = [
   "SEWING_CUTTING",
+  "DESIGN",
   "EMBROIDERY",
   "FINAL_SEWING",
   "FINISHING",
   "SHOWROOM"
 ];
 
-export const SKIP_EMBROIDERY_SEQUENCE = CANONICAL_GARMENT_SEQUENCE.filter((s) => s !== "EMBROIDERY");
+export const SKIP_EMBROIDERY_SEQUENCE = CANONICAL_GARMENT_SEQUENCE.filter((s) => s !== "EMBROIDERY" && s !== "DESIGN");
+
+/**
+ * DESIGN: the designer draws the embroidery pattern for the embroiderer to
+ * trace. It belongs to embroidery: whatever skips EMBROIDERY skips DESIGN.
+ */
+export const DESIGN_STAGE = "DESIGN";
+
+/**
+ * Steps added to routes after garments were already in production. A garment
+ * that reached a later step without one of these simply never had it.
+ */
+export const LATE_ADDED_STAGES = ["DESIGN"];
 
 export const OrderPriority = ["NORMAL", "RUSH", "VIP"];
 
 export const StaffRole = ["TAILOR", "EMBROIDERER", "FINISHER", "CUTTER", "PACKER", "MANAGER"];
 
 /** In-shop workstations in atelier terms (legacy names fold into these). */
-export const CANONICAL_WORKSTATION_STAGES = ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
+export const CANONICAL_WORKSTATION_STAGES = ["SEWING_CUTTING", "DESIGN", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
 
 /** Stages that represent a physical workstation (workers of the same stage). */
-export const WORKSTATION_STAGES = ["SEWING_CUTTING", "CUTTING", "SEWING", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
+export const WORKSTATION_STAGES = ["SEWING_CUTTING", "CUTTING", "SEWING", "DESIGN", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
 
 /** Login roles. Workers are optional user accounts; staff records remain the shop-floor identity. */
 export const UserRole = [
@@ -149,7 +164,7 @@ export const UserRole = [
 export const ROLE_PRODUCTION_STAGES = {
   cutter: ["CUTTING", "SEWING_CUTTING", "OFF_SITE"],
   tailor: ["SEWING", "SEWING_CUTTING", "FINAL_SEWING", "OFF_SITE"],
-  embroiderer: ["EMBROIDERY", "OFF_SITE"],
+  embroiderer: ["DESIGN", "EMBROIDERY", "OFF_SITE"],
   finisher: ["FINISHING", "OFF_SITE"],
   packer: ["PACKAGING", "SHOWROOM", "READY", "OFF_SITE"],
   delivery: ["SHOWROOM", "READY", "DELIVERED", "PACKAGING"]

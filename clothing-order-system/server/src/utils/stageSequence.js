@@ -6,7 +6,7 @@ import {
   CANONICAL_GARMENT_SEQUENCE
 } from "../constants/production.js";
 import { findClothingTypeConfig } from "./clothingTypeConfig.js";
-import { canonicalStage, aliasesForStage, stageMatchesStep } from "./productionModel.js";
+import { canonicalStage, aliasesForStage, expandSkipStages, stageMatchesStep } from "./productionModel.js";
 import {
   OFF_SITE_STAGE,
   deriveCurrentStageWithOffSite,
@@ -23,7 +23,7 @@ import {
  * part that skips EMBROIDERY) removes stages from that item's route.
  */
 export async function resolveStageSequence(clothingType, clothingCode, skipStages = []) {
-  const skip = Array.isArray(skipStages) ? skipStages.filter(Boolean) : [];
+  const skip = expandSkipStages(skipStages);
   const withoutSkips = (seq) => (skip.length ? seq.filter((s) => !skip.includes(s)) : seq);
   const config = await findClothingTypeConfig(prisma, clothingType, clothingCode);
   if (config?.stageSequence?.length) {

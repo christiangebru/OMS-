@@ -8,6 +8,7 @@ import { operationalItemBarcode, operationalPartBarcode } from "./barcode.js";
 import {
   assemblyStage,
   findCheckpoint,
+  isGarmentCompleteStage,
   isPartReadyForAssembly,
   isTopLevelItem,
   stageMatchesStep
@@ -106,7 +107,7 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
     const parts = item.itemKind === "part" ? [] : (partsByParent.get(item.id) || []).filter((p) => !p.assembledAt);
     let partSummary = null;
     let waitingForParts = false;
-    if (parts.length && !cps.length) {
+    if (parts.length && !cps.some((c) => c.stage !== "RECEIVED")) {
       const partStates = [];
       for (const p of parts) {
         const pSeq = (await seqFor(p.clothingType, p.clothingCode, p.skipStages)).stageSequence;
@@ -134,6 +135,15 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
       item.itemKind === "part" && !inProgress && isPartReadyForAssembly(cps, seqInfo.stageSequence);
 
     const assignment = asgByItemStage.get(`${item.id}:${nextStage}`) || null;
+    // Where it physically is: new (not received), storage (with the manager),
+    // a station, OFF_SITE, or done (showroom onwards).
+    const workCps = cps.filter((c) => c.stage !== "RECEIVED");
+    const received = cps.some((c) => c.stage === "RECEIVED");
+    let place;
+    if (open) place = open.stage === "OFF_SITE" ? "OFF_SITE" : open.stage;
+    else if (workCps.some((c) => isGarmentCompleteStage(c.stage))) place = "done";
+    else if (!workCps.length && !received) place = "new";
+    else place = "storage";
     let boardStatus = "waiting";
     if (inProgress && open?.stage === "OFF_SITE") boardStatus = "off_site";
     else if (inProgress) boardStatus = "in_progress";
@@ -207,6 +217,8 @@ export async function buildProductionQueue({ includeRecommendations = true } = {
       boardStatus,
       parts: partSummary,
       readyForAssembly,
+      place,
+      received,
       assignment: assignment
         ? {
             _id: assignment.id,

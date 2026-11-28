@@ -39,6 +39,7 @@ describe("real production routes", () => {
     const l = await lookup(res.body.items[0].labelBarcode || res.body.items[0].barcodeValue);
     expect(l.body.scanDetails.timing.stageSequence).toEqual([
       "SEWING_CUTTING",
+      "DESIGN",
       "EMBROIDERY",
       "FINAL_SEWING",
       "FINISHING",
@@ -67,11 +68,12 @@ describe("real production routes", () => {
 
     const lb = await lookup(byCode.LB.labelBarcode);
     expect(lb.body.scanDetails.timing.stageSequence).not.toContain("EMBROIDERY");
+    expect(lb.body.scanDetails.timing.stageSequence).not.toContain("DESIGN");
     const ub = await lookup(byCode.UB.labelBarcode);
     expect(ub.body.scanDetails.timing.stageSequence).toContain("EMBROIDERY");
 
     // Assembly: parts on their own routes, then the dress goes into final sewing.
-    const worker = await createStaff({ name: "All", stages: ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING"] });
+    const worker = await createStaff({ name: "All", stages: ["SEWING_CUTTING", "DESIGN", "EMBROIDERY", "FINAL_SEWING"] });
     const wid = worker._id;
     const run = async (code, stages) => {
       for (const st of stages) {
@@ -79,8 +81,8 @@ describe("real production routes", () => {
         expect((await scan(code, st, wid)).status).toBe(200);
       }
     };
-    await run(byCode.WR.labelBarcode, ["SEWING_CUTTING", "EMBROIDERY"]);
-    await run(byCode.UB.labelBarcode, ["SEWING_CUTTING", "EMBROIDERY"]);
+    await run(byCode.WR.labelBarcode, ["SEWING_CUTTING", "DESIGN", "EMBROIDERY"]);
+    await run(byCode.UB.labelBarcode, ["SEWING_CUTTING", "DESIGN", "EMBROIDERY"]);
     await run(byCode.LB.labelBarcode, ["SEWING_CUTTING"]);
     const dress = res.body.items.find((i) => i.itemKind !== "part");
     const tryAssemble = await scan(dress.labelBarcode || dress.barcodeValue, "FINAL_SEWING", wid);
@@ -180,10 +182,10 @@ describe("real production routes", () => {
       const item = res.body.items[0];
       expect(item.outsourced).toBe(false);
       const l = await lookup(item.labelBarcode || item.barcodeValue);
-      expect(l.body.scanDetails.timing.stageSequence).toEqual(["EMBROIDERY", "FINISHING", "FRINGE_TWISTING", "SHOWROOM"]);
+      expect(l.body.scanDetails.timing.stageSequence).toEqual(["DESIGN", "EMBROIDERY", "FINISHING", "FRINGE_TWISTING", "SHOWROOM"]);
 
-      const worker = await createStaff({ name: "Emb", stages: ["EMBROIDERY", "FINISHING"] });
-      for (const st of ["EMBROIDERY", "FINISHING"]) {
+      const worker = await createStaff({ name: "Emb", stages: ["DESIGN", "EMBROIDERY", "FINISHING"] });
+      for (const st of ["DESIGN", "EMBROIDERY", "FINISHING"]) {
         expect((await scan(item.labelBarcode, st, worker._id)).status).toBe(200);
         expect((await scan(item.labelBarcode, st, worker._id)).status).toBe(200);
       }
@@ -223,7 +225,7 @@ describe("real production routes", () => {
       const res = await createOrder([netela("NETELA_TILET_EMBROIDERED", "Netela — tilet with embroidery")]);
       expect(res.status).toBe(201);
       const l = await lookup(res.body.items[0].labelBarcode);
-      expect(l.body.scanDetails.timing.stageSequence).toEqual(["EMBROIDERY", "FINISHING", "FRINGE_TWISTING", "SHOWROOM"]);
+      expect(l.body.scanDetails.timing.stageSequence).toEqual(["DESIGN", "EMBROIDERY", "FINISHING", "FRINGE_TWISTING", "SHOWROOM"]);
     });
   });
 
@@ -244,9 +246,9 @@ describe("real production routes", () => {
       expect(q.summary.itemsWaiting).toBe(3); // the parts, not the dress
       expect(q.summary.itemsWaitingForParts).toBe(1);
 
-      const worker = await createStaff({ name: "All", stages: ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING"] });
+      const worker = await createStaff({ name: "All", stages: ["SEWING_CUTTING", "DESIGN", "EMBROIDERY", "FINAL_SEWING"] });
       for (const p of parts) {
-        const stages = p.partCode === "LB" ? ["SEWING_CUTTING"] : ["SEWING_CUTTING", "EMBROIDERY"];
+        const stages = p.partCode === "LB" ? ["SEWING_CUTTING"] : ["SEWING_CUTTING", "DESIGN", "EMBROIDERY"];
         for (const st of stages) {
           await scan(p.labelBarcode, st, worker._id);
           await scan(p.labelBarcode, st, worker._id);
@@ -266,6 +268,57 @@ describe("real production routes", () => {
       expect(q.items[0].boardStatus).toBe("to_send");
       expect(q.summary.itemsToSend).toBe(1);
       expect(q.summary.itemsWaiting).toBe(0);
+    });
+  });
+
+  describe("one-tap moves (scanner)", () => {
+    const move = async (code) => (await lookup(code)).body.scanDetails.production.move;
+
+    it("received → storage → give → done → next station, with the next worker suggested", async () => {
+      const worker = await createStaff({ name: "Sara", stages: ["SEWING_CUTTING"] });
+      const designer = await createStaff({ name: "Meron", stages: ["DESIGN"] });
+      const res = await createOrder([{ ...base, clothingCode: "WOMENS_DRESS", clothingType: "Dress — full embroidery" }]);
+      const item = res.body.items[0];
+      const code = item.labelBarcode;
+
+      let m = await move(code);
+      expect(m.kind).toBe("receive");
+      expect(m.toStage).toBe("SEWING_CUTTING");
+      expect(m.worker.name).toBe("Sara");
+
+      const rec = await request(app).post(`/api/production/items/${item._id}/receive`).set(auth(token)).send({});
+      expect(rec.status).toBe(200);
+      expect(rec.body.scanDetails.production.move.kind).toBe("start");
+      const q = (await request(app).get("/api/production/queue?lite=1").set(auth(token))).body;
+      expect(q.items[0].place).toBe("storage");
+
+      expect((await scan(code, "SEWING_CUTTING", worker._id)).status).toBe(200);
+      m = await move(code);
+      expect(m).toMatchObject({ kind: "transfer", fromStage: "SEWING_CUTTING", toStage: "DESIGN", needsWorker: true });
+      expect(m.worker.name).toBe("Meron");
+
+      // Done → Design: out of sewing, into design, in two scans.
+      expect((await scan(code, "SEWING_CUTTING", worker._id)).status).toBe(200);
+      expect((await scan(code, "DESIGN", designer._id)).status).toBe(200);
+      m = await move(code);
+      expect(m).toMatchObject({ kind: "transfer", fromStage: "DESIGN", toStage: "EMBROIDERY" });
+      const q2 = (await request(app).get("/api/production/queue?lite=1").set(auth(token))).body;
+      expect(q2.items[0].place).toBe("DESIGN");
+    });
+
+    it("a garment past embroidery before Design existed is not sent back to design", async () => {
+      const worker = await createStaff({ name: "All", stages: ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING"] });
+      const res = await createOrder([{ ...base, clothingCode: "WOMENS_DRESS", clothingType: "Dress — full embroidery" }]);
+      const item = res.body.items[0];
+      const now = new Date();
+      for (const stage of ["SEWING_CUTTING", "EMBROIDERY"]) {
+        await prisma.stageCheckpoint.create({
+          data: { orderItemId: item._id, stage, checkedInAt: now, checkedOutAt: now, checkedInByStaffId: worker._id }
+        });
+      }
+      const l = await lookup(item.labelBarcode);
+      expect(l.body.scanDetails.timing.nextExpectedStage).toBe("FINAL_SEWING");
+      expect((await scan(item.labelBarcode, "FINAL_SEWING", worker._id)).status).toBe(200);
     });
   });
 });

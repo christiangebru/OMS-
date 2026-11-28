@@ -49,6 +49,8 @@ describe("off-site as a first-class scan location", () => {
 
     expect((await scan(app, token, bc, "SEWING_CUTTING", id)).status).toBe(200);
     expect((await scan(app, token, bc, "SEWING_CUTTING", id)).status).toBe(200);
+    expect((await scan(app, token, bc, "DESIGN", id)).status).toBe(200);
+    expect((await scan(app, token, bc, "DESIGN", id)).status).toBe(200);
 
     const shopEmbroidery = await scan(app, token, bc, "EMBROIDERY", id);
     expect(shopEmbroidery.status).toBe(400);
@@ -83,6 +85,8 @@ describe("off-site as a first-class scan location", () => {
 
     expect((await scan(app, token, bc, "OFF_SITE", id)).status).toBe(200);
     expect((await scan(app, token, bc, "OFF_SITE", id)).status).toBe(200);
+    expect((await scan(app, token, bc, "DESIGN", id)).status).toBe(200);
+    expect((await scan(app, token, bc, "DESIGN", id)).status).toBe(200);
 
     const emb = await scan(app, token, bc, "EMBROIDERY", id);
     expect(emb.status).toBe(200);

@@ -24,7 +24,7 @@ export const NAV_ITEMS: Array<{
   { to: "/customers", key: "customers", label: "Customers", group: "main" },
   { to: "/production", key: "production", label: "Floor", group: "production" },
   { to: "/scan", key: "scan", label: "Scanner", group: "production" },
-  { to: "/distribution", key: "distribution", label: "Distribution", group: "production" },
+  { to: "/distribution", key: "distribution", label: "Assign", group: "production" },
   { to: "/labels", key: "labels", label: "Labels", group: "production" },
   { to: "/off-site", key: "offsite", label: "Off-site", group: "production" },
   { to: "/staff", key: "staff", label: "Staff", group: "people" },
@@ -46,7 +46,7 @@ const ROLE_NAV: Record<UserRole, NavKey[]> = {
 export const ROLE_STAGES: Partial<Record<UserRole, string[]>> = {
   cutter: ["CUTTING", "SEWING_CUTTING", "OFF_SITE"],
   tailor: ["SEWING", "SEWING_CUTTING", "FINAL_SEWING", "OFF_SITE"],
-  embroiderer: ["EMBROIDERY", "OFF_SITE"],
+  embroiderer: ["DESIGN", "EMBROIDERY", "OFF_SITE"],
   finisher: ["FINISHING", "OFF_SITE"],
   packer: ["PACKAGING", "SHOWROOM", "READY", "OFF_SITE"],
   delivery: ["SHOWROOM", "READY", "DELIVERED", "PACKAGING"]

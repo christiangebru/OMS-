@@ -154,6 +154,7 @@ export async function seedOrderWithItem({
     "CUTTING",
     "SEWING",
     "SEWING_CUTTING",
+    "DESIGN",
     "EMBROIDERY",
     "FINAL_SEWING",
     "FINISHING",
