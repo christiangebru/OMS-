@@ -127,7 +127,7 @@ describe("stage rulebook (API)", () => {
     const res = await request(app).get("/api/production/workstations").set(auth(token));
     expect(res.status).toBe(200);
     const stages = res.body.workstations.map((w) => w.stage);
-    expect(stages).toEqual(["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING", "FINISHING"]);
+    expect(stages).toEqual(["SEWING_CUTTING", "DESIGN", "EMBROIDERY", "FINAL_SEWING", "FINISHING"]);
     const prep = res.body.workstations.find((w) => w.stage === "SEWING_CUTTING");
     expect(prep.label).toBe("Sewing & cutting workstation");
     expect(prep.workers.map((w) => w.name)).toContain("Old Cutter");

@@ -1,4 +1,4 @@
-import { canonicalStage, findCheckpoint, aliasesForStage } from "./productionModel.js";
+import { canonicalStage, findCheckpoint, aliasesForStage, routeForCheckpoints } from "./productionModel.js";
 import { OFF_SITE_ONLY_STAGES } from "../constants/production.js";
 
 export const OFF_SITE_STAGE = "OFF_SITE";
@@ -74,7 +74,10 @@ export function tripBreaks(checkpoints = []) {
  * In-shop stages that happen off-site are not fake workstations.
  */
 export function effectiveScanSequence(stageSequence = [], offSiteStages = [], checkpoints = []) {
-  const seq = Array.isArray(stageSequence) ? stageSequence.filter((s) => s !== "RECEIVED") : [];
+  const seq = routeForCheckpoints(
+    Array.isArray(stageSequence) ? stageSequence.filter((s) => s !== "RECEIVED") : [],
+    checkpoints
+  );
   const windows = offSiteWindows(seq, offSiteStages, checkpoints);
   if (!windows.length) return [...seq];
   const covered = new Set(windows.flatMap((w) => w.stages));
@@ -290,6 +293,7 @@ function shortDate(d) {
  */
 const WORK_LABELS = {
   SEWING_CUTTING: "Sewing & cutting",
+  DESIGN: "Design",
   EMBROIDERY: "Embroidery",
   FINAL_SEWING: "Final sewing",
   FINISHING: "Finishing",

@@ -1,6 +1,7 @@
 import {
   CANONICAL_GARMENT_SEQUENCE,
   FULL_STAGE_SEQUENCE,
+  LATE_ADDED_STAGES,
   SKIP_EMBROIDERY_SEQUENCE,
   ProductionStage,
   canonicalStage as rulebookCanonical,
@@ -58,6 +59,27 @@ export function findCheckpoint(checkpoints = [], stage, stageSequence = []) {
   return [...matches].sort(
     (a, b) => new Date(b.checkedInAt || 0) - new Date(a.checkedInAt || 0)
   )[0];
+}
+
+/**
+ * A step added to the routes later (DESIGN) that this garment went past
+ * before it existed: no checkpoint for it, but a later step has one (in the
+ * shop, or covered by an off-site trip). It counts as not part of its route.
+ */
+export function skippedLateStage(stage, stageSequence = [], checkpoints = []) {
+  if (!LATE_ADDED_STAGES.includes(stage)) return false;
+  if (findCheckpoint(checkpoints, stage, stageSequence)) return false;
+  const later = stageSequence.slice(stageSequence.indexOf(stage) + 1);
+  return checkpoints.some(
+    (c) =>
+      later.some((s) => stepStageNames(s, stageSequence).includes(c.stage)) ||
+      (Array.isArray(c.coveredStages) && c.coveredStages.some((s) => later.includes(s)))
+  );
+}
+
+/** The route without late-added steps this garment never had. */
+export function routeForCheckpoints(stageSequence = [], checkpoints = []) {
+  return stageSequence.filter((s) => !skippedLateStage(s, stageSequence, checkpoints));
 }
 
 export function isGarmentCompleteStage(stage) {
@@ -120,19 +142,27 @@ export function isPartReadyForAssembly(checkpoints, stageSequence) {
   const idx = stageSequence.indexOf(assembleAt);
   const prior = idx > 0 ? stageSequence.slice(0, idx) : [];
   if (!prior.length) {
-    return checkpoints.some((c) => c.checkedOutAt);
+    return checkpoints.some((c) => c.checkedOutAt && c.stage !== "RECEIVED");
   }
   return prior.every((stage) => {
+    if (skippedLateStage(stage, stageSequence, checkpoints)) return true;
     const cp = findCheckpoint(checkpoints, stage, stageSequence);
     return Boolean(cp?.checkedOutAt);
   });
+}
+
+/** Stages an item skips; no embroidery also means no design drawn for it. */
+export function expandSkipStages(skipStages = []) {
+  const skip = Array.isArray(skipStages) ? skipStages.filter(Boolean) : [];
+  if (skip.includes("EMBROIDERY") && !skip.includes("DESIGN")) skip.push("DESIGN");
+  return skip;
 }
 
 /** Each part is judged on its own route (a part may skip a stage, e.g. EMBROIDERY). */
 export function parentReadyForAssembly(parts, checkpointsByItem, stageSequence) {
   if (!parts?.length) return false;
   return parts.every((part) => {
-    const skip = part.skipStages || [];
+    const skip = expandSkipStages(part.skipStages || []);
     const seq = skip.length ? stageSequence.filter((s) => !skip.includes(s)) : stageSequence;
     return isPartReadyForAssembly(checkpointsByItem.get(part.id) || [], seq);
   });

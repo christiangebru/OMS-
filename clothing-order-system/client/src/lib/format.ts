@@ -103,6 +103,7 @@ export function stageLabel(stage: string) {
     SEWING_CUTTING: "Sewing & cutting",
     CUTTING: "Sewing & cutting",
     SEWING: "Sewing & cutting",
+    DESIGN: "Design",
     EMBROIDERY: "Embroidery",
     FINAL_SEWING: "Final sewing",
     FINISHING: "Finishing",

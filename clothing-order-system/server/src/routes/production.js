@@ -33,6 +33,7 @@ const router = Router();
 
 const WORKSTATION_LABELS = {
   SEWING_CUTTING: "Sewing & cutting",
+  DESIGN: "Design",
   EMBROIDERY: "Embroidery",
   FINAL_SEWING: "Final sewing",
   FINISHING: "Finishing"
@@ -517,6 +518,54 @@ router.post(
  * offSite=true sends that stage out, offSite=false keeps it in the shop.
  * The clothing type's off-site stages stay a default only.
  */
+/**
+ * First scan: the garment (with its label) arrived at the manager. It is a
+ * mark, not a station: it goes to storage until it is given to a worker.
+ */
+router.post(
+  "/items/:id/receive",
+  requireCapability("distribution"),
+  param("id").custom(isRecordId),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    const item = await prisma.orderItem.findUnique({ where: { id: req.params.id }, include: { orderRel: true } });
+    if (!item) return res.status(404).json({ message: "Garment not found" });
+    const cps = await prisma.stageCheckpoint.findMany({ where: { orderItemId: item.id } });
+    if (cps.some((c) => c.stage === "RECEIVED")) {
+      return res.json({ ok: true, message: "Already received", scanDetails: await buildScanDetails(item.id) });
+    }
+    if (cps.length) {
+      return res.status(400).json({ message: "This garment is already in production." });
+    }
+    const now = new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.stageCheckpoint.create({
+        data: {
+          orderItemId: item.id,
+          stage: "RECEIVED",
+          checkedInAt: now,
+          checkedOutAt: now,
+          notes: "Received at the manager"
+        }
+      });
+      await tx.productionLog.create({
+        data: {
+          orderId: item.orderRel.orderId,
+          mongoOrderId: item.order,
+          userId: req.user.id,
+          action: "received",
+          fromStatus: "RECEIVED",
+          toStatus: "RECEIVED",
+          notes: "Received at the manager",
+          metadata: { itemId: item.id }
+        }
+      });
+    });
+    res.json({ ok: true, message: "Received — put it in storage until it is given out", scanDetails: await buildScanDetails(item.id) });
+  }
+);
+
 router.post(
   "/items/:id/off-site-route",
   requireCapability("distribution"),

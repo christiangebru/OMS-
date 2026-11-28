@@ -27,6 +27,7 @@ export type ProductionStage =
   | "CUTTING"
   | "SEWING"
   | "SEWING_CUTTING"
+  | "DESIGN"
   | "EMBROIDERY"
   | "FINAL_SEWING"
   | "FINISHING"
@@ -254,11 +255,12 @@ export interface DashboardSummary {
 }
 
 /** Workstation work a staff member can be skilled in (states/locations are not skills). */
-export const SKILL_STAGES: ProductionStage[] = ["SEWING_CUTTING", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
+export const SKILL_STAGES: ProductionStage[] = ["SEWING_CUTTING", "DESIGN", "EMBROIDERY", "FINAL_SEWING", "FINISHING"];
 
 export const PRODUCTION_STAGES: ProductionStage[] = [
   "RECEIVED",
   "SEWING_CUTTING",
+  "DESIGN",
   "EMBROIDERY",
   "FINAL_SEWING",
   "FINISHING",
@@ -277,6 +279,19 @@ export interface OffSiteTrip {
   handlerPhone: string;
   expectedReturnAt?: string | null;
   overdue?: boolean;
+}
+
+export interface NextMove {
+  kind: "receive" | "start" | "transfer" | "send" | "back" | "parts" | "none";
+  received: boolean;
+  fromStage: string | null;
+  toStage: string | null;
+  toOffSite: boolean;
+  offSiteFor: string[];
+  needsWorker: boolean;
+  worker: { _id: string; name: string; status?: string } | null;
+  suggested: boolean;
+  parts: { total: number; ready: number; codes: string[] } | null;
 }
 
 export interface ScanDetails {
@@ -382,6 +397,8 @@ export interface ScanDetails {
     };
     managerCommand?: string;
     allowedActions?: Array<{ code: string; label: string }>;
+    /** The one main thing to do with this garment now (see server nextMove.js). */
+    move?: NextMove;
     incompleteItems?: Array<{
       _id: string;
       clothingType: string;
@@ -661,6 +678,9 @@ export interface QueueItem {
     parts: Array<{ itemId: string; partCode: string; ready: boolean; stage: string | null; inProgress: boolean }>;
   } | null;
   readyForAssembly?: boolean;
+  /** Where it physically is: new | storage (with the manager) | a stage | OFF_SITE | done. */
+  place?: string;
+  received?: boolean;
   inProgress?: boolean;
   assignment?: {
     _id: string;
