@@ -240,8 +240,16 @@
 }
 
 /* ---------- Camera scanner ---------- */
+/* html5-qrcode sets an inline position:relative on its host, which would
+   collapse it to 0 px tall (black view). Keep the host stretched over the frame. */
+.scan-host {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden;
+}
 /* Make the library's video fill the frame (it sets inline sizes). */
-.scan-host > div,
 .scan-host video {
   position: absolute !important;
   inset: 0 !important;
