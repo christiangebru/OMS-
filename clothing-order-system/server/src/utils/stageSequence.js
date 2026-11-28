@@ -18,10 +18,16 @@ import {
   stageIsOffSiteWork
 } from "./offSite.js";
 
-export async function resolveStageSequence(clothingType, clothingCode) {
+/**
+ * Route for a clothing type. `skipStages` (an item's own, e.g. a lower-body
+ * part that skips EMBROIDERY) removes stages from that item's route.
+ */
+export async function resolveStageSequence(clothingType, clothingCode, skipStages = []) {
+  const skip = Array.isArray(skipStages) ? skipStages.filter(Boolean) : [];
+  const withoutSkips = (seq) => (skip.length ? seq.filter((s) => !skip.includes(s)) : seq);
   const config = await findClothingTypeConfig(prisma, clothingType, clothingCode);
   if (config?.stageSequence?.length) {
-    const stageSequence = normalizeStoredSequence(config.stageSequence);
+    const stageSequence = withoutSkips(normalizeStoredSequence(config.stageSequence));
     return {
       key: config.key,
       label: config.label,
@@ -32,6 +38,7 @@ export async function resolveStageSequence(clothingType, clothingCode) {
       offSiteStages: config.offSiteStages || [],
       compactLabel: Boolean(config.compactLabel),
       measurementProfile: config.measurementProfile || "",
+      partSkipStages: config.partSkipStages && typeof config.partSkipStages === "object" ? config.partSkipStages : {},
       fallback: false
     };
   }
@@ -39,13 +46,14 @@ export async function resolveStageSequence(clothingType, clothingCode) {
   return {
     key: key || "unknown",
     label: clothingType || "Unknown",
-    stageSequence: [...SKIP_EMBROIDERY_SEQUENCE],
+    stageSequence: withoutSkips([...SKIP_EMBROIDERY_SEQUENCE]),
     includesEmbroidery: false,
     itemKind: "garment",
     partCodes: [],
     offSiteStages: [],
     compactLabel: false,
     measurementProfile: "",
+    partSkipStages: {},
     fallback: true
   };
 }
@@ -113,7 +121,7 @@ export async function validateCheckIn(
   orderItemId,
   targetStage,
   stageSequence,
-  { adminOverride = false, offSiteStages = [] } = {}
+  { adminOverride = false, offSiteStages = [], priorDoneByParts = false } = {}
 ) {
   if (!ProductionStage.includes(targetStage)) {
     return { ok: false, message: `Invalid stage: ${targetStage}` };
@@ -183,7 +191,8 @@ export async function validateCheckIn(
     return { ok: true, alreadyOpen: true, checkpoint: openSame };
   }
 
-  if (!adminOverride) {
+  // Assembling a garment from its parts: the earlier stages were done on the parts.
+  if (!adminOverride && !priorDoneByParts) {
     const prior = priorEffectiveStagesComplete(checkpoints, resolved, seq, offSiteStages);
     if (!prior.ok) {
       return { ok: false, message: prior.message };

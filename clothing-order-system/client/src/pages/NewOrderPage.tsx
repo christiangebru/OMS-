@@ -179,7 +179,8 @@ function draftFromItem(src: OrderItem, category?: MeasurementCategory): Draft {
       shoulder: src.measurements?.shoulder || "",
       sleeveLength: src.measurements?.arm || "",
       height: src.measurements?.height || "",
-      dressLength: src.measurements?.height || ""
+      dressLength: src.measurements?.height || "",
+      inseam: src.measurements?.inseam || ""
     },
     audience,
     setChoice,

@@ -24,6 +24,7 @@ export async function seedClothingTypes() {
       offSiteStages: c.offSiteStages || [],
       compactLabel: Boolean(c.compactLabel),
       active: c.active !== false,
+        partSkipStages: c.partSkipStages || {},
       measurementProfile: c.measurementProfile || ""
     }))
   });

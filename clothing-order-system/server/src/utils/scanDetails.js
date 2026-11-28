@@ -208,7 +208,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
       where: { orderItemId: item.id },
       orderBy: { checkedInAt: "asc" }
     }),
-    resolveStageSequence(item.clothingType, item.clothingCode),
+    resolveStageSequence(item.clothingType, item.clothingCode, item.skipStages),
     order.groupId ? prisma.orderGroup.findUnique({ where: { id: order.groupId } }) : null
   ]);
 
@@ -230,7 +230,7 @@ export async function buildScanDetails(orderItemIdOrDoc) {
   const siblingDetails = await Promise.all(
     siblingSource.map(async (sib) => {
       const cps = cpByItem.get(sib.id) || [];
-      const seq = await resolveStageSequence(sib.clothingType, sib.clothingCode);
+      const seq = await resolveStageSequence(sib.clothingType, sib.clothingCode, sib.skipStages);
       const off = itemOffSiteStages(sib, seq.offSiteStages);
       const idx = sib.itemIndex || 1;
       return {

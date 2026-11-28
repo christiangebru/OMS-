@@ -10,6 +10,7 @@ import staffRoutes from "../src/routes/staff.js";
 import dashboardRoutes from "../src/routes/dashboard.js";
 import orderGroupRoutes from "../src/routes/orderGroups.js";
 import userRoutes from "../src/routes/users.js";
+import offSiteRoutes from "../src/routes/offSite.js";
 import orderRoutes from "../src/routes/orders.js";
 import uploadRoutes from "../src/routes/upload.js";
 import { versionHandler } from "../src/routes/health.js";
@@ -47,6 +48,7 @@ export function createTestApp() {
   app.use("/api/orders", orderRoutes);
   app.use("/api/upload", uploadRoutes);
   app.use("/api/users", userRoutes);
+  app.use("/api/off-site", offSiteRoutes);
   app.get("/version", versionHandler());
   app.get("/api/version", versionHandler());
   app.use((err, _req, res, _next) => {

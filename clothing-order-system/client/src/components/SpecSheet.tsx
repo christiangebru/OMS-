@@ -86,8 +86,8 @@ export function SpecSheet({ item }: { item: SpecItem }) {
       {trouser ? (
         <Block title="Trouser">
           <Row k="Waist" v={val(m.waist)} />
+          <Row k="Trouser length" v={val(m.inseam || m.height)} />
           <Row k="Hip" v={val(m.vest)} />
-          <Row k="Inseam" v={val(m.height)} />
           <Row k="Fit / size" v={val(item.size)} />
         </Block>
       ) : shirt ? null : (

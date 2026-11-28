@@ -29,6 +29,11 @@ async function configForType(clothingType, clothingCode, client) {
   return findClothingTypeConfig(client, clothingType, clothingCode);
 }
 
+function partSkipFor(map, code) {
+  const list = map && typeof map === "object" ? map[String(code).toUpperCase()] : null;
+  return Array.isArray(list) ? list.map(String) : [];
+}
+
 async function createPartRows(order, parent, partCodes, client) {
   const now = new Date();
   for (const code of partCodes) {
@@ -63,6 +68,7 @@ async function createPartRows(order, parent, partCodes, client) {
         partCode: code,
         itemIndex: parent.itemIndex,
         offSiteStages: parent.offSiteStages || [],
+        skipStages: partSkipFor(parent.__partSkipStages, code),
         printPartLabel: true
       }
     });
@@ -132,7 +138,9 @@ export async function createItemsForOrder(order, itemPayloads, client, { partLab
     const mode = _partLabelMode || partLabelMode || "none";
     if (itemKind !== "part" && itemKind !== "accessory") {
       const codes = resolvePartCodes(fields.clothingType, config, mode, _selectedPartCodes);
-      if (codes.length) await createPartRows(order, row, codes, client);
+      if (codes.length) {
+        await createPartRows(order, { ...row, __partSkipStages: config?.partSkipStages }, codes, client);
+      }
     }
     created.push(row);
   }

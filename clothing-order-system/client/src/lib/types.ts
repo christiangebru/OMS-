@@ -102,6 +102,8 @@ export interface OrderItem {
     shoulder?: string;
     arm?: string;
     chest?: string;
+    /** Trouser length. */
+    inseam?: string;
   };
   currentStage?: ProductionStage | null;
   nextStage?: ProductionStage | null;
@@ -114,6 +116,11 @@ export interface OrderItem {
   assembledAt?: string | null;
   offSiteStages?: string[];
   printPartLabel?: boolean;
+  /** Made entirely by an outside maker (trouser). */
+  outsourced?: boolean;
+  /** Outsourced and not back yet: no label until it returns. */
+  awaitingMaker?: boolean;
+  offSiteTrip?: OffSiteTrip | null;
   parts?: OrderItem[];
   readyForAssembly?: boolean;
 }

@@ -37,6 +37,7 @@ const ProductionFloorPage = lazy(() =>
 const DistributionPage = lazy(() =>
   import("@/pages/DistributionPage").then((m) => ({ default: m.DistributionPage }))
 );
+const OffSitePage = lazy(() => import("@/pages/OffSitePage").then((m) => ({ default: m.OffSitePage })));
 const UsersPage = lazy(() => import("@/pages/UsersPage").then((m) => ({ default: m.UsersPage })));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
 
@@ -202,6 +203,14 @@ export default function App() {
               <LabelsOnly>
                 <LabelsWorkspacePage />
               </LabelsOnly>
+            }
+          />
+          <Route
+            path="off-site"
+            element={
+              <ManagerOnly>
+                <OffSitePage />
+              </ManagerOnly>
             }
           />
           <Route

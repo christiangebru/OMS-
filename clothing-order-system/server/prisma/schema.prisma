@@ -173,6 +173,8 @@ model OrderItem {
   assembledAt        DateTime?
   offSiteStages      String[]  @default([])
   /// Manager edited this garment's off-site route; an empty list then means all in shop.
+  /// Stages this item skips (parts, e.g. lower body of an upper-embroidery-only dress skips EMBROIDERY).
+  skipStages         String[]  @default([])
   offSiteRouteCustom Boolean   @default(false)
   printPartLabel     Boolean   @default(false)
   createdAt          DateTime  @default(now())
@@ -225,6 +227,8 @@ model ClothingTypeConfig {
   measurementProfile String   @default("")
   /// false = hidden from new-order pickers; kept so old orders still resolve.
   active             Boolean  @default(true)
+  /// Stages each part code skips, e.g. {"LB": ["EMBROIDERY"]}.
+  partSkipStages     Json     @default("{}")
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

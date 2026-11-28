@@ -109,9 +109,13 @@ describe("workflow fixes", () => {
       const { item } = await seedOrderWithItem({ clothingType: "pants" });
       const sent = await scan(app, token, { barcodeValue: item.barcodeValue, stage: "OFF_SITE" });
       expect(sent.status).toBe(200);
-      expect(sent.body.scanDetails.production.offSiteTrip.coveredStages).toEqual(["SEWING_CUTTING", "FINAL_SEWING"]);
+      expect(sent.body.scanDetails.production.offSiteTrip.coveredStages).toEqual([
+        "SEWING_CUTTING",
+        "FINAL_SEWING",
+        "FINISHING"
+      ]);
       const back = await scan(app, token, { barcodeValue: item.barcodeValue, stage: "OFF_SITE" });
-      expect(back.body.scanDetails.timing.nextExpectedStage).toBe("FINISHING");
+      expect(back.body.scanDetails.timing.nextExpectedStage).toBe("SHOWROOM");
     });
 
     it("only lets the next stage be sent off-site", async () => {

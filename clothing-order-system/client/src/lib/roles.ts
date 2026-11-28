@@ -9,6 +9,7 @@ export type NavKey =
   | "distribution"
   | "staff"
   | "labels"
+  | "offsite"
   | "users";
 
 export const NAV_ITEMS: Array<{
@@ -25,13 +26,14 @@ export const NAV_ITEMS: Array<{
   { to: "/scan", key: "scan", label: "Scanner", group: "production" },
   { to: "/distribution", key: "distribution", label: "Distribution", group: "production" },
   { to: "/labels", key: "labels", label: "Labels", group: "production" },
+  { to: "/off-site", key: "offsite", label: "Off-site", group: "production" },
   { to: "/staff", key: "staff", label: "Staff", group: "people" },
   { to: "/users", key: "users", label: "Logins", group: "people" }
 ];
 
 const ROLE_NAV: Record<UserRole, NavKey[]> = {
-  admin: ["dashboard", "orders", "customers", "production", "scan", "distribution", "staff", "labels", "users"],
-  manager: ["dashboard", "orders", "customers", "production", "scan", "distribution", "staff", "labels"],
+  admin: ["dashboard", "orders", "customers", "production", "scan", "distribution", "staff", "labels", "offsite", "users"],
+  manager: ["dashboard", "orders", "customers", "production", "scan", "distribution", "staff", "labels", "offsite"],
   reception: ["dashboard", "orders", "customers", "scan", "labels"],
   cutter: ["dashboard", "production", "scan", "orders"],
   tailor: ["dashboard", "production", "scan", "orders"],

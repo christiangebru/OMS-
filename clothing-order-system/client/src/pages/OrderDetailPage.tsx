@@ -203,6 +203,22 @@ export function OrderDetailPage() {
                           {it.fabricType ? ` · ${it.fabricType}` : ""}
                           {it.color ? ` · ${it.color}` : ""}
                         </p>
+                        {it.offSiteTrip ? (
+                          <p className="mt-1 text-xs font-medium text-amber-800">
+                            With {it.offSiteTrip.handlerName || "an outside maker"}
+                            {it.offSiteTrip.expectedReturnAt
+                              ? ` · due back ${formatDate(it.offSiteTrip.expectedReturnAt)}`
+                              : ""}
+                            {it.offSiteTrip.overdue ? " · late" : ""}
+                          </p>
+                        ) : it.awaitingMaker ? (
+                          <p className="mt-1 text-xs font-medium text-amber-800">
+                            Made by an outside maker · not sent yet ·{" "}
+                            <Link to="/off-site" className="underline">
+                              Send
+                            </Link>
+                          </p>
+                        ) : null}
                       </div>
                       <div className="text-right">
                         {it.boardStatus && (

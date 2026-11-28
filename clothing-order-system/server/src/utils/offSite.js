@@ -244,3 +244,54 @@ export function offSiteTripSummary(cp) {
     )
   };
 }
+
+const NON_WORK_STAGES = new Set(["RECEIVED", "SHOWROOM", "READY", "PACKAGING", "DELIVERED"]);
+
+/**
+ * Made entirely by an outside maker: every work stage of the route is off-site
+ * (e.g. the trouser). It is sent by message, never scanned out, and gets its
+ * label when it comes back.
+ */
+export function isOutsourcedRoute(stageSequence = [], offSiteStages = []) {
+  const off = new Set(offSiteStages || []);
+  const work = (stageSequence || []).filter((s) => !NON_WORK_STAGES.has(canonicalStage(s) || s));
+  return work.length > 0 && work.every((s) => off.has(s));
+}
+
+const MEASURE_LABELS = [
+  ["waist", "Waist"],
+  ["inseam", "Trouser length"],
+  ["vest", "Hip"],
+  ["height", "Length"],
+  ["chest", "Chest"],
+  ["breast", "Bust"],
+  ["shoulder", "Shoulder"],
+  ["arm", "Sleeve"]
+];
+
+function shortDate(d) {
+  if (!d) return "";
+  const date = new Date(d);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+/**
+ * Text sent to an outside maker by Telegram/WhatsApp/SMS. The code comes first
+ * so the maker can write it on the garment and it can be matched on return.
+ */
+export function buildMakerMessage({ code, customerName, clothingType, measurements, notes, neededBy }) {
+  const m = measurements && typeof measurements === "object" ? measurements : {};
+  const sizes = MEASURE_LABELS.filter(([k]) => m[k] != null && String(m[k]).trim() !== "")
+    .map(([k, label]) => `${label} ${String(m[k]).trim()}`)
+    .join(" · ");
+  return [
+    `${code} · ${customerName || "Customer"} · ${clothingType}`,
+    sizes || "Sizes: see order",
+    notes ? `Notes: ${String(notes).trim()}` : "",
+    neededBy ? `Needed by: ${shortDate(neededBy)}` : "",
+    `Please write ${code} on the garment.`
+  ]
+    .filter(Boolean)
+    .join("\n");
+}

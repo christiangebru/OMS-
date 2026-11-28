@@ -61,7 +61,7 @@ router.get("/top-clothing-types", async (_req, res) => {
 
 /** Item counts by current production stage */
 router.get("/stage-distribution", async (_req, res) => {
-  const items = await prisma.orderItem.findMany({ select: { id: true, clothingType: true, clothingCode: true, offSiteStages: true, offSiteRouteCustom: true } });
+  const items = await prisma.orderItem.findMany({ select: { id: true, clothingType: true, clothingCode: true, skipStages: true, offSiteStages: true, offSiteRouteCustom: true } });
   const itemIds = items.map((i) => i.id);
   const checkpoints = itemIds.length
     ? await prisma.stageCheckpoint.findMany({ where: { orderItemId: { in: itemIds } } })
@@ -79,7 +79,7 @@ router.get("/stage-distribution", async (_req, res) => {
 
   for (const item of items) {
     const cps = byItem.get(item.id) || [];
-    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType, item.clothingCode);
+    const { stageSequence, offSiteStages } = await resolveStageSequence(item.clothingType, item.clothingCode, item.skipStages);
     const stage = deriveCurrentStage(cps, stageSequence, itemOffSiteStages(item, offSiteStages));
     if (!stage) counts.UNSTARTED += 1;
     else counts[stage] = (counts[stage] || 0) + 1;

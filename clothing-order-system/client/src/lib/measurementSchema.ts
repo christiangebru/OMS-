@@ -131,7 +131,8 @@ export function valuesToItemMeasurements(
     shoulder: values.shoulder || "",
     arm: values.sleeveLength || "",
     height: values.height || values.dressLength || "",
-    vest: values.hip || ""
+    vest: values.hip || "",
+    inseam: values.inseam || ""
   };
 }
 
