@@ -30,6 +30,7 @@ export type ProductionStage =
   | "EMBROIDERY"
   | "FINAL_SEWING"
   | "FINISHING"
+  | "FRINGE_TWISTING"
   | "OFF_SITE"
   | "PACKAGING"
   | "READY"
@@ -516,7 +517,26 @@ export interface DashboardOperations {
     customerName: string;
     orderId: string;
     stage: string | null;
-      boardStatus: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | "off_site";
+      boardStatus:
+    | "waiting"
+    | "assigned"
+    | "distributed"
+    | "received"
+    | "in_progress"
+    | "off_site"
+    | "to_send"
+    | "waiting_parts"
+    | "ready_for_assembly";
+  itemKind?: string;
+  partCode?: string;
+  parentItemId?: string | null;
+  /** Garment made as parts: progress of its parts (only before assembly). */
+  parts?: {
+    total: number;
+    ready: number;
+    parts: Array<{ itemId: string; partCode: string; ready: boolean; stage: string | null; inProgress: boolean }>;
+  } | null;
+  readyForAssembly?: boolean;
     workerName: string | null;
     overdue: boolean;
     priority: OrderPriority;
@@ -621,7 +641,26 @@ export interface QueueItem {
   location?: "in_shop" | "off_site";
   offSite?: boolean;
   offSiteTrip?: OffSiteTrip | null;
-  boardStatus: "waiting" | "assigned" | "distributed" | "received" | "in_progress" | "off_site";
+  boardStatus:
+    | "waiting"
+    | "assigned"
+    | "distributed"
+    | "received"
+    | "in_progress"
+    | "off_site"
+    | "to_send"
+    | "waiting_parts"
+    | "ready_for_assembly";
+  itemKind?: string;
+  partCode?: string;
+  parentItemId?: string | null;
+  /** Garment made as parts: progress of its parts (only before assembly). */
+  parts?: {
+    total: number;
+    ready: number;
+    parts: Array<{ itemId: string; partCode: string; ready: boolean; stage: string | null; inProgress: boolean }>;
+  } | null;
+  readyForAssembly?: boolean;
   inProgress?: boolean;
   assignment?: {
     _id: string;
@@ -644,6 +683,9 @@ export interface ProductionQueue {
     itemsDistributed: number;
     itemsReceived?: number;
     itemsInProgress: number;
+    itemsAway?: number;
+    itemsToSend?: number;
+    itemsWaitingForParts?: number;
     overdueItems: number;
     todayCreated: number;
     dueToday: number;

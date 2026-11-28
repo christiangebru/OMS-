@@ -20,9 +20,16 @@ export const MALE_SET_OPTIONS: Array<{ id: "shirt" | "trouser" | "both"; label: 
   { id: "both", label: "Both shirt + trouser" }
 ];
 
-export const FEMALE_ACCESSORY_OPTIONS: Array<{ id: "belt" | "netela"; label: string }> = [
+export type AccessoryKey = "belt" | "netela" | "netela_tilet" | "netela_tilet_embroidered";
+
+/** Netela comes in three kinds; an order takes at most one of them. */
+export const NETELA_KEYS: AccessoryKey[] = ["netela", "netela_tilet", "netela_tilet_embroidered"];
+
+export const FEMALE_ACCESSORY_OPTIONS: Array<{ id: AccessoryKey; label: string }> = [
   { id: "belt", label: "Belt" },
-  { id: "netela", label: "Netela" }
+  { id: "netela", label: "Netela — embroidered" },
+  { id: "netela_tilet", label: "Netela — tilet, no embroidery" },
+  { id: "netela_tilet_embroidered", label: "Netela — tilet with embroidery" }
 ];
 
 export function isMaleAudience(audience?: string | null): audience is "men" | "kids_boy" {

@@ -5,6 +5,7 @@ import {
 
 const EMBROIDERY_SEQ = [...CANONICAL_GARMENT_SEQUENCE];
 const PLAIN_SEQ = [...SKIP_EMBROIDERY_SEQUENCE];
+const NETELA_EMBROIDERED_SEQ = ["EMBROIDERY", "FINISHING", "FRINGE_TWISTING", "SHOWROOM"];
 
 export const DEFAULT_CLOTHING_TYPE_SEEDS = [
   {
@@ -138,14 +139,40 @@ export const DEFAULT_CLOTHING_TYPE_SEEDS = [
     compactLabel: true,
     measurementProfile: "none"
   },
+  // Netela: plain fabric bought, embroidered and finished in-house, then the
+  // edges go out for fringe twisting (kuchet).
   {
     key: "netela",
-    label: "Netela",
-    stageSequence: ["EMBROIDERY", "FINISHING", "SHOWROOM"],
+    label: "Netela — embroidered",
+    stageSequence: NETELA_EMBROIDERED_SEQ,
     includesEmbroidery: true,
     itemKind: "accessory",
     partCodes: [],
-    offSiteStages: ["EMBROIDERY"],
+    offSiteStages: ["FRINGE_TWISTING"],
+    compactLabel: true,
+    measurementProfile: "none"
+  },
+  // Tilet fabric (woven border, matches the dress): only fringe twisting, off-site.
+  {
+    key: "netela_tilet",
+    label: "Netela — tilet, no embroidery",
+    stageSequence: ["FRINGE_TWISTING", "SHOWROOM"],
+    includesEmbroidery: false,
+    itemKind: "accessory",
+    partCodes: [],
+    offSiteStages: ["FRINGE_TWISTING"],
+    compactLabel: true,
+    measurementProfile: "none"
+  },
+  // Plain tilet with a design embroidered on top: same route as embroidered.
+  {
+    key: "netela_tilet_embroidered",
+    label: "Netela — tilet with embroidery",
+    stageSequence: NETELA_EMBROIDERED_SEQ,
+    includesEmbroidery: true,
+    itemKind: "accessory",
+    partCodes: [],
+    offSiteStages: ["FRINGE_TWISTING"],
     compactLabel: true,
     measurementProfile: "none"
   }

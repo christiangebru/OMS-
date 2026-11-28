@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiJson, describeApiError } from "@/lib/api";
 import type { OffSiteTrip, OrderItem } from "@/lib/types";
-import { formatDate, shortOrderId } from "@/lib/format";
+import { formatDate, shortOrderId, stageLabel } from "@/lib/format";
 import { PageHeader, EmptyState, ErrorState, Skeleton, Badge } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { LabelCard } from "@/components/LabelCard";
@@ -26,6 +26,8 @@ type Row = {
   outsourced: boolean;
   trip: OffSiteTrip | null;
   message: string;
+  /** To send only: the steps this trip covers. */
+  offSiteFor?: string[];
 };
 
 /** Short size line to match a returned garment by hand. */
@@ -185,7 +187,7 @@ export function OffSitePage() {
       <div className="label-screen space-y-6">
         <PageHeader
           title="Off-site"
-          description="Garments with outside makers. Trousers are sent by message and get their label when they come back."
+          description="Everything that goes to outside people: trousers, off-site cutting, netela fringe twisting. Trousers and tilet netelas get their label when they come back."
         />
         {err && <ErrorState message={err} />}
 
@@ -363,6 +365,13 @@ function RowHead({ r }: { r: Row }) {
           {shortOrderId(r.orderId)}
         </Link>
       </p>
+      {!r.trip && (r.offSiteFor?.length || 0) > 0 && (
+        <p className="text-xs text-ink-muted">
+          {r.outsourced && r.offSiteFor!.includes("SEWING_CUTTING")
+            ? "Made by the maker"
+            : `For: ${r.offSiteFor!.map((st) => stageLabel(st)).join(", ")}`}
+        </p>
+      )}
       {sizes(r.measurements) && <p className="text-xs text-ink-muted">{sizes(r.measurements)}</p>}
       <p className={clsx("text-xs", trip?.overdue ? "font-semibold text-red-700" : "text-ink-muted")}>
         {trip

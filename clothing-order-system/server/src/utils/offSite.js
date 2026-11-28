@@ -1,4 +1,5 @@
 import { canonicalStage, findCheckpoint, aliasesForStage } from "./productionModel.js";
+import { OFF_SITE_ONLY_STAGES } from "../constants/production.js";
 
 export const OFF_SITE_STAGE = "OFF_SITE";
 
@@ -223,9 +224,16 @@ export function priorEffectiveStagesComplete(checkpoints, targetStage, stageSequ
  * the garment's own list wins, even when empty (= all in shop).
  */
 export function itemOffSiteStages(item, typeOffSiteStages = []) {
-  if (item?.offSiteRouteCustom) return [...(item.offSiteStages || [])];
-  if (item?.offSiteStages?.length) return [...item.offSiteStages];
-  return [...(typeOffSiteStages || [])];
+  let list;
+  if (item?.offSiteRouteCustom) list = [...(item.offSiteStages || [])];
+  else if (item?.offSiteStages?.length) list = [...item.offSiteStages];
+  else list = [...(typeOffSiteStages || [])];
+  // Off-site-only steps on this type's route (fringe twisting) can never be
+  // moved in-shop, whatever the garment's custom route says.
+  for (const st of OFF_SITE_ONLY_STAGES) {
+    if ((typeOffSiteStages || []).includes(st) && !list.includes(st)) list.push(st);
+  }
+  return list;
 }
 
 /** Public summary of an off-site trip checkpoint (who has it, until when). */
@@ -280,14 +288,25 @@ function shortDate(d) {
  * Text sent to an outside maker by Telegram/WhatsApp/SMS. The code comes first
  * so the maker can write it on the garment and it can be matched on return.
  */
-export function buildMakerMessage({ code, customerName, clothingType, measurements, notes, neededBy }) {
+const WORK_LABELS = {
+  SEWING_CUTTING: "Sewing & cutting",
+  EMBROIDERY: "Embroidery",
+  FINAL_SEWING: "Final sewing",
+  FINISHING: "Finishing",
+  FRINGE_TWISTING: "Fringe twisting (kuchet)"
+};
+
+export function buildMakerMessage({ code, customerName, clothingType, measurements, notes, neededBy, work = [] }) {
   const m = measurements && typeof measurements === "object" ? measurements : {};
   const sizes = MEASURE_LABELS.filter(([k]) => m[k] != null && String(m[k]).trim() !== "")
     .map(([k, label]) => `${label} ${String(m[k]).trim()}`)
     .join(" · ");
+  const hasMeasurements = Object.keys(m).some((k) => k !== "gender" && String(m[k] ?? "").trim() !== "");
+  const workLine = work.length ? `Work: ${work.map((st) => WORK_LABELS[st] || st).join(", ")}` : "";
   return [
     `${code} · ${customerName || "Customer"} · ${clothingType}`,
-    sizes || "Sizes: see order",
+    workLine,
+    sizes || (hasMeasurements ? "Sizes: see order" : ""),
     notes ? `Notes: ${String(notes).trim()}` : "",
     neededBy ? `Needed by: ${shortDate(neededBy)}` : "",
     `Please write ${code} on the garment.`

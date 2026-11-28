@@ -58,10 +58,13 @@ export function boardStatusLabel(status?: string | null) {
       return "Unassigned";
     case "assigned":
     case "received":
-      return "Received";
     case "distributed":
     case "handed_over":
-      return "Received";
+      return "Assigned · scan in";
+    case "to_send":
+      return "To send off-site";
+    case "waiting_parts":
+      return "Waiting for parts";
     case "off_site":
       return "Off-site";
     case "in_progress":
@@ -103,6 +106,7 @@ export function stageLabel(stage: string) {
     EMBROIDERY: "Embroidery",
     FINAL_SEWING: "Final sewing",
     FINISHING: "Finishing",
+    FRINGE_TWISTING: "Fringe twisting (kuchet)",
     OFF_SITE: "Off-site",
     SHOWROOM: "Showroom",
     READY: "Showroom",
